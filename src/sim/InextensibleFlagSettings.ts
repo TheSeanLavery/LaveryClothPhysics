@@ -36,6 +36,16 @@ export interface InextensibleFlagSettings {
   sheen: number;
   sheenRoughness: number;
   emissiveIntensity: number;
+  /** Blend weight for tileable weave normal detail (0 = off). */
+  fabricNormalStrength: number;
+  /** Intensity of the weave normal map sampling (normalMap scale). */
+  fabricNormalScale: number;
+  /** Weave repeats per meter in fabric UV space. */
+  fabricTiling: number;
+  /** Procedural runtime weave maps vs baked denim PBR set in public/textures. */
+  fabricTextureSource: 'procedural' | 'denim-512';
+  /** Multiplies baked albedo when fabricTextureSource is not procedural (1 = raw texture). */
+  fabricColorTint: number;
   exposure: number;
   ambientIntensity: number;
   hemiIntensity: number;
@@ -76,11 +86,16 @@ export const defaultInextensibleFlagSettings = (): InextensibleFlagSettings => (
   zoneBDirZ: 0.35,
   dampening: 0.9925,
   gravity: 0.00006,
-  flagColor: '#e82845',
-  roughness: 0.55,
-  sheen: 0.9,
-  sheenRoughness: 0.28,
-  emissiveIntensity: 0.18,
+  flagColor: '#ffffff',
+  roughness: 0.78,
+  sheen: 0.42,
+  sheenRoughness: 0.55,
+  emissiveIntensity: 0,
+  fabricNormalStrength: 0,
+  fabricNormalScale: 0.45,
+  fabricTiling: 6,
+  fabricTextureSource: 'denim-512',
+  fabricColorTint: 1,
   exposure: 1.45,
   ambientIntensity: 0.75,
   hemiIntensity: 1.1,

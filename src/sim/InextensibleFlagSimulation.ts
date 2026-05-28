@@ -15,20 +15,38 @@ import {
   cross,
   mix,
   normalFlat,
-  transformNormalToView,
   triNoise3D,
   time,
   vec3,
   sin,
   cos,
   uint,
-  directionToFaceDirection,
 } from 'three/tsl';
 import type { StorageInstancedBufferAttribute, WebGPURenderer } from 'three/webgpu';
 import {
   defaultInextensibleFlagSettings,
   type InextensibleFlagSettings,
 } from './InextensibleFlagSettings';
+import {
+  captureFlagCanvasRaw,
+  compareFlagCanvasCaptures,
+  type FlagCanvasCapture,
+  type FlagCanvasCompare,
+} from '../testing/flagCanvasCapture';
+import {
+  analyzeFlagRenderDiagnostics,
+  projectSimVerticesToScreenBounds,
+  type FlagMeshRegionAnalysis,
+  type FlagRenderDiagnostics,
+} from '../testing/flagMeshSampling';
+import {
+  configureMatteCottonFlagMaterial,
+  updateMatteCottonFlagMaterial,
+} from '../shaders/FlagClothMaterial';
+import {
+  loadDenim512ClothTextures,
+  type BakedClothTextureSet,
+} from '../textures/loadBakedClothTextures';
 
 export interface InextensibleFlagSimulationOptions {
   width?: number;
@@ -75,7 +93,38 @@ declare global {
   interface Window {
     __flagSim?: InextensibleFlagSimulationStats;
     __flagSimRefreshHealth?: () => Promise<InextensibleFlagSimulationStats>;
+    __flagSimSetFabric?: (settings: Partial<FabricTestSettings>) => void;
+    __flagSimSetFabricTextureSource?: (
+      source: InextensibleFlagSettings['fabricTextureSource'],
+    ) => Promise<void>;
+    __flagSimSetWind?: (strength: number) => void;
+    __flagSimCaptureFlagCanvas?: () => Promise<FlagCanvasCapture | null>;
+    __flagSimCompareFabric?: () => Promise<FabricWeaveCompareResult | null>;
+    __flagSimAnalyzeBlackSpots?: () => Promise<FlagMeshRegionAnalysis | null>;
+    __flagSimRenderDiagnostics?: () => Promise<FlagRenderDiagnostics | null>;
+    __flagSimFabricTextureStats?: () => FabricNormalMapStats;
+    __fabricPlaneSetDebugView?: (mode: 'shaded' | 'uv' | 'normalMap' | 'albedo') => void;
   }
+}
+
+export interface FabricTestSettings {
+  fabricNormalStrength: number;
+  fabricNormalScale: number;
+  fabricTiling: number;
+}
+
+export interface FabricWeaveCompareResult {
+  off: FlagCanvasCapture;
+  on: FlagCanvasCapture;
+  compare: FlagCanvasCompare;
+}
+
+interface FabricNormalMapStats {
+  size: number;
+  varianceR: number;
+  varianceG: number;
+  varianceB: number;
+  maxChannelRange: number;
 }
 
 /**
@@ -184,6 +233,8 @@ export class InextensibleFlagSimulation {
 
   private readonly stepsPerSecond = 360;
   private isReady = false;
+  private bakedClothTextures: BakedClothTextureSet | null = null;
+  private renderValidated = false;
 
   constructor(
     container: HTMLElement,
@@ -260,6 +311,23 @@ export class InextensibleFlagSimulation {
   async init(): Promise<void> {
     await this.renderer.init();
 
+    try {
+      this.bakedClothTextures = await loadDenim512ClothTextures();
+    } catch (error) {
+      console.warn('Failed to load baked cloth textures; falling back to procedural weave.', error);
+      this.bakedClothTextures = null;
+      if (this.settings.fabricTextureSource === 'denim-512') {
+        this.settings.fabricTextureSource = 'procedural';
+      }
+    }
+
+    if (this.settings.fabricTextureSource === 'denim-512' && this.bakedClothTextures) {
+      this.clothMaterial.dispose();
+      this.clothMaterial = this.createClothMaterial();
+      this.clothMesh.material = this.clothMaterial;
+      this.applySettings();
+    }
+
     const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
     pmremGenerator.compileEquirectangularShader();
     this.scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
@@ -269,6 +337,30 @@ export class InextensibleFlagSimulation {
     await this.renderer.compileAsync(this.scene, this.camera);
     this.isReady = true;
     this.setStatus('running');
+  }
+
+  /** Fail-fast once the sim has settled: flag pixels must be lit, not black. */
+  private async validateFlagRender(): Promise<void> {
+    const diagnostics = await this.getRenderDiagnostics();
+    if (!diagnostics?.meshRegion) {
+      this.setStatus('error');
+      this.statusEl.textContent = 'error: flag mesh region unreadable';
+      return;
+    }
+
+    const mesh = diagnostics.meshRegion;
+    if (
+      !mesh ||
+      mesh.clothPixelCount < 200 ||
+      mesh.clothMeanLuma < 40 ||
+      mesh.clothBlackRatio > 0.35 ||
+      mesh.clothPureBlackRatio > 0.08
+    ) {
+      this.setStatus('error');
+      this.statusEl.textContent =
+        `error: flag cloth black (luma=${mesh?.clothMeanLuma.toFixed(1) ?? '0'}, black=${((mesh?.clothBlackRatio ?? 1) * 100).toFixed(0)}%, pure=${((mesh?.clothPureBlackRatio ?? 1) * 100).toFixed(0)}%)`;
+      console.error('Flag render validation failed', diagnostics);
+    }
   }
 
   resetCamera(): void {
@@ -357,15 +449,7 @@ export class InextensibleFlagSimulation {
   }
 
   private syncClothMaterial(material: THREE.MeshPhysicalNodeMaterial): void {
-    const s = this.settings;
-
-    material.color.set(s.flagColor);
-    material.roughness = s.roughness;
-    material.sheen = s.sheen;
-    material.sheenRoughness = s.sheenRoughness;
-    material.emissive.set(s.flagColor);
-    material.emissiveIntensity = s.emissiveIntensity;
-    material.sheenColor.set(s.flagColor);
+    updateMatteCottonFlagMaterial(material, this.settings);
   }
 
   resize(): void {
@@ -424,6 +508,11 @@ export class InextensibleFlagSimulation {
 
     this.frameCount += 1;
 
+    if (!this.renderValidated && this.frameCount === 180) {
+      this.renderValidated = true;
+      void this.validateFlagRender();
+    }
+
     if (this.frameCount % 12 === 0) {
       void this.refreshHealthFromGpu();
     } else {
@@ -456,6 +545,141 @@ export class InextensibleFlagSimulation {
       maxStretch: this.maxStretch,
       hasNaN: this.hasNaN,
       isHealthy: this.isHealthy,
+    };
+  }
+
+  setFabricSettings(partial: Partial<FabricTestSettings>): void {
+    if (partial.fabricNormalStrength !== undefined) {
+      this.settings.fabricNormalStrength = partial.fabricNormalStrength;
+    }
+    if (partial.fabricNormalScale !== undefined) {
+      this.settings.fabricNormalScale = partial.fabricNormalScale;
+    }
+    if (partial.fabricTiling !== undefined) {
+      this.settings.fabricTiling = partial.fabricTiling;
+    }
+    this.applySettings();
+  }
+
+  async setFabricTextureSource(source: InextensibleFlagSettings['fabricTextureSource']): Promise<void> {
+    if (this.settings.fabricTextureSource === source) {
+      return;
+    }
+
+    this.settings.fabricTextureSource = source;
+    await this.rebuildRenderMesh();
+  }
+
+  setWindStrength(strength: number): void {
+    this.settings.windStrength = strength;
+    this.applySettings();
+  }
+
+  async captureFlagCanvas(): Promise<FlagCanvasCapture | null> {
+    const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="sim-canvas"]');
+    if (!canvas) {
+      return null;
+    }
+
+    this.render();
+    return captureFlagCanvasRaw(canvas).then((result) => result.capture);
+  }
+
+  async analyzeBlackSpots(): Promise<FlagMeshRegionAnalysis | null> {
+    const diagnostics = await this.getRenderDiagnostics();
+    return diagnostics?.meshRegion ?? null;
+  }
+
+  async getRenderDiagnostics(): Promise<FlagRenderDiagnostics | null> {
+    const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="sim-canvas"]');
+    if (!canvas) {
+      return null;
+    }
+
+    this.render();
+
+    const attr = this.vertexPositionBuffer.value as StorageInstancedBufferAttribute;
+    const buffer = await this.renderer.getArrayBufferAsync(attr);
+    const positions = new Float32Array(buffer);
+
+    const raw = await captureFlagCanvasRaw(canvas);
+    if (raw.width === 0 || raw.height === 0) {
+      return null;
+    }
+
+    const screenBounds = projectSimVerticesToScreenBounds(
+      positions,
+      this.camera,
+      raw.width,
+      raw.height,
+    );
+
+    return analyzeFlagRenderDiagnostics(
+      raw.data,
+      raw.width,
+      raw.height,
+      this.frameCount,
+      this.settings.fabricTextureSource,
+      screenBounds,
+    );
+  }
+
+  async compareFabricWeaveOnOff(): Promise<FabricWeaveCompareResult | null> {
+    const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="sim-canvas"]');
+    if (!canvas) {
+      return null;
+    }
+
+    const savedFabric: FabricTestSettings = {
+      fabricNormalStrength: this.settings.fabricNormalStrength,
+      fabricNormalScale: this.settings.fabricNormalScale,
+      fabricTiling: this.settings.fabricTiling,
+    };
+    const savedWind = this.settings.windStrength;
+
+    const waitForFrame = async () => {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
+      this.render();
+    };
+
+    this.setWindStrength(0);
+    this.setFabricSettings({ fabricNormalStrength: 0, fabricNormalScale: 0, fabricTiling: 8 });
+    await waitForFrame();
+    const offRaw = await captureFlagCanvasRaw(canvas);
+    if (!offRaw.capture) {
+      this.setWindStrength(savedWind);
+      this.setFabricSettings(savedFabric);
+      return null;
+    }
+
+    this.setFabricSettings({ fabricNormalStrength: 1.5, fabricNormalScale: 1.2, fabricTiling: 12 });
+    await waitForFrame();
+    const onRaw = await captureFlagCanvasRaw(canvas);
+    if (!onRaw.capture) {
+      this.setWindStrength(savedWind);
+      this.setFabricSettings(savedFabric);
+      return null;
+    }
+
+    const compare = compareFlagCanvasCaptures(
+      offRaw.capture,
+      onRaw.capture,
+      offRaw.data,
+      onRaw.data,
+      offRaw.width,
+      offRaw.height,
+    );
+
+    this.setWindStrength(savedWind);
+    this.setFabricSettings(savedFabric);
+    await waitForFrame();
+
+    return {
+      off: offRaw.capture,
+      on: onRaw.capture,
+      compare,
     };
   }
 
@@ -1191,31 +1415,6 @@ export class InextensibleFlagSimulation {
       return mix(mid, extraRelaxed, relax2);
     });
 
-    const computeRenderWorldNormal = Fn(() => {
-      const simCoord = attribute('simGridCoord');
-      const simGridX = simCoord.x;
-      const simGridY = simCoord.y;
-      const step = normalSampleStep;
-      const maxX = float(gridMaxXUniform);
-      const maxY = float(gridMaxYUniform);
-
-      const posL = sampleSimPosition(simGridX.sub(step).clamp(0, maxX), simGridY);
-      const posR = sampleSimPosition(simGridX.add(step).clamp(0, maxX), simGridY);
-      const posU = sampleSimPosition(simGridX, simGridY.sub(step).clamp(0, maxY));
-      const posD = sampleSimPosition(simGridX, simGridY.add(step).clamp(0, maxY));
-      const tangent = posR.sub(posL);
-      const bitangent = posD.sub(posU);
-      const normal = cross(tangent, bitangent);
-
-      return normal.div(normal.length().max(1e-4)).normalize();
-    });
-
-    const smoothNormal = directionToFaceDirection(
-      transformNormalToView(
-        computeRenderWorldNormal().toVarying('vFlagNormal').normalize(),
-      ),
-    );
-
     const clothMaterial = new THREE.MeshPhysicalNodeMaterial({
       color: new THREE.Color(this.settings.flagColor),
       side: THREE.DoubleSide,
@@ -1228,16 +1427,16 @@ export class InextensibleFlagSimulation {
       envMapIntensity: 1.2,
     });
 
-    clothMaterial.positionNode = Fn(() => {
-      const simCoord = attribute('simGridCoord');
-      return sampleSimPosition(simCoord.x, simCoord.y);
-    })();
-
-    clothMaterial.normalNode = select(
-      this.flatShadingUniform.equal(uint(1)),
+    configureMatteCottonFlagMaterial(clothMaterial, {
+      settings: this.settings,
+      bakedTextures: this.bakedClothTextures,
+      flatShadingUniform: this.flatShadingUniform,
       normalFlat,
-      smoothNormal,
-    );
+      sampleSimPosition,
+      normalSampleStep,
+      gridMaxXUniform,
+      gridMaxYUniform,
+    });
 
     return clothMaterial;
   }
@@ -1254,6 +1453,7 @@ export class InextensibleFlagSimulation {
     const vertexCount = renderGridSizeX * renderGridSizeY;
     const geometry = new THREE.BufferGeometry();
     const simGridCoordArray = new Float32Array(vertexCount * 2);
+    const fabricUvArray = new Float32Array(vertexCount * 2);
     const indices: number[] = [];
 
     const getRenderIndex = (gridX: number, gridY: number) => gridX * renderGridSizeY + gridY;
@@ -1261,8 +1461,12 @@ export class InextensibleFlagSimulation {
     for (let gridX = 0; gridX < renderGridSizeX; gridX++) {
       for (let gridY = 0; gridY < renderGridSizeY; gridY++) {
         const index = getRenderIndex(gridX, gridY);
-        simGridCoordArray[index * 2] = gridX / renderSubdiv;
-        simGridCoordArray[index * 2 + 1] = gridY / renderSubdiv;
+        const simX = gridX / renderSubdiv;
+        const simY = gridY / renderSubdiv;
+        simGridCoordArray[index * 2] = simX;
+        simGridCoordArray[index * 2 + 1] = simY;
+        fabricUvArray[index * 2] = (simX / this.clothNumSegmentsX) * this.clothWidth;
+        fabricUvArray[index * 2 + 1] = (simY / this.clothNumSegmentsY) * this.clothHeight;
       }
     }
 
@@ -1279,6 +1483,8 @@ export class InextensibleFlagSimulation {
 
     geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(vertexCount * 3), 3));
     geometry.setAttribute('simGridCoord', new THREE.BufferAttribute(simGridCoordArray, 2));
+    geometry.setAttribute('uv', new THREE.BufferAttribute(fabricUvArray, 2));
+    geometry.setAttribute('fabricUv', new THREE.BufferAttribute(fabricUvArray, 2));
     geometry.setIndex(indices);
     this.clothGeometry = geometry;
 

@@ -7,8 +7,11 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "generate:cloth": "node --experimental-strip-types tools/generate-cloth.ts",
     "test:e2e": "playwright test",
-    "test:e2e:headed": "playwright test --headed"
+    "test:e2e:headed": "playwright test --headed",
+    "test:smoke": "playwright test --config playwright.smoke.config.ts",
+    "test:smoke:bg": "playwright test --config playwright.smoke.config.ts > /tmp/lavery-smoke.log 2>&1 & echo \"smoke tests running in background — tail -f /tmp/lavery-smoke.log\""
   },
   "type": "module",
   "keywords": [],

@@ -111,6 +111,19 @@ export function createInextensibleFlagControls(sim: InextensibleFlagSimulation):
   materialFolder.add(settings, 'sheenRoughness', 0, 1, 0.01).name('Sheen rough').onChange(sync);
   materialFolder.add(settings, 'emissiveIntensity', 0, 3, 0.01).name('Emissive').onChange(sync);
 
+  const fabricFolder = materialFolder.addFolder('Fabric weave');
+  fabricFolder
+    .add(settings, 'fabricTextureSource', ['procedural', 'denim-512'])
+    .name('Texture source')
+    .onFinishChange(() => {
+      void sim.rebuildRenderMesh();
+    });
+  fabricFolder.add(settings, 'fabricColorTint', 0, 1, 0.01).name('Color tint').onChange(sync);
+  fabricFolder.add(settings, 'fabricNormalStrength', 0, 2, 0.01).name('Weave strength').onChange(sync);
+  fabricFolder.add(settings, 'fabricNormalScale', 0, 2, 0.01).name('Weave scale').onChange(sync);
+  fabricFolder.add(settings, 'fabricTiling', 1, 24, 0.5).name('Weave tiling').onChange(sync);
+  fabricFolder.open();
+
   const lightingFolder = gui.addFolder('Lighting');
   lightingFolder.add(settings, 'exposure', 0.1, 6, 0.01).name('Exposure').onChange(sync);
   lightingFolder.add(settings, 'ambientIntensity', 0, 5, 0.01).name('Ambient').onChange(sync);

@@ -58,7 +58,7 @@ test.describe('GPU flag simulation', () => {
     expect(consoleProblems).toEqual([]);
   });
 
-  test('flag mesh stays healthy, in bounds, and renders red pixels', async ({ page }) => {
+  test('flag mesh stays healthy, in bounds, and renders fabric pixels', async ({ page }) => {
     const consoleProblems = attachConsoleCollector(page);
 
     await page.goto('/');
@@ -98,15 +98,15 @@ test.describe('GPU flag simulation', () => {
 
       const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="sim-canvas"]');
       if (!canvas || typeof canvas.toDataURL !== 'function') {
-        return { ok: false, reason: 'no-canvas' as const, redRatio: 0 };
+        return { ok: false, reason: 'no-canvas' as const, fabricRatio: 0 };
       }
 
       const dataUrl = canvas.toDataURL('image/png');
       if (!dataUrl.startsWith('data:image/png')) {
-        return { ok: false, reason: 'no-dataurl' as const, redRatio: 0 };
+        return { ok: false, reason: 'no-dataurl' as const, fabricRatio: 0 };
       }
 
-      return await new Promise<{ ok: boolean; reason: string; redRatio: number }>((resolve) => {
+      return await new Promise<{ ok: boolean; reason: string; fabricRatio: number }>((resolve) => {
         const image = new Image();
         image.onload = () => {
           const scratch = document.createElement('canvas');
@@ -114,14 +114,14 @@ test.describe('GPU flag simulation', () => {
           scratch.height = image.height;
           const ctx = scratch.getContext('2d');
           if (!ctx) {
-            resolve({ ok: false, reason: 'no-2d', redRatio: 0 });
+            resolve({ ok: false, reason: 'no-2d', fabricRatio: 0 });
             return;
           }
 
           ctx.drawImage(image, 0, 0);
           const { data, width, height } = ctx.getImageData(0, 0, scratch.width, scratch.height);
 
-          let redish = 0;
+          let fabricish = 0;
           let sampled = 0;
           const step = 4 * 8;
           for (let i = 0; i < data.length; i += step) {
@@ -129,26 +129,28 @@ test.describe('GPU flag simulation', () => {
             const g = data[i + 1]!;
             const b = data[i + 2]!;
             sampled += 1;
-            if (r > 70 && r > g * 1.15 && r > b * 1.15) {
-              redish += 1;
+            const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+            const bgDistance = Math.hypot(r - 26, g - 36, b - 56);
+            if (luma > 24 && bgDistance > 18) {
+              fabricish += 1;
             }
           }
 
-          const redRatio = sampled > 0 ? redish / sampled : 0;
+          const fabricRatio = sampled > 0 ? fabricish / sampled : 0;
           resolve({
-            ok: redRatio > 0.002,
-            reason: redRatio > 0.002 ? 'ok' : 'no-red-pixels',
-            redRatio,
+            ok: fabricRatio > 0.002,
+            reason: fabricRatio > 0.002 ? 'ok' : 'no-fabric-pixels',
+            fabricRatio,
           });
         };
-        image.onerror = () => resolve({ ok: false, reason: 'image-error', redRatio: 0 });
+        image.onerror = () => resolve({ ok: false, reason: 'image-error', fabricRatio: 0 });
         image.src = dataUrl;
       });
     });
 
     expect(
       canvasSample.ok,
-      `expected flag pixels on canvas (${canvasSample.reason}, redRatio=${canvasSample.redRatio.toFixed(4)})`,
+      `expected flag pixels on canvas (${canvasSample.reason}, fabricRatio=${canvasSample.fabricRatio.toFixed(4)})`,
     ).toBe(true);
 
     expect(consoleProblems).toEqual([]);
