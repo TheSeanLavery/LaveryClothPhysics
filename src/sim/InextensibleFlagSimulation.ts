@@ -110,6 +110,10 @@ export interface InextensibleFlagSimulationOptions {
   height?: number;
   segmentsX?: number;
   segmentsY?: number;
+  isolated?: boolean;
+  pinMode?: 'hoistCorners' | 'none';
+  initialShape?: 'plane' | 'tube';
+  tubeRadius?: number;
 }
 
 export interface InextensibleFlagSimulationStats {
@@ -121,6 +125,11 @@ export interface InextensibleFlagSimulationStats {
   spanX: number;
   spanY: number;
   spanZ: number;
+  centerX: number;
+  centerY: number;
+  centerZ: number;
+  minY: number;
+  maxY: number;
   maxStretch: number;
   hasNaN: boolean;
   isHealthy: boolean;
@@ -324,6 +333,10 @@ export class InextensibleFlagSimulation {
 
   private readonly clothWidth: number;
   private readonly clothHeight: number;
+  private readonly isolatedMode: boolean;
+  private readonly pinMode: 'hoistCorners' | 'none';
+  private readonly initialShape: 'plane' | 'tube';
+  private readonly tubeRadius: number;
   private clothNumSegmentsX: number;
   private clothNumSegmentsY: number;
 
@@ -489,6 +502,11 @@ export class InextensibleFlagSimulation {
   private spanX = 0;
   private spanY = 0;
   private spanZ = 0;
+  private centerX = 0;
+  private centerY = 0;
+  private centerZ = 0;
+  private minY = 0;
+  private maxY = 0;
   private maxStretch = 1;
   private hasNaN = false;
   private isHealthy = false;
@@ -512,6 +530,10 @@ export class InextensibleFlagSimulation {
 
     this.clothWidth = options.width ?? 1.6;
     this.clothHeight = options.height ?? 0.9;
+    this.isolatedMode = options.isolated ?? false;
+    this.pinMode = options.pinMode ?? 'hoistCorners';
+    this.initialShape = options.initialShape ?? 'plane';
+    this.tubeRadius = options.tubeRadius ?? this.clothWidth / (Math.PI * 2);
     this.clothNumSegmentsX = options.segmentsX ?? this.settings.segmentsX;
     this.clothNumSegmentsY = options.segmentsY ?? this.settings.segmentsY;
     this.settings.segmentsX = this.clothNumSegmentsX;
@@ -541,10 +563,10 @@ export class InextensibleFlagSimulation {
       0.01,
       30,
     );
-    this.camera.position.copy(this.defaultCameraPosition);
+    this.camera.position.copy(this.isolatedMode ? new THREE.Vector3(0, 0, 2.4) : this.defaultCameraPosition);
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-    this.controls.target.copy(this.defaultCameraTarget);
+    this.controls.target.copy(this.isolatedMode ? new THREE.Vector3(0, 0, 0) : this.defaultCameraTarget);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.06;
     this.controls.minDistance = 0.25;
@@ -553,7 +575,9 @@ export class InextensibleFlagSimulation {
     this.controls.update();
 
     this.setupLighting();
-    this.addPole();
+    if (!this.isolatedMode) {
+      this.addPole();
+    }
     this.setupClothGeometry();
     this.setupVertexBuffers();
     this.setupEdgeBuffers();
@@ -1385,6 +1409,11 @@ export class InextensibleFlagSimulation {
       spanX: this.spanX,
       spanY: this.spanY,
       spanZ: this.spanZ,
+      centerX: this.centerX,
+      centerY: this.centerY,
+      centerZ: this.centerZ,
+      minY: this.minY,
+      maxY: this.maxY,
       maxStretch: this.maxStretch,
       hasNaN: this.hasNaN,
       isHealthy: this.isHealthy,
@@ -1662,6 +1691,10 @@ export class InextensibleFlagSimulation {
     let maxY = -Infinity;
     let minZ = Infinity;
     let maxZ = -Infinity;
+    let centerX = 0;
+    let centerY = 0;
+    let centerZ = 0;
+    let finiteVertices = 0;
     let sum = 0;
     let nan = false;
     let worstStretch = 1;
@@ -1686,6 +1719,10 @@ export class InextensibleFlagSimulation {
       maxY = Math.max(maxY, y);
       minZ = Math.min(minZ, z);
       maxZ = Math.max(maxZ, z);
+      centerX += x;
+      centerY += y;
+      centerZ += z;
+      finiteVertices += 1;
     }
 
     for (const edge of this.clothEdges) {
@@ -1711,6 +1748,11 @@ export class InextensibleFlagSimulation {
     this.spanX = Number.isFinite(minX) ? maxX - minX : 0;
     this.spanY = Number.isFinite(minY) ? maxY - minY : 0;
     this.spanZ = Number.isFinite(minZ) ? maxZ - minZ : 0;
+    this.centerX = finiteVertices > 0 ? centerX / finiteVertices : 0;
+    this.centerY = finiteVertices > 0 ? centerY / finiteVertices : 0;
+    this.centerZ = finiteVertices > 0 ? centerZ / finiteVertices : 0;
+    this.minY = Number.isFinite(minY) ? minY : 0;
+    this.maxY = Number.isFinite(maxY) ? maxY : 0;
     this.maxStretch = worstStretch;
     this.hasNaN = nan;
 
@@ -1807,10 +1849,18 @@ export class InextensibleFlagSimulation {
     for (let x = 0; x <= this.clothNumSegmentsX; x++) {
       const column: ClothVertex[] = [];
       for (let y = 0; y <= this.clothNumSegmentsY; y++) {
+        const tubeColumns = this.clothNumSegmentsX + 1;
+        const u = this.initialShape === 'tube' ? x / tubeColumns : x / this.clothNumSegmentsX;
         const posX = x * (this.clothWidth / this.clothNumSegmentsX) - this.clothWidth * 0.5;
-        const posY = this.flagHoistTopY - y * (this.clothHeight / this.clothNumSegmentsY);
-        const isHoistCorner = x === 0 && (y === 0 || y === this.clothNumSegmentsY);
-        column.push(addVertex(posX, posY, 0, x, y, isHoistCorner));
+        const posY = this.isolatedMode
+          ? this.clothHeight * 0.5 - y * (this.clothHeight / this.clothNumSegmentsY)
+          : this.flagHoistTopY - y * (this.clothHeight / this.clothNumSegmentsY);
+        const angle = u * Math.PI * 2;
+        const vertexX = this.initialShape === 'tube' ? Math.cos(angle) * this.tubeRadius : posX;
+        const vertexZ = this.initialShape === 'tube' ? Math.sin(angle) * this.tubeRadius : 0;
+        const isHoistCorner =
+          this.pinMode === 'hoistCorners' && x === 0 && (y === 0 || y === this.clothNumSegmentsY);
+        column.push(addVertex(vertexX, posY, vertexZ, x, y, isHoistCorner));
       }
       this.clothVertexColumns.push(column);
     }
@@ -1855,6 +1905,23 @@ export class InextensibleFlagSimulation {
         }
         if (y > 1) {
           addEdge(vertex0, this.clothVertexColumns[x]![y - 2]!, 'bend');
+        }
+      }
+    }
+
+    if (this.initialShape === 'tube') {
+      const firstColumn = this.clothVertexColumns[0]!;
+      const seamColumn = this.clothVertexColumns[this.clothNumSegmentsX]!;
+      for (let y = 0; y <= this.clothNumSegmentsY; y++) {
+        addEdge(seamColumn[y]!, firstColumn[y]!, 'structural');
+        if (y > 0) {
+          addEdge(seamColumn[y]!, firstColumn[y - 1]!, 'shear');
+        }
+        if (y < this.clothNumSegmentsY) {
+          addEdge(seamColumn[y]!, firstColumn[y + 1]!, 'shear');
+        }
+        if (y > 1) {
+          addEdge(seamColumn[y]!, firstColumn[y - 2]!, 'bend');
         }
       }
     }
@@ -3282,7 +3349,13 @@ export class InextensibleFlagSimulation {
 
       Loop({ start: uint(0), end: vertexCountVar, type: 'uint', condition: '<' }, ({ i: otherIndex }) => {
         const gridOther = vertexGridBuffer.element(otherIndex);
-        const gridDeltaX = gridSelf.x.sub(gridOther.x).abs();
+        const gridDeltaXRaw = gridSelf.x.sub(gridOther.x).abs();
+        const gridDeltaXWrapped = uint(this.clothNumSegmentsX + 1).sub(gridDeltaXRaw);
+        const gridDeltaX = (
+          this.initialShape === 'tube'
+            ? select(gridDeltaXRaw.lessThan(gridDeltaXWrapped), gridDeltaXRaw, gridDeltaXWrapped)
+            : gridDeltaXRaw
+        ).toVar('selfCollisionGridDeltaX');
         const gridDeltaY = gridSelf.y.sub(gridOther.y).abs();
         const gridDistance = gridDeltaX.add(gridDeltaY);
         const otherPosition = vertexPositionBuffer.element(otherIndex);
@@ -3868,6 +3941,19 @@ export class InextensibleFlagSimulation {
         const i10 = getRenderIndex(gridX + 1, gridY);
         const i01 = getRenderIndex(gridX, gridY + 1);
         const i11 = getRenderIndex(gridX + 1, gridY + 1);
+        indices.push(i00, i10, i01);
+        indices.push(i10, i11, i01);
+      }
+    }
+
+    if (this.initialShape === 'tube') {
+      const seamColumn = renderCellsX;
+      const firstColumn = 0;
+      for (let gridY = 0; gridY < renderCellsY; gridY++) {
+        const i00 = getRenderIndex(seamColumn, gridY);
+        const i10 = getRenderIndex(firstColumn, gridY);
+        const i01 = getRenderIndex(seamColumn, gridY + 1);
+        const i11 = getRenderIndex(firstColumn, gridY + 1);
         indices.push(i00, i10, i01);
         indices.push(i10, i11, i01);
       }

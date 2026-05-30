@@ -46,10 +46,10 @@ export function createEdgeAwareSimSurfaceSampler(context: ClothEdgeAwareSurfaceC
     const gx1 = select(gx0.lessThan(gridMaxXUint), gx0.add(uint(1)), gx0);
     const gy1 = select(gy0.lessThan(gridMaxYUint), gy0.add(uint(1)), gy0);
 
-    const p00 = vertexPositionBuffer.element(gridIndex(gx0, gy0));
-    const p10 = vertexPositionBuffer.element(gridIndex(gx1, gy0));
-    const p01 = vertexPositionBuffer.element(gridIndex(gx0, gy1));
-    const p11 = vertexPositionBuffer.element(gridIndex(gx1, gy1));
+    const p00 = vertexPositionBuffer.element(gridIndex(gx0, gy0)).xyz;
+    const p10 = vertexPositionBuffer.element(gridIndex(gx1, gy0)).xyz;
+    const p01 = vertexPositionBuffer.element(gridIndex(gx0, gy1)).xyz;
+    const p11 = vertexPositionBuffer.element(gridIndex(gx1, gy1)).xyz;
 
     const gridOffsetRight = gx1.mul(gridStrideY).add(gy0);
     const gridOffsetTopRight = gx1.mul(gridStrideY).add(gy1);

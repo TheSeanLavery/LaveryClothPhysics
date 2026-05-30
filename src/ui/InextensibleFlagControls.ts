@@ -9,13 +9,21 @@ import {
   type FlagSettingsPresetSummary,
 } from '../storage/flagSettingsDb';
 
+export interface InextensibleFlagControlsOptions {
+  title?: string;
+  testId?: string;
+}
+
 function refreshGuiControllers(gui: GUI): void {
   gui.controllersRecursive().forEach((controller) => controller.updateDisplay());
 }
 
-export function createInextensibleFlagControls(sim: InextensibleFlagSimulation): GUI {
-  const gui = new GUI({ title: 'Inextensible Flag', width: 320 });
-  gui.domElement.setAttribute('data-testid', 'flag-controls');
+export function createInextensibleFlagControls(
+  sim: InextensibleFlagSimulation,
+  options: InextensibleFlagControlsOptions = {},
+): GUI {
+  const gui = new GUI({ title: options.title ?? 'Inextensible Flag', width: 320 });
+  gui.domElement.setAttribute('data-testid', options.testId ?? 'flag-controls');
   gui.domElement.style.position = 'fixed';
   gui.domElement.style.top = '12px';
   gui.domElement.style.right = '12px';
