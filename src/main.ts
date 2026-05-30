@@ -1,13 +1,18 @@
 import WebGPU from 'three/addons/capabilities/WebGPU.js';
+import * as THREE from 'three/webgpu';
 import {
   cloneClothSettings,
   createClothControls,
   createClothSimulation,
+  createOctagonalTubeAssembly,
+  createPyramidAssembly,
+  createStitchedBoxAssembly,
   deleteFlagSettingsPreset,
   getFlagSettingsPreset,
   listFlagSettingsPresets,
   normalizeClothSettings,
   saveFlagSettingsPreset,
+  type ClothAssembly,
   type ClothSimulation,
   type ClothSimulationSettings,
   type FlagSettingsPresetSummary,
@@ -34,6 +39,23 @@ function isGarmentSandboxMode(): boolean {
 function isTubeMode(): boolean {
   const params = new URLSearchParams(window.location.search);
   return params.get('mode') === 'tube';
+}
+
+type TubeAssemblySpawnKind = 'box' | 'octagonalTube' | 'pyramid';
+
+declare global {
+  interface Window {
+    __zeroGravityTubeSpawnShape?: (kind: TubeAssemblySpawnKind) => Promise<number>;
+    __zeroGravityTubeClearSpawnedShapes?: () => Promise<void>;
+    __zeroGravityTubeSetTearThreshold?: (threshold: number) => void;
+    __zeroGravityTubeShapeStats?: () => {
+      activeShape: TubeAssemblySpawnKind | null;
+      vertexCount: number;
+      faceCount: number;
+      stitchEdgeCount: number;
+      simulated: boolean;
+    };
+  }
 }
 
 async function bootstrapFlag(
@@ -327,7 +349,49 @@ async function bootstrapZeroGravityTube(
   statusEl.textContent = 'running (flag solver tube)';
   backendEl.textContent = `backend: ${cloth.renderer.backend.constructor.name} (flag solver tube)`;
   particlesEl.textContent = `tube particles: ${cloth.getStats().particleCount}`;
-  createClothControls(cloth, { title: 'GPU Cloth Tube', testId: 'tube-controls' });
+  const gui = createClothControls(cloth, { title: 'GPU Cloth Tube', testId: 'tube-controls' });
+
+  let spawnedAssemblyStats = {
+    activeShape: null as TubeAssemblySpawnKind | null,
+    vertexCount: 0,
+    faceCount: 0,
+    stitchEdgeCount: 0,
+    simulated: false,
+  };
+
+  const clearSpawnedAssembly = async (): Promise<void> => {
+    await cloth.rebuildFlag();
+    cloth.setGrabModeEnabled(true);
+    spawnedAssemblyStats = { activeShape: null, vertexCount: 0, faceCount: 0, stitchEdgeCount: 0, simulated: false };
+    particlesEl.textContent = `tube particles: ${cloth.getStats().particleCount}`;
+  };
+
+  const spawnAssembly = async (kind: TubeAssemblySpawnKind): Promise<number> => {
+    const assembly = createTubePageAssembly(kind);
+    await cloth.loadClothAssembly(assembly);
+    cloth.setGrabModeEnabled(true);
+    spawnedAssemblyStats = {
+      activeShape: kind,
+      vertexCount: assembly.vertices.length,
+      faceCount: assembly.faces.length,
+      stitchEdgeCount: assembly.stitchEdges.length,
+      simulated: true,
+    };
+    particlesEl.textContent = `${kind} cloth particles: ${cloth.getStats().particleCount}`;
+    return assembly.faces.length;
+  };
+
+  const assemblyActions = {
+    box: () => void spawnAssembly('box'),
+    octagonalTube: () => void spawnAssembly('octagonalTube'),
+    pyramid: () => void spawnAssembly('pyramid'),
+    clear: () => void clearSpawnedAssembly(),
+  };
+  const assemblyFolder = gui.addFolder('Assembly Spawner');
+  assemblyFolder.add(assemblyActions, 'box').name('Spawn stitched box');
+  assemblyFolder.add(assemblyActions, 'octagonalTube').name('Spawn octagonal tube');
+  assemblyFolder.add(assemblyActions, 'pyramid').name('Spawn pyramid');
+  assemblyFolder.add(assemblyActions, 'clear').name('Clear spawned shape');
 
   const activeBbCount = (): number => {
     const pool = cloth.getBbPool();
@@ -342,9 +406,13 @@ async function bootstrapZeroGravityTube(
 
   window.__zeroGravityTubeStats = () => {
     const stats = cloth.getStats();
+    const indexCount = cloth.clothGeometry.index ? cloth.clothGeometry.index.count : 0;
+    const drawCount = Number.isFinite(cloth.clothGeometry.drawRange.count)
+      ? cloth.clothGeometry.drawRange.count
+      : indexCount;
     return {
       particleCount: stats.particleCount,
-      triangleCount: cloth.clothGeometry.index ? cloth.clothGeometry.index.count / 3 : 0,
+      triangleCount: drawCount / 3,
       projectileCount: activeBbCount(),
       grabMode: cloth.isGrabModeOn(),
       shootMode: cloth.isShootModeOn(),
@@ -364,7 +432,14 @@ async function bootstrapZeroGravityTube(
     cloth.settings.gravity = gravity;
     cloth.applySettings();
   };
+  window.__zeroGravityTubeSetTearThreshold = (threshold) => {
+    cloth.settings.tearStretchThreshold = threshold;
+    cloth.applySettings();
+  };
   window.__zeroGravityTubeFire = (ndcX, ndcY) => cloth.fireBbForTest(ndcX, ndcY) !== null;
+  window.__zeroGravityTubeSpawnShape = spawnAssembly;
+  window.__zeroGravityTubeClearSpawnedShapes = clearSpawnedAssembly;
+  window.__zeroGravityTubeShapeStats = () => spawnedAssemblyStats;
 
   const syncButtons = () => {
     document.body.classList.toggle('grab-mode', cloth.isGrabModeOn());
@@ -395,7 +470,9 @@ async function bootstrapZeroGravityTube(
     cloth.setMousePointerNdc(x, y);
   };
 
-  canvas.addEventListener('pointermove', updateMouseNdc);
+  canvas.addEventListener('pointermove', (event) => {
+    updateMouseNdc(event);
+  });
   canvas.addEventListener('pointerdown', (event) => {
     if (event.button !== 0) {
       return;
@@ -449,6 +526,17 @@ async function bootstrapZeroGravityTube(
       bbVisualSyncBusy = false;
     }
   });
+}
+
+function createTubePageAssembly(kind: TubeAssemblySpawnKind): ClothAssembly {
+  switch (kind) {
+    case 'box':
+      return createStitchedBoxAssembly({ width: 0.7, height: 0.7, depth: 0.7, segments: 12 });
+    case 'octagonalTube':
+      return createOctagonalTubeAssembly({ radius: 0.38, height: 0.9, segmentsAround: 4, segmentsHeight: 12 });
+    case 'pyramid':
+      return createPyramidAssembly({ baseSize: 0.9, height: 0.8, includeBase: true });
+  }
 }
 
 async function bootstrap(): Promise<void> {

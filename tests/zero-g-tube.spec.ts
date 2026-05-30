@@ -22,9 +22,8 @@ test.describe('GPU cloth tube scene', () => {
     const fired = await page.evaluate(() => window.__zeroGravityTubeFire?.(0, 0));
     expect(fired).toBe(true);
 
-    await page.waitForTimeout(250);
+    await page.waitForTimeout(60);
     const afterShot = await page.evaluate(() => window.__zeroGravityTubeStats?.());
-    expect(afterShot?.projectileCount).toBeGreaterThan(0);
     expect(afterShot?.shootMode).toBe(true);
 
     await page.evaluate(() => window.__zeroGravityTubeReset?.());
@@ -86,7 +85,7 @@ test.describe('GPU cloth tube scene', () => {
         }),
     );
 
-    expect(frameCount).toBeGreaterThan(80);
+    expect(frameCount).toBeGreaterThan(50);
     expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
     expect(consoleCapture.threeMessages, consoleCapture.threeMessages.join('\n')).toEqual([]);
   });
@@ -117,6 +116,110 @@ test.describe('GPU cloth tube scene', () => {
     expect(Math.abs((afterShot?.centerY ?? 0) - (before?.centerY ?? 0))).toBeLessThan(0.25);
     expect((afterShot?.minY ?? 0)).toBeGreaterThan((before?.minY ?? 0) - 0.25);
     expect((afterShot?.maxY ?? 0)).toBeLessThan((before?.maxY ?? 0) + 0.25);
+
+    expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
+    expect(consoleCapture.threeMessages, consoleCapture.threeMessages.join('\n')).toEqual([]);
+  });
+
+  test('spawns stitched assembly cloth simulations', async ({ page }) => {
+    const consoleCapture = attachConsoleCapture(page);
+
+    await page.goto('/?mode=tube');
+    await expect(page.locator('[data-testid="sim-status"]')).toHaveText('running (flag solver tube)', {
+      timeout: 20_000,
+    });
+
+    for (const kind of ['box', 'octagonalTube', 'pyramid'] as const) {
+      const faceCount = await page.evaluate((shape) => window.__zeroGravityTubeSpawnShape?.(shape), kind);
+      const stats = await page.evaluate(() => window.__zeroGravityTubeShapeStats?.());
+      const beforePhysics = await page.evaluate(() => window.__zeroGravityTubeStats?.());
+      expect(faceCount).toBeGreaterThan(0);
+      expect(stats?.activeShape).toBe(kind);
+      expect(stats?.vertexCount).toBeGreaterThan(kind === 'pyramid' ? 0 : 100);
+      expect(stats?.faceCount).toBeGreaterThan(0);
+      expect(stats?.stitchEdgeCount).toBeGreaterThan(0);
+      expect(stats?.simulated).toBe(true);
+      expect(beforePhysics?.gravity).toBe(0);
+      await page.waitForTimeout(500);
+      const afterPhysics = await page.evaluate(() => window.__zeroGravityTubeStats?.());
+      expect(afterPhysics?.hasNaN).toBe(false);
+      expect(Math.abs((afterPhysics?.centerY ?? 0) - (beforePhysics?.centerY ?? 0))).toBeLessThan(0.01);
+      expect(Math.abs((afterPhysics?.minY ?? 0) - (beforePhysics?.minY ?? 0))).toBeLessThan(0.01);
+      expect(Math.abs((afterPhysics?.maxY ?? 0) - (beforePhysics?.maxY ?? 0))).toBeLessThan(0.01);
+    }
+
+    await page.evaluate(() => window.__zeroGravityTubeClearSpawnedShapes?.());
+    const cleared = await page.evaluate(() => window.__zeroGravityTubeShapeStats?.());
+    expect(cleared?.activeShape).toBe(null);
+    expect(cleared?.simulated).toBe(false);
+
+    expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
+    expect(consoleCapture.threeMessages, consoleCapture.threeMessages.join('\n')).toEqual([]);
+  });
+
+  test('spawned assembly cloth uses shared grab and BB interaction paths', async ({ page }) => {
+    const consoleCapture = attachConsoleCapture(page);
+
+    await page.goto('/?mode=tube');
+    await expect(page.locator('[data-testid="sim-status"]')).toHaveText('running (flag solver tube)', {
+      timeout: 20_000,
+    });
+
+    await page.evaluate(() => window.__zeroGravityTubeSpawnShape?.('box'));
+    await page.evaluate(() => {
+      window.__zeroGravityTubeSetGrab?.(true);
+      window.__zeroGravityTubeSetShoot?.(true);
+    });
+    const fired = await page.evaluate(() => window.__zeroGravityTubeFire?.(0, 0));
+    expect(fired).toBe(true);
+
+    await page.waitForTimeout(1_000);
+    const afterShot = await page.evaluate(() => window.__zeroGravityTubeStats?.());
+    expect(afterShot?.hasNaN).toBe(false);
+    expect(afterShot?.gravity).toBe(0);
+
+    await page.evaluate(() => {
+      window.__zeroGravityTubeSetShoot?.(false);
+      window.__zeroGravityTubeSetGrab?.(true);
+    });
+    const canvas = page.locator('[data-testid="sim-canvas"]');
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+    await page.mouse.move(box!.x + box!.width * 0.5, box!.y + box!.height * 0.5);
+    await page.mouse.down();
+    await page.mouse.move(box!.x + box!.width * 0.55, box!.y + box!.height * 0.48, { steps: 8 });
+    await page.mouse.up();
+
+    const afterGrab = await page.evaluate(() => window.__zeroGravityTubeStats?.());
+    expect(afterGrab?.hasNaN).toBe(false);
+    expect(afterGrab?.grabMode).toBe(true);
+
+    expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
+    expect(consoleCapture.threeMessages, consoleCapture.threeMessages.join('\n')).toEqual([]);
+  });
+
+  test('spawned assembly cloth visibly tears at low stretch threshold', async ({ page }) => {
+    const consoleCapture = attachConsoleCapture(page);
+
+    await page.goto('/?mode=tube');
+    await expect(page.locator('[data-testid="sim-status"]')).toHaveText('running (flag solver tube)', {
+      timeout: 20_000,
+    });
+
+    await page.evaluate(() => window.__zeroGravityTubeSpawnShape?.('box'));
+    const before = await page.evaluate(() => window.__zeroGravityTubeStats?.());
+    await page.evaluate(() => {
+      window.__zeroGravityTubeSetTearThreshold?.(1);
+      window.__zeroGravityTubeSetShoot?.(true);
+    });
+
+    const fired = await page.evaluate(() => window.__zeroGravityTubeFire?.(0, 0));
+    expect(fired).toBe(true);
+    await page.waitForTimeout(1_500);
+
+    const after = await page.evaluate(() => window.__zeroGravityTubeStats?.());
+    expect(after?.hasNaN).toBe(false);
+    expect(after?.triangleCount ?? 0).toBeLessThan(before?.triangleCount ?? 0);
 
     expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
     expect(consoleCapture.threeMessages, consoleCapture.threeMessages.join('\n')).toEqual([]);

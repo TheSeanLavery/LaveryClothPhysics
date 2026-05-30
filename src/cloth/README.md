@@ -35,4 +35,7 @@ Exports include:
 - The right-side lil-gui control panel.
 - Matte cotton material helpers and denim texture loading.
 - SDF tear meshing/topology utilities.
+- Pattern assembly utilities for stitched patches:
+  `buildClothAssembly`, `createStitchedBoxAssembly`,
+  `createOctagonalTubeAssembly`, and `createPyramidAssembly`.
 - Test/audit report types for regression coverage.

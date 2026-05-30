@@ -104,6 +104,12 @@ import {
   loadDenim512ClothTextures,
   type BakedClothTextureSet,
 } from '../textures/loadBakedClothTextures';
+import type { ClothAssembly } from '../cloth/patternAssembly';
+import {
+  buildAssemblyClothTopology,
+  buildGridClothTopology,
+  type ClothTopology,
+} from './clothTopology';
 
 export interface InextensibleFlagSimulationOptions {
   width?: number;
@@ -114,6 +120,7 @@ export interface InextensibleFlagSimulationOptions {
   pinMode?: 'hoistCorners' | 'none';
   initialShape?: 'plane' | 'tube';
   tubeRadius?: number;
+  assembly?: ClothAssembly;
 }
 
 export interface InextensibleFlagSimulationStats {
@@ -149,6 +156,7 @@ interface ClothEdge {
   vertex0: ClothVertex;
   vertex1: ClothVertex;
   kind: 'structural' | 'shear' | 'bend';
+  restLengthOverride?: number;
 }
 
 interface ComponentRenderStats {
@@ -337,6 +345,10 @@ export class InextensibleFlagSimulation {
   private readonly pinMode: 'hoistCorners' | 'none';
   private readonly initialShape: 'plane' | 'tube';
   private readonly tubeRadius: number;
+  private activeAssembly: ClothAssembly | null;
+  private activeTopology: ClothTopology | null = null;
+  private assemblyRenderVertexSimIds: number[] = [];
+  private topologyMode: 'grid' | 'tube' | 'assembly';
   private clothNumSegmentsX: number;
   private clothNumSegmentsY: number;
 
@@ -353,6 +365,8 @@ export class InextensibleFlagSimulation {
   private clothRenderQuads: ClothRenderQuad[] = [];
   private clothSimGridCoords: Float32Array | null = null;
   private visibleClothSimGridCoords: Float32Array | null = null;
+  private particleRenderBaseIndices: Uint32Array | null = null;
+  private particleRenderTriangleEdgeIds: Int32Array | null = null;
   private clothTopologyReadbackPending = false;
   private lastBrokenEdgeCount = 0;
   private lastConnectivitySignature = '';
@@ -371,6 +385,7 @@ export class InextensibleFlagSimulation {
   private vertexParamsBuffer!: ReturnType<typeof instancedArray>;
   private vertexGridBuffer!: ReturnType<typeof instancedArray>;
   private vertexComponentBuffer!: ReturnType<typeof instancedArray>;
+  private selfCollisionExclusionBuffer!: ReturnType<typeof instancedArray>;
   private springVertexIdBuffer!: ReturnType<typeof instancedArray>;
   private springRestLengthBuffer!: ReturnType<typeof instancedArray>;
   private edgeKindBuffer!: ReturnType<typeof instancedArray>;
@@ -534,6 +549,8 @@ export class InextensibleFlagSimulation {
     this.pinMode = options.pinMode ?? 'hoistCorners';
     this.initialShape = options.initialShape ?? 'plane';
     this.tubeRadius = options.tubeRadius ?? this.clothWidth / (Math.PI * 2);
+    this.activeAssembly = options.assembly ?? null;
+    this.topologyMode = this.activeAssembly ? 'assembly' : this.initialShape === 'tube' ? 'tube' : 'grid';
     this.clothNumSegmentsX = options.segmentsX ?? this.settings.segmentsX;
     this.clothNumSegmentsY = options.segmentsY ?? this.settings.segmentsY;
     this.settings.segmentsX = this.clothNumSegmentsX;
@@ -1109,14 +1126,17 @@ export class InextensibleFlagSimulation {
   }
 
   resetFlag(): void {
+    this.bbPool.reset();
+    if (this.bbPositionBuffer) {
+      this.syncBbPoolToGpu();
+    }
+
     if (!this.isReady) {
       return;
     }
 
     this.setGrabActive(false);
     this.resetGrabLatchState();
-    this.bbPool.reset();
-    this.syncBbPoolToGpu();
     this.resetEdgeActiveStateCpu();
     this.renderer.compute(this.resetFlagPositions);
     this.renderer.compute(this.enforcePins);
@@ -1145,6 +1165,9 @@ export class InextensibleFlagSimulation {
 
   async rebuildFlag(): Promise<void> {
     this.isReady = false;
+    this.activeAssembly = null;
+    this.activeTopology = null;
+    this.topologyMode = this.initialShape === 'tube' ? 'tube' : 'grid';
     this.clothNumSegmentsX = THREE.MathUtils.clamp(Math.round(this.settings.segmentsX), 4, 128);
     this.clothNumSegmentsY = THREE.MathUtils.clamp(Math.round(this.settings.segmentsY), 4, 96);
     this.settings.segmentsX = this.clothNumSegmentsX;
@@ -1157,6 +1180,8 @@ export class InextensibleFlagSimulation {
     this.clothVertices.length = 0;
     this.clothEdges.length = 0;
     this.clothVertexColumns.length = 0;
+    this.particleRenderBaseIndices = null;
+    this.particleRenderTriangleEdgeIds = null;
 
     this.setupClothGeometry();
     this.setupVertexBuffers();
@@ -1170,9 +1195,59 @@ export class InextensibleFlagSimulation {
     this.particlesEl.textContent = `particles: ${this.clothVertices.length}`;
     this.timeSinceLastStep = 0;
     this.simGridSizeYUniform.value = this.clothNumSegmentsY + 1;
+    this.clothSegmentsXUniform.value = this.clothNumSegmentsX;
+    this.clothSegmentsYUniform.value = this.clothNumSegmentsY;
     this.bbPool.reset();
     this.applySettings();
     await this.renderer.compileAsync(this.scene, this.camera);
+    this.isReady = true;
+  }
+
+  async loadClothAssembly(assembly: ClothAssembly): Promise<void> {
+    this.isReady = false;
+    this.activeAssembly = assembly;
+    this.activeTopology = null;
+    this.topologyMode = 'assembly';
+    this.clothNumSegmentsX = Math.max(1, assembly.vertices.length - 1);
+    this.clothNumSegmentsY = 0;
+    this.settings.segmentsX = this.clothNumSegmentsX;
+    this.settings.segmentsY = this.clothNumSegmentsY;
+
+    this.scene.remove(this.clothMesh);
+    this.clothGeometry.dispose();
+    this.clothMaterial.dispose();
+
+    this.clothVertices.length = 0;
+    this.clothEdges.length = 0;
+    this.clothVertexColumns.length = 0;
+    this.assemblyRenderVertexSimIds = [];
+    this.particleRenderBaseIndices = null;
+    this.particleRenderTriangleEdgeIds = null;
+    this.simHorizontalEdgeIds.length = 0;
+    this.simVerticalEdgeIds.length = 0;
+    this.simShearDownEdgeIds.length = 0;
+    this.simShearUpEdgeIds.length = 0;
+
+    this.setupClothGeometry();
+    this.setupVertexBuffers();
+    this.setupEdgeBuffers();
+    this.setupComputeShaders();
+    this.clothMaterial = this.createClothMaterial();
+    this.clothMesh = this.setupClothMesh(this.clothMaterial);
+    this.setupStrandThreadVisual();
+    this.rebuildSimGridDebugOverlay();
+
+    this.particlesEl.textContent = `particles: ${this.clothVertices.length}`;
+    this.timeSinceLastStep = 0;
+    this.simGridSizeYUniform.value = this.clothNumSegmentsY + 1;
+    this.clothSegmentsXUniform.value = this.clothNumSegmentsX;
+    this.clothSegmentsYUniform.value = this.clothNumSegmentsY;
+    this.bbPool.reset();
+    this.applySettings();
+    this.applyHealthFromCpuVertices();
+    await this.renderer.compileAsync(this.scene, this.camera);
+    this.resetGrabLatchState();
+    this.applyHealthFromCpuVertices();
     this.isReady = true;
   }
 
@@ -1766,6 +1841,16 @@ export class InextensibleFlagSimulation {
       worstStretch < 1.35;
   }
 
+  private applyHealthFromCpuVertices(): void {
+    const positions = new Float32Array(this.clothVertices.length * 3);
+    for (const vertex of this.clothVertices) {
+      positions[vertex.id * 3] = vertex.position.x;
+      positions[vertex.id * 3 + 1] = vertex.position.y;
+      positions[vertex.id * 3 + 2] = vertex.position.z;
+    }
+    this.applyHealthFromArray(positions);
+  }
+
   private setupLighting(): void {
     this.ambientLight = new THREE.AmbientLight(0xffffff, this.settings.ambientIntensity);
     this.hemiLight = new THREE.HemisphereLight(0xbfd4ff, 0x2a3348, this.settings.hemiIntensity);
@@ -1812,118 +1897,69 @@ export class InextensibleFlagSimulation {
   }
 
   private setupClothGeometry(): void {
-    const addVertex = (
-      x: number,
-      y: number,
-      z: number,
-      gridX: number,
-      gridY: number,
-      isFixed: boolean,
-    ): ClothVertex => {
-      const id = this.clothVertices.length;
+    this.applyClothTopology(
+      this.activeAssembly
+        ? buildAssemblyClothTopology(this.activeAssembly)
+        : buildGridClothTopology({
+            width: this.clothWidth,
+            height: this.clothHeight,
+            segmentsX: this.clothNumSegmentsX,
+            segmentsY: this.clothNumSegmentsY,
+            isolated: this.isolatedMode,
+            pinMode: this.pinMode,
+            initialShape: this.initialShape,
+            tubeRadius: this.tubeRadius,
+            flagHoistTopY: this.flagHoistTopY,
+          }),
+    );
+    return;
+  }
+
+  private applyClothTopology(topology: ClothTopology): void {
+    this.activeTopology = topology;
+    this.topologyMode = topology.kind;
+    this.clothNumSegmentsX = topology.segmentsX;
+    this.clothNumSegmentsY = topology.segmentsY;
+    this.assemblyRenderVertexSimIds = [...(topology.renderSurface.renderVertexToParticle ?? [])];
+    this.simHorizontalEdgeIds.length = 0;
+    this.simVerticalEdgeIds.length = 0;
+    this.simShearDownEdgeIds.length = 0;
+    this.simShearUpEdgeIds.length = 0;
+    this.simHorizontalEdgeIds.push(...topology.horizontalEdgeIds);
+    this.simVerticalEdgeIds.push(...topology.verticalEdgeIds);
+    this.simShearDownEdgeIds.push(...topology.shearDownEdgeIds);
+    this.simShearUpEdgeIds.push(...topology.shearUpEdgeIds);
+
+    for (const particle of topology.particles) {
       const vertex: ClothVertex = {
-        id,
-        position: new THREE.Vector3(x, y, z),
-        gridX,
-        gridY,
-        isFixed,
+        id: particle.id,
+        position: particle.position.clone(),
+        gridX: particle.gridX,
+        gridY: particle.gridY,
+        isFixed: particle.isFixed,
         springIds: [],
       };
       this.clothVertices.push(vertex);
-      return vertex;
-    };
+    }
 
-    const addEdge = (
-      vertex0: ClothVertex,
-      vertex1: ClothVertex,
-      kind: ClothEdge['kind'] = 'structural',
-    ): ClothEdge => {
+    for (const column of topology.columns) {
+      this.clothVertexColumns.push(column.map((vertexId) => this.clothVertices[vertexId]!));
+    }
+
+    for (const constraint of topology.constraints) {
       const id = this.clothEdges.length;
-      const edge: ClothEdge = { id, vertex0, vertex1, kind };
+      const vertex0 = this.clothVertices[constraint.a]!;
+      const vertex1 = this.clothVertices[constraint.b]!;
+      const edge: ClothEdge = {
+        id,
+        vertex0,
+        vertex1,
+        kind: constraint.kind,
+        restLengthOverride: constraint.restLength,
+      };
       vertex0.springIds.push(id);
       vertex1.springIds.push(id);
       this.clothEdges.push(edge);
-      return edge;
-    };
-
-    for (let x = 0; x <= this.clothNumSegmentsX; x++) {
-      const column: ClothVertex[] = [];
-      for (let y = 0; y <= this.clothNumSegmentsY; y++) {
-        const tubeColumns = this.clothNumSegmentsX + 1;
-        const u = this.initialShape === 'tube' ? x / tubeColumns : x / this.clothNumSegmentsX;
-        const posX = x * (this.clothWidth / this.clothNumSegmentsX) - this.clothWidth * 0.5;
-        const posY = this.isolatedMode
-          ? this.clothHeight * 0.5 - y * (this.clothHeight / this.clothNumSegmentsY)
-          : this.flagHoistTopY - y * (this.clothHeight / this.clothNumSegmentsY);
-        const angle = u * Math.PI * 2;
-        const vertexX = this.initialShape === 'tube' ? Math.cos(angle) * this.tubeRadius : posX;
-        const vertexZ = this.initialShape === 'tube' ? Math.sin(angle) * this.tubeRadius : 0;
-        const isHoistCorner =
-          this.pinMode === 'hoistCorners' && x === 0 && (y === 0 || y === this.clothNumSegmentsY);
-        column.push(addVertex(vertexX, posY, vertexZ, x, y, isHoistCorner));
-      }
-      this.clothVertexColumns.push(column);
-    }
-
-    const gridSizeY = this.clothNumSegmentsY + 1;
-    this.simHorizontalEdgeIds.length = 0;
-    this.simVerticalEdgeIds.length = 0;
-    this.simHorizontalEdgeIds.push(
-      ...new Array<number>((this.clothNumSegmentsX + 1) * gridSizeY).fill(-1),
-    );
-    this.simVerticalEdgeIds.push(
-      ...new Array<number>((this.clothNumSegmentsX + 1) * gridSizeY).fill(-1),
-    );
-    this.simShearDownEdgeIds.push(
-      ...new Array<number>((this.clothNumSegmentsX + 1) * gridSizeY).fill(-1),
-    );
-    this.simShearUpEdgeIds.push(
-      ...new Array<number>((this.clothNumSegmentsX + 1) * gridSizeY).fill(-1),
-    );
-
-    for (let x = 0; x <= this.clothNumSegmentsX; x++) {
-      for (let y = 0; y <= this.clothNumSegmentsY; y++) {
-        const vertex0 = this.clothVertexColumns[x]![y]!;
-        if (x > 0) {
-          const edge = addEdge(vertex0, this.clothVertexColumns[x - 1]![y]!, 'structural');
-          this.simHorizontalEdgeIds[x * gridSizeY + y] = edge.id;
-        }
-        if (y > 0) {
-          const edge = addEdge(vertex0, this.clothVertexColumns[x]![y - 1]!, 'structural');
-          this.simVerticalEdgeIds[x * gridSizeY + y] = edge.id;
-        }
-        if (x > 0 && y > 0) {
-          const edge = addEdge(vertex0, this.clothVertexColumns[x - 1]![y - 1]!, 'shear');
-          this.simShearDownEdgeIds[x * gridSizeY + y] = edge.id;
-        }
-        if (x > 0 && y < this.clothNumSegmentsY) {
-          const edge = addEdge(vertex0, this.clothVertexColumns[x - 1]![y + 1]!, 'shear');
-          this.simShearUpEdgeIds[x * gridSizeY + y] = edge.id;
-        }
-        if (x > 1) {
-          addEdge(vertex0, this.clothVertexColumns[x - 2]![y]!, 'bend');
-        }
-        if (y > 1) {
-          addEdge(vertex0, this.clothVertexColumns[x]![y - 2]!, 'bend');
-        }
-      }
-    }
-
-    if (this.initialShape === 'tube') {
-      const firstColumn = this.clothVertexColumns[0]!;
-      const seamColumn = this.clothVertexColumns[this.clothNumSegmentsX]!;
-      for (let y = 0; y <= this.clothNumSegmentsY; y++) {
-        addEdge(seamColumn[y]!, firstColumn[y]!, 'structural');
-        if (y > 0) {
-          addEdge(seamColumn[y]!, firstColumn[y - 1]!, 'shear');
-        }
-        if (y < this.clothNumSegmentsY) {
-          addEdge(seamColumn[y]!, firstColumn[y + 1]!, 'shear');
-        }
-        if (y > 1) {
-          addEdge(seamColumn[y]!, firstColumn[y - 2]!, 'bend');
-        }
-      }
     }
 
     this.clothGraphEdges = buildClothGraphEdges(this.clothEdges);
@@ -2002,6 +2038,7 @@ export class InextensibleFlagSimulation {
     this.vertexComponentBuffer = instancedArray(new Uint32Array(vertexCount).fill(0), 'uint').setPBO(
       true,
     );
+    this.selfCollisionExclusionBuffer = instancedArray(this.buildSelfCollisionExclusionArray(), 'uint');
     this.springListBuffer = instancedArray(new Uint32Array(springListArray), 'uint').setPBO(true);
     this.grabScreenDistBuffer = instancedArray(new Float32Array(vertexCount), 'float');
     this.grabTargetBuffer = instancedArray(new Uint32Array([0xffffffff, 0]), 'uint');
@@ -2018,7 +2055,8 @@ export class InextensibleFlagSimulation {
       const edge = this.clothEdges[i]!;
       springVertexIdArray[i * 2] = edge.vertex0.id;
       springVertexIdArray[i * 2 + 1] = edge.vertex1.id;
-      springRestLengthArray[i] = edge.vertex0.position.distanceTo(edge.vertex1.position);
+      springRestLengthArray[i] =
+        edge.restLengthOverride ?? edge.vertex0.position.distanceTo(edge.vertex1.position);
       edgeKindArray[i] =
         edge.kind === 'bend' ? 1 : edge.kind === 'shear' ? 2 : 0;
     }
@@ -2070,6 +2108,49 @@ export class InextensibleFlagSimulation {
     );
     this.bbAgeBuffer = instancedArray(new Float32Array(this.bbPool.maxCount), 'float').setPBO(true);
     this.bbActiveBuffer = instancedArray(new Uint32Array(this.bbPool.maxCount), 'uint').setPBO(true);
+  }
+
+  private buildSelfCollisionExclusionArray(): Uint32Array {
+    const vertexCount = this.clothVertices.length;
+    if (this.activeTopology?.selfCollisionExclusions.length === vertexCount * vertexCount) {
+      return this.activeTopology.selfCollisionExclusions;
+    }
+
+    if (this.topologyMode !== 'assembly') {
+      return new Uint32Array(1);
+    }
+
+    const exclusions = new Uint32Array(vertexCount * vertexCount);
+
+    const adjacency: number[][] = Array.from({ length: vertexCount }, () => []);
+    for (const edge of this.clothEdges) {
+      adjacency[edge.vertex0.id]!.push(edge.vertex1.id);
+      adjacency[edge.vertex1.id]!.push(edge.vertex0.id);
+    }
+
+    for (let source = 0; source < vertexCount; source++) {
+      const queue: Array<{ id: number; depth: number }> = [{ id: source, depth: 0 }];
+      const visited = new Set<number>([source]);
+      exclusions[source * vertexCount + source] = 1;
+
+      for (let cursor = 0; cursor < queue.length; cursor++) {
+        const { id, depth } = queue[cursor]!;
+        if (depth >= 2) {
+          continue;
+        }
+
+        for (const next of adjacency[id]!) {
+          if (visited.has(next)) {
+            continue;
+          }
+          visited.add(next);
+          exclusions[source * vertexCount + next] = 1;
+          queue.push({ id: next, depth: depth + 1 });
+        }
+      }
+    }
+
+    return exclusions;
   }
 
   private packSimEdgeIdLookup(ids: number[]): Uint32Array {
@@ -2678,7 +2759,50 @@ export class InextensibleFlagSimulation {
     return { indices, simGridCoords: this.clothSimGridCoords };
   }
 
+  private rebuildParticleRenderIndices(edgeActive: Uint32Array, components: Uint32Array): Uint32Array {
+    if (!this.particleRenderBaseIndices || !this.particleRenderTriangleEdgeIds || !this.clothSimGridCoords) {
+      return new Uint32Array();
+    }
+
+    const nextIndices: number[] = [];
+    const simVertexForRenderIndex = (index: number): number =>
+      Math.round(this.clothSimGridCoords![index * 2] ?? 0);
+
+    for (let i = 0; i < this.particleRenderBaseIndices.length; i += 3) {
+      const i0 = this.particleRenderBaseIndices[i]!;
+      const i1 = this.particleRenderBaseIndices[i + 1]!;
+      const i2 = this.particleRenderBaseIndices[i + 2]!;
+      const v0 = simVertexForRenderIndex(i0);
+      const v1 = simVertexForRenderIndex(i1);
+      const v2 = simVertexForRenderIndex(i2);
+      const sameComponent = components[v0] === components[v1] && components[v0] === components[v2];
+      if (!sameComponent) {
+        continue;
+      }
+
+      let intact = true;
+      for (let e = 0; e < 3; e++) {
+        const edgeId = this.particleRenderTriangleEdgeIds[i + e]!;
+        if (edgeId >= 0 && edgeActive[edgeId] === 0) {
+          intact = false;
+          break;
+        }
+      }
+      if (intact) {
+        nextIndices.push(i0, i1, i2);
+      }
+    }
+
+    return new Uint32Array(nextIndices);
+  }
+
   private restoreClothFullTopology(): void {
+    if (this.particleRenderBaseIndices) {
+      this.applyClothIndexBuffer(this.particleRenderBaseIndices);
+      this.lastBrokenEdgeCount = 0;
+      return;
+    }
+
     if (
       !this.simEdgeLookup ||
       !this.clothSimGridCoords ||
@@ -2707,9 +2831,9 @@ export class InextensibleFlagSimulation {
     if (
       !this.isReady ||
       this.clothTopologyReadbackPending ||
-      !this.simEdgeLookup ||
       !this.clothSimGridCoords ||
-      this.clothRenderQuads.length === 0
+      (!this.simEdgeLookup && !this.particleRenderBaseIndices) ||
+      (this.simEdgeLookup && this.clothRenderQuads.length === 0)
     ) {
       return;
     }
@@ -2729,7 +2853,12 @@ export class InextensibleFlagSimulation {
       }
 
       const brokenEdgeCount = countBrokenEdges(syncedEdgeActive);
-      const visibleMesh = this.rebuildVisibleClothMesh(syncedEdgeActive, brokenEdgeCount, components);
+      const particleIndices = this.particleRenderBaseIndices
+        ? this.rebuildParticleRenderIndices(syncedEdgeActive, components)
+        : null;
+      const visibleMesh = particleIndices
+        ? { indices: particleIndices, simGridCoords: this.clothSimGridCoords }
+        : this.rebuildVisibleClothMesh(syncedEdgeActive, brokenEdgeCount, components);
       this.lastConnectivitySignature = signature;
       this.lastBrokenEdgeCount = brokenEdgeCount;
       if (visibleMesh.sdfMesh) {
@@ -2962,6 +3091,7 @@ export class InextensibleFlagSimulation {
     const vertexParamsBuffer = this.vertexParamsBuffer;
     const vertexGridBuffer = this.vertexGridBuffer;
     const vertexComponentBuffer = this.vertexComponentBuffer;
+    const selfCollisionExclusionBuffer = this.selfCollisionExclusionBuffer;
     const springVertexIdBuffer = this.springVertexIdBuffer;
     const springRestLengthBuffer = this.springRestLengthBuffer;
     const edgeKindBuffer = this.edgeKindBuffer;
@@ -3011,44 +3141,7 @@ export class InextensibleFlagSimulation {
     const bbLifetimeUniform = this.bbLifetimeUniform;
     const bbBoundsMinUniform = this.bbBoundsMinUniform;
     const bbBoundsMaxUniform = this.bbBoundsMaxUniform;
-    const clothWidthUniform = this.clothWidthUniform;
-    const clothHeightUniform = this.clothHeightUniform;
-    const flagHoistTopYUniform = this.flagHoistTopYUniform;
-    const clothSegmentsXUniform = this.clothSegmentsXUniform;
-    const clothSegmentsYUniform = this.clothSegmentsYUniform;
     const bbSlotCount = this.bbPool.maxCount;
-    const bbGridStrideY = uniform(this.clothNumSegmentsY + 1);
-    const bbGridMaxXUniform = uniform(this.clothNumSegmentsX);
-    const bbGridMaxYUniform = uniform(this.clothNumSegmentsY);
-    const bbGridMaxXUint = uint(bbGridMaxXUniform);
-    const bbGridMaxYUint = uint(bbGridMaxYUniform);
-    const bbInvalidEdgeId = uint(0xffffffff);
-    const bbEdgeVisualBuffer = this.edgeVisualBuffer;
-    const bbSimHorizontalEdgeIdBuffer = this.simHorizontalEdgeIdBuffer;
-    const bbSimVerticalEdgeIdBuffer = this.simVerticalEdgeIdBuffer;
-    const bbSimShearDownEdgeIdBuffer = this.simShearDownEdgeIdBuffer;
-    const bbSimShearUpEdgeIdBuffer = this.simShearUpEdgeIdBuffer;
-
-    const bbGridIndex = Fn(([gridX, gridY]) => gridX.mul(bbGridStrideY).add(gridY));
-
-    const bbIsRenderEdgeBroken = Fn(([edgeId]) =>
-      edgeId.notEqual(bbInvalidEdgeId).and(bbEdgeVisualBuffer.element(edgeId).equal(uint(0))),
-    );
-
-    const sampleBbSurfacePosition = createEdgeAwareSimSurfaceSampler({
-      vertexPositionBuffer,
-      gridIndex: bbGridIndex,
-      gridStrideY: bbGridStrideY,
-      gridMaxXUniform: bbGridMaxXUniform,
-      gridMaxYUniform: bbGridMaxYUniform,
-      gridMaxXUint: bbGridMaxXUint,
-      gridMaxYUint: bbGridMaxYUint,
-      isEdgeBroken: bbIsRenderEdgeBroken,
-      simHorizontalEdgeIdBuffer: bbSimHorizontalEdgeIdBuffer,
-      simVerticalEdgeIdBuffer: bbSimVerticalEdgeIdBuffer,
-      simShearDownEdgeIdBuffer: bbSimShearDownEdgeIdBuffer,
-      simShearUpEdgeIdBuffer: bbSimShearUpEdgeIdBuffer,
-    });
 
     this.predictMotion = Fn(() => {
       const params = vertexParamsBuffer.element(instanceIndex).toVar();
@@ -3352,7 +3445,7 @@ export class InextensibleFlagSimulation {
         const gridDeltaXRaw = gridSelf.x.sub(gridOther.x).abs();
         const gridDeltaXWrapped = uint(this.clothNumSegmentsX + 1).sub(gridDeltaXRaw);
         const gridDeltaX = (
-          this.initialShape === 'tube'
+          this.topologyMode === 'tube'
             ? select(gridDeltaXRaw.lessThan(gridDeltaXWrapped), gridDeltaXRaw, gridDeltaXWrapped)
             : gridDeltaXRaw
         ).toVar('selfCollisionGridDeltaX');
@@ -3361,9 +3454,14 @@ export class InextensibleFlagSimulation {
         const otherPosition = vertexPositionBuffer.element(otherIndex);
         const offset = position.sub(otherPosition).toVar('offset');
         const dist = offset.length().max(0.000001).toVar('dist');
+        const isTopologicallyDistant = this.topologyMode === 'assembly'
+          ? selfCollisionExclusionBuffer
+              .element(instanceIndex.mul(vertexCountVar).add(otherIndex))
+              .equal(uint(0))
+          : gridDistance.greaterThan(uint(2));
         const active = otherIndex
           .notEqual(instanceIndex)
-          .and(gridDistance.greaterThan(uint(2)))
+          .and(isTopologicallyDistant)
           .and(dist.lessThan(minSeparation));
         const penetration = select(active, minSeparation.sub(dist).mul(float(0.5)), float(0));
 
@@ -3688,42 +3786,24 @@ export class InextensibleFlagSimulation {
 
       const bbPos = bbPositionBuffer.element(instanceIndex).toVar('bbContactPos');
       const bbVel = bbVelocityBuffer.element(instanceIndex).toVar('bbContactVel');
-      const bbPrev = bbPreviousPositionBuffer.element(instanceIndex);
       const hardRadius = bbVisualRadiusUniform;
       const softRadius = hardRadius.add(
         bbHitRadiusUniform.mul(bbFabricSoftnessUniform).mul(float(0.65)),
       );
-      const cellW = clothWidthUniform.div(clothSegmentsXUniform);
-      const cellH = clothHeightUniform.div(clothSegmentsYUniform);
-      const bbSimX = bbPos.x.add(clothWidthUniform.mul(0.5)).div(cellW);
-      const bbSimY = flagHoistTopYUniform.sub(bbPos.y).div(cellH);
-      const prevSimX = bbPrev.x.add(clothWidthUniform.mul(0.5)).div(cellW);
-      const prevSimY = flagHoistTopYUniform.sub(bbPrev.y).div(cellH);
       const bestPen = float(0).toVar('bbBestPen');
       const bestNormal = vec3(float(0), float(0), float(1)).toVar('bbBestNormal');
 
-      const accumulateSoftSurfaceContacts = Fn(
-        ([anchorSimX, anchorSimY, bbPosIn, contactRadius, bestPenIn, bestNormalIn]) => {
-          Loop(5, ({ i: di }) => {
-            Loop(5, ({ i: dj }) => {
-              const simX = anchorSimX.floor().add(di.sub(2));
-              const simY = anchorSimY.floor().add(dj.sub(2));
-              const surfPos = sampleBbSurfacePosition(simX, simY).toVar('bbSoftSurfPos');
-              const delta = bbPosIn.sub(surfPos);
-              const dist = delta.length().max(float(0.000001));
-              const pen = contactRadius.sub(dist);
+      Loop({ start: uint(0), end: uint(vertexCount), type: 'uint', condition: '<' }, ({ i: vertexId }) => {
+        const surfPos = vertexPositionBuffer.element(vertexId).toVar('bbSoftSurfPos');
+        const delta = bbPos.sub(surfPos);
+        const dist = delta.length().max(float(0.000001));
+        const pen = softRadius.sub(dist);
 
-              If(pen.greaterThan(bestPenIn), () => {
-                bestPenIn.assign(pen);
-                bestNormalIn.assign(delta.div(dist));
-              });
-            });
-          });
-        },
-      );
-
-      accumulateSoftSurfaceContacts(bbSimX, bbSimY, bbPos, softRadius, bestPen, bestNormal);
-      accumulateSoftSurfaceContacts(prevSimX, prevSimY, bbPos, softRadius, bestPen, bestNormal);
+        If(pen.greaterThan(bestPen), () => {
+          bestPen.assign(pen);
+          bestNormal.assign(delta.div(dist));
+        });
+      });
 
       If(bestPen.greaterThan(float(0)), () => {
         const softZoneWidth = softRadius.sub(hardRadius).max(float(0.0001));
@@ -3833,20 +3913,26 @@ export class InextensibleFlagSimulation {
 
     const gridIndex = Fn(([gridX, gridY]) => gridX.mul(gridStrideY).add(gridY));
 
-    const sampleSimPositionLinear = createEdgeAwareSimSurfaceSampler({
-      vertexPositionBuffer,
-      gridIndex,
-      gridStrideY,
-      gridMaxXUniform,
-      gridMaxYUniform,
-      gridMaxXUint,
-      gridMaxYUint,
-      isEdgeBroken: isRenderEdgeBroken,
-      simHorizontalEdgeIdBuffer,
-      simVerticalEdgeIdBuffer,
-      simShearDownEdgeIdBuffer: this.simShearDownEdgeIdBuffer,
-      simShearUpEdgeIdBuffer: this.simShearUpEdgeIdBuffer,
-    });
+    const sampleSimPositionLinear = this.topologyMode === 'assembly'
+      ? Fn(([simVertexId]) =>
+          vertexPositionBuffer
+            .element(uint(simVertexId).clamp(uint(0), gridMaxXUint))
+            .xyz,
+        )
+      : createEdgeAwareSimSurfaceSampler({
+          vertexPositionBuffer,
+          gridIndex,
+          gridStrideY,
+          gridMaxXUniform,
+          gridMaxYUniform,
+          gridMaxXUint,
+          gridMaxYUint,
+          isEdgeBroken: isRenderEdgeBroken,
+          simHorizontalEdgeIdBuffer,
+          simVerticalEdgeIdBuffer,
+          simShearDownEdgeIdBuffer: this.simShearDownEdgeIdBuffer,
+          simShearUpEdgeIdBuffer: this.simShearUpEdgeIdBuffer,
+        });
 
     const sampleSimPositionAvgEdgeAware = Fn(([simGridX, simGridY, stepScale]) => {
       const maxX = float(gridMaxXUniform);
@@ -3872,7 +3958,9 @@ export class InextensibleFlagSimulation {
       return mix(mid, extraRelaxed, relax2);
     });
 
-    const sampleSimPosition = Fn(([simGridX, simGridY]) => sampleSimPositionSmooth(simGridX, simGridY));
+    const sampleSimPosition = this.topologyMode === 'assembly'
+      ? Fn(([simGridX]) => sampleSimPositionLinear(simGridX))
+      : Fn(([simGridX, simGridY]) => sampleSimPositionSmooth(simGridX, simGridY));
 
     const clothMaterial = new THREE.MeshPhysicalNodeMaterial({
       color: new THREE.Color(this.settings.flagColor),
@@ -3907,6 +3995,11 @@ export class InextensibleFlagSimulation {
   }
 
   private setupClothMesh(clothMaterial: THREE.MeshPhysicalNodeMaterial): THREE.Mesh {
+    const renderSurface = this.activeTopology?.renderSurface;
+    if (renderSurface?.source === 'particles') {
+      return this.setupParticleClothMesh(clothMaterial);
+    }
+
     const renderSubdiv = THREE.MathUtils.clamp(Math.round(this.settings.renderSubdivisions), 1, 10);
     this.settings.renderSubdivisions = renderSubdiv;
     this.renderNormalStepUniform.value = 0.5 / renderSubdiv;
@@ -3946,7 +4039,7 @@ export class InextensibleFlagSimulation {
       }
     }
 
-    if (this.initialShape === 'tube') {
+    if (this.topologyMode === 'tube') {
       const seamColumn = renderCellsX;
       const firstColumn = 0;
       for (let gridY = 0; gridY < renderCellsY; gridY++) {
@@ -3975,5 +4068,68 @@ export class InextensibleFlagSimulation {
     mesh.name = 'inextensible-flag-mesh';
     this.scene.add(mesh);
     return mesh;
+  }
+
+  private setupParticleClothMesh(clothMaterial: THREE.MeshPhysicalNodeMaterial): THREE.Mesh {
+    const renderSurface = this.activeTopology?.renderSurface;
+    const simGridCoordArray = renderSurface?.simGridCoords;
+    const fabricUvArray = renderSurface?.fabricUvs;
+    const indices = renderSurface?.indices;
+    if (!renderSurface || !simGridCoordArray || !fabricUvArray || !indices) {
+      throw new Error('Particle render surface is missing topology buffers');
+    }
+
+    const vertexCount = simGridCoordArray.length / 2;
+    const geometry = new THREE.BufferGeometry();
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(vertexCount * 3), 3));
+    geometry.setAttribute('simGridCoord', new THREE.BufferAttribute(simGridCoordArray, 2));
+    geometry.setAttribute('uv', new THREE.BufferAttribute(fabricUvArray, 2));
+    geometry.setAttribute('fabricUv', new THREE.BufferAttribute(fabricUvArray, 2));
+    geometry.setIndex(indices);
+    this.clothGeometry = geometry;
+    this.clothSimGridCoords = simGridCoordArray;
+    this.visibleClothSimGridCoords = simGridCoordArray;
+    this.clothRenderQuads = buildClothRenderQuads(indices);
+    this.simEdgeLookup = undefined;
+    this.particleRenderBaseIndices = new Uint32Array(indices);
+    this.particleRenderTriangleEdgeIds = this.buildParticleRenderTriangleEdgeIds(indices, simGridCoordArray);
+    this.lastBrokenEdgeCount = 0;
+
+    const mesh = new THREE.Mesh(geometry, clothMaterial);
+    const bounds = new THREE.Box3();
+    for (const vertex of this.clothVertices) {
+      bounds.expandByPoint(vertex.position);
+    }
+    const boundsCenter = bounds.getCenter(new THREE.Vector3());
+    const boundsRadius = Math.max(bounds.getSize(new THREE.Vector3()).length(), 1) + 2.5;
+    geometry.boundingSphere = new THREE.Sphere(boundsCenter, boundsRadius);
+    mesh.frustumCulled = true;
+    mesh.name = 'inextensible-assembly-cloth-mesh';
+    this.scene.add(mesh);
+    return mesh;
+  }
+
+  private buildParticleRenderTriangleEdgeIds(indices: readonly number[], simGridCoordArray: Float32Array): Int32Array {
+    const pairToEdgeId = new Map<string, number>();
+    const pairKey = (a: number, b: number): string => (a < b ? `${a}:${b}` : `${b}:${a}`);
+    for (const edge of this.clothEdges) {
+      pairToEdgeId.set(pairKey(edge.vertex0.id, edge.vertex1.id), edge.id);
+    }
+
+    const ids = new Int32Array(indices.length).fill(-1);
+    const simVertexForRenderIndex = (index: number): number => Math.round(simGridCoordArray[index * 2] ?? 0);
+    for (let i = 0; i < indices.length; i += 3) {
+      const r0 = indices[i]!;
+      const r1 = indices[i + 1]!;
+      const r2 = indices[i + 2]!;
+      const v0 = simVertexForRenderIndex(r0);
+      const v1 = simVertexForRenderIndex(r1);
+      const v2 = simVertexForRenderIndex(r2);
+      ids[i] = v0 === v1 ? -1 : pairToEdgeId.get(pairKey(v0, v1)) ?? -1;
+      ids[i + 1] = v1 === v2 ? -1 : pairToEdgeId.get(pairKey(v1, v2)) ?? -1;
+      ids[i + 2] = v2 === v0 ? -1 : pairToEdgeId.get(pairKey(v2, v0)) ?? -1;
+    }
+    return ids;
   }
 }

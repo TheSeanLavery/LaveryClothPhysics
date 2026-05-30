@@ -34,6 +34,32 @@ import {
 } from '../storage/flagSettingsDb';
 import type { StrandThreadAuditResult } from '../testing/strandThreadAudit';
 import { ZeroGravityTubeScene, type ZeroGravityTubeStats } from './ZeroGravityTubeScene';
+export {
+  buildClothAssembly,
+  createOctagonalTubeAssembly,
+  createPyramidAssembly,
+  createQuadPatch,
+  createStitchedBoxAssembly,
+  createTrianglePatch,
+  validateClothAssembly,
+  type AssemblyEdge,
+  type AssemblyFace,
+  type AssemblyValidationIssue,
+  type AssemblyVec2,
+  type AssemblyVec3,
+  type AssemblyVertex,
+  type BoundaryName,
+  type BoxAssemblyOptions,
+  type ClothAssembly,
+  type ClothAssemblyOptions,
+  type ClothPatchDefinition,
+  type OctagonalTubeAssemblyOptions,
+  type PyramidAssemblyOptions,
+  type QuadPatchOptions,
+  type StitchDefinition,
+  type StitchEndpoint,
+  type TrianglePatchOptions,
+} from './patternAssembly';
 import {
   configureMatteCottonFlagMaterial,
   updateMatteCottonFlagMaterial,
