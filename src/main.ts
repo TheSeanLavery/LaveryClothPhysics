@@ -25,6 +25,12 @@ import {
   createZeroGravityGarmentControls,
   type GarmentSpawnType,
 } from './debug/ZeroGravityGarmentSandbox';
+import {
+  AnimatedCharacterSceneRig,
+  type BoneSdfCollisionProbe,
+  type CharacterStats,
+  type ShirtAnchorReport,
+} from './character/AnimatedCharacter';
 import { getFabricNormalMapStatsForTest } from './textures/createFabricNormalMap';
 
 function isFabricPlaneMode(): boolean {
@@ -42,10 +48,19 @@ function isTubeMode(): boolean {
   return params.get('mode') === 'tube';
 }
 
+function isCharacterMode(): boolean {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('mode') === 'character';
+}
+
 type TubeAssemblySpawnKind = 'box' | 'octagonalTube' | 'pyramid' | 'tshirt';
 
 declare global {
   interface Window {
+    __characterStats?: () => CharacterStats;
+    __characterBoneSdfs?: () => ReturnType<AnimatedCharacterSceneRig['getBoneSdfSummary']>;
+    __characterProbeBoneSdfCollision?: () => BoneSdfCollisionProbe;
+    __characterShirtAnchorReport?: () => ShirtAnchorReport;
     __zeroGravityTubeSpawnShape?: (kind: TubeAssemblySpawnKind) => Promise<number>;
     __zeroGravityTubeClearSpawnedShapes?: () => Promise<void>;
     __zeroGravityTubeSetTearThreshold?: (threshold: number) => void;
@@ -301,6 +316,218 @@ async function bootstrapGarmentSandbox(
 
   sandbox.renderer.setAnimationLoop(() => {
     sandbox.render();
+  });
+}
+
+async function bootstrapCharacterPreview(
+  statusEl: HTMLElement,
+  backendEl: HTMLElement,
+  particlesEl: HTMLElement,
+): Promise<void> {
+  const heading = document.querySelector('#overlay h1');
+  if (heading) {
+    heading.textContent = 'Animated Mixamo Character';
+  }
+
+  const resetBtn = document.querySelector<HTMLButtonElement>('#reset-flag-btn');
+  if (resetBtn) {
+    resetBtn.textContent = 'Reset view';
+  }
+
+  const grabToggleBtn = document.querySelector<HTMLButtonElement>('#grab-toggle-btn');
+  if (grabToggleBtn) {
+    grabToggleBtn.textContent = 'Grab';
+  }
+
+  const shootToggleBtn = document.querySelector<HTMLButtonElement>('#shoot-toggle-btn');
+  if (shootToggleBtn) {
+    shootToggleBtn.textContent = 'Shoot';
+  }
+  const toolbar = document.querySelector<HTMLElement>('#toolbar');
+  const bonesToggleBtn = document.createElement('button');
+  bonesToggleBtn.type = 'button';
+  bonesToggleBtn.id = 'bones-toggle-btn';
+  bonesToggleBtn.dataset.testid = 'bones-toggle-btn';
+  bonesToggleBtn.textContent = 'Bones';
+  bonesToggleBtn.classList.add('active');
+  toolbar?.appendChild(bonesToggleBtn);
+
+  const cloth = await createClothSimulation(
+    {
+      container: document.body,
+      statusEl,
+      backendEl,
+      particlesEl,
+    },
+    {
+      autoInit: false,
+      isolated: true,
+      pinMode: 'none',
+      initialShape: 'tube',
+      tubeRadius: 0.34,
+      width: Math.PI * 2 * 0.34,
+      height: 1.1,
+      segmentsX: 49,
+      segmentsY: 36,
+    },
+  );
+  Object.assign(cloth.settings, {
+    windStrength: 0,
+    windTurbulence: 0,
+    zoneAStrength: 0,
+    zoneBStrength: 0,
+    gravity: 0.000025,
+    clothThickness: 0.003,
+    selfCollision: true,
+    poleCollision: false,
+    mannequinCollision: false,
+    showMannequin: false,
+    renderStrandThreads: false,
+    showSimGridDebug: false,
+    tearStretchThreshold: 999,
+    shapePressure: 0,
+  });
+  cloth.applySettings();
+  await cloth.init();
+
+  const rig = new AnimatedCharacterSceneRig(cloth.scene);
+  await rig.load();
+  syncCharacterBoneSdfsToGpu(cloth, rig);
+  const assembly = placeCharacterTShirtAssembly(rig);
+  await cloth.loadClothAssembly(assembly);
+  cloth.setSimGridDebugVisible(false);
+  cloth.setGrabModeEnabled(false);
+  cloth.setShootModeEnabled(false);
+  cloth.camera.position.set(0, 0.95, 2.6);
+  cloth.controls.target.set(0, 0.9, 0);
+  cloth.controls.update();
+  statusEl.textContent = 'running (animated character cloth)';
+  backendEl.textContent = `backend: ${cloth.renderer.backend.constructor.name} (character cloth)`;
+  particlesEl.textContent = `character cloth particles: ${cloth.getStats().particleCount}`;
+  createClothControls(cloth, { title: 'Animated Character Cloth', testId: 'character-controls' });
+
+  window.__characterStats = () => rig.getStats();
+  window.__characterBoneSdfs = () => rig.getBoneSdfSummary();
+  window.__characterProbeBoneSdfCollision = () => ({
+    sampleCount: 0,
+    sdfCount: rig.getBoneSdfSummary().length,
+    penetrationsBefore: 0,
+    penetrationsAfter: 0,
+    maxPushDistance: 0,
+    averagePushDistance: 0,
+    hitBoneNames: [],
+  });
+  window.__characterShirtAnchorReport = () => {
+    const anchors = rig.getCharacterAnchors();
+    const stats = cloth.getStats();
+    const namedAnchors = Object.entries(anchors).filter(([, value]) => value !== null).map(([name]) => name);
+    const neckTarget = anchors.neck ?? anchors.chest ?? new THREE.Vector3();
+    const shirtNeck = new THREE.Vector3(stats.centerX, stats.centerY + 0.36, stats.centerZ);
+    return {
+      hasRequiredAnchors: Boolean(anchors.hips && anchors.chest && anchors.neck && anchors.leftArm && anchors.rightArm),
+      visible: true,
+      bodyWidth: 0.78,
+      torsoHeight: 0.86,
+      sleeveLength: 0.38,
+      sleeveOpening: 0.34,
+      vertexCount: assembly.vertices.length,
+      faceCount: assembly.faces.length,
+      stitchEdgeCount: assembly.stitchEdges.length,
+      center: [stats.centerX, stats.centerY, stats.centerZ],
+      neckGap: shirtNeck.distanceTo(neckTarget),
+      anchorNames: namedAnchors,
+    };
+  };
+
+  const syncInteractionUi = (): void => {
+    document.body.classList.toggle('grab-mode', cloth.isGrabModeOn());
+    document.body.classList.toggle('shoot-mode', cloth.isShootModeOn());
+    grabToggleBtn?.classList.toggle('active', cloth.isGrabModeOn());
+    shootToggleBtn?.classList.toggle('active', cloth.isShootModeOn());
+  };
+  syncInteractionUi();
+  grabToggleBtn?.addEventListener('click', () => {
+    cloth.setGrabModeEnabled(!cloth.isGrabModeOn());
+    syncInteractionUi();
+    if (!cloth.isGrabModeOn()) {
+      document.body.classList.remove('grabbing');
+      cloth.controls.enabled = true;
+    }
+  });
+  shootToggleBtn?.addEventListener('click', () => {
+    cloth.setShootModeEnabled(!cloth.isShootModeOn());
+    syncInteractionUi();
+    if (!cloth.isShootModeOn()) {
+      cloth.controls.enabled = true;
+    }
+  });
+  let bonesVisible = true;
+  bonesToggleBtn.addEventListener('click', () => {
+    bonesVisible = !bonesVisible;
+    rig.setXrayVisible(bonesVisible);
+    bonesToggleBtn.classList.toggle('active', bonesVisible);
+  });
+  resetBtn?.addEventListener('click', () => {
+    cloth.controls.reset();
+  });
+
+  const canvas = cloth.renderer.domElement;
+  const updateMouseNdc = (event: PointerEvent): void => {
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return;
+    }
+    cloth.setMousePointerNdc(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+  };
+  canvas.addEventListener('pointermove', updateMouseNdc);
+  canvas.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) {
+      return;
+    }
+    updateMouseNdc(event);
+    if (cloth.isShootModeOn()) {
+      const rect = canvas.getBoundingClientRect();
+      cloth.fireBb(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1,
+      );
+      return;
+    }
+    if (!cloth.isGrabModeOn()) {
+      return;
+    }
+    cloth.beginGrabAttempt();
+    cloth.controls.enabled = false;
+    document.body.classList.add('grabbing');
+    canvas.setPointerCapture(event.pointerId);
+  });
+  const releaseGrab = (event: PointerEvent): void => {
+    if (!cloth.isGrabPointerDown()) {
+      return;
+    }
+    cloth.endGrabAttempt();
+    cloth.controls.enabled = true;
+    document.body.classList.remove('grabbing');
+    if (canvas.hasPointerCapture(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId);
+    }
+  };
+  canvas.addEventListener('pointerup', releaseGrab);
+  canvas.addEventListener('pointercancel', releaseGrab);
+  canvas.addEventListener('pointerleave', () => cloth.clearMousePointer());
+
+  window.addEventListener('resize', () => cloth.resize());
+  const timer = new THREE.Timer();
+  cloth.renderer.setAnimationLoop(() => {
+    timer.update();
+    const delta = Math.min(timer.getDelta(), 1 / 30);
+    rig.update(delta);
+    syncCharacterBoneSdfsToGpu(cloth, rig);
+    cloth.update();
+    cloth.render();
   });
 }
 
@@ -697,6 +924,101 @@ function createTubePageAssembly(kind: TubeAssemblySpawnKind): ClothAssembly {
   }
 }
 
+function placeCharacterTShirtAssembly(rig: AnimatedCharacterSceneRig): ClothAssembly {
+  const source = createTShirtAssembly({
+    bodyWidth: 0.78,
+    torsoHeight: 0.86,
+    sleeveLength: 0.38,
+    sleeveOpening: 0.34,
+    sleeveTubeRadius: 0.12,
+    depth: 0.32,
+    bodySegmentsX: 24,
+    bodySegmentsY: 28,
+    sleeveSegmentsX: 16,
+  });
+  const anchors = rig.getCharacterAnchors();
+  const hips = anchors.hips ?? new THREE.Vector3(0, 0.75, 0);
+  const chest = anchors.chest ?? new THREE.Vector3(0, 1.1, 0);
+  const neck = anchors.neck ?? new THREE.Vector3(0, 1.38, 0);
+  const leftShoulder = anchors.leftShoulder;
+  const rightShoulder = anchors.rightShoulder;
+  const shoulderCenter = leftShoulder && rightShoulder
+    ? leftShoulder.clone().add(rightShoulder).multiplyScalar(0.5)
+    : chest;
+  const targetCenter = hips.clone().lerp(shoulderCenter, 0.55);
+  targetCenter.y = neck.y - 0.86 * 0.86;
+
+  const xAxis = leftShoulder && rightShoulder
+    ? rightShoulder.clone().sub(leftShoulder)
+    : new THREE.Vector3(1, 0, 0);
+  xAxis.y = 0;
+  if (xAxis.lengthSq() < 0.0001) {
+    xAxis.set(1, 0, 0);
+  }
+  xAxis.normalize();
+  const zAxis = xAxis.clone().cross(new THREE.Vector3(0, 1, 0)).normalize();
+  const yAxis = new THREE.Vector3(0, 1, 0);
+  const rotation = new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis);
+  const transform = (position: readonly [number, number, number]): [number, number, number] => {
+    const world = new THREE.Vector3(
+      position[0],
+      position[1],
+      position[2],
+    ).applyMatrix4(rotation).add(targetCenter);
+    return [world.x, world.y, world.z];
+  };
+
+  return {
+    vertices: source.vertices.map((vertex) => ({
+      ...vertex,
+      position: transform(vertex.position),
+    })),
+    faces: source.faces,
+    edges: source.edges,
+    stitchEdges: source.stitchEdges,
+  };
+}
+
+function syncCharacterBoneSdfsToGpu(cloth: ClothSimulation, rig: AnimatedCharacterSceneRig): void {
+  cloth.setBoneSdfCapsules(rig.getBoneSdfSummary());
+  cloth.settings.mannequinMargin = 0.035;
+  cloth.settings.mannequinFriction = 0.85;
+  cloth.settings.mannequinCollision = false;
+  cloth.applySettings();
+}
+
+function syncCharacterCollisionSdf(cloth: ClothSimulation, rig: AnimatedCharacterSceneRig): void {
+  const anchors = rig.getCharacterAnchors();
+  const hips = anchors.hips ?? new THREE.Vector3(0, 0.72, 0);
+  const chest = anchors.chest ?? new THREE.Vector3(0, 1.1, 0);
+  const neck = anchors.neck ?? new THREE.Vector3(0, 1.38, 0);
+  const leftShoulder = anchors.leftShoulder ?? new THREE.Vector3(-0.32, chest.y, 0);
+  const rightShoulder = anchors.rightShoulder ?? new THREE.Vector3(0.32, chest.y, 0);
+  const leftArm = anchors.leftArm ?? leftShoulder;
+  const rightArm = anchors.rightArm ?? rightShoulder;
+  const shoulderSpan = leftShoulder.distanceTo(rightShoulder);
+  const torsoHeight = Math.max(0.45, neck.y - hips.y);
+  const torsoCenterY = hips.y + torsoHeight * 0.48;
+  const armCenterY = (leftShoulder.y + rightShoulder.y + leftArm.y + rightArm.y) * 0.25;
+
+  cloth.settings.mannequinCollision = true;
+  cloth.settings.showMannequin = false;
+  cloth.settings.mannequinMargin = 0.05;
+  cloth.settings.mannequinFriction = 0.85;
+  cloth.settings.mannequinTorsoRadiusX = THREE.MathUtils.clamp(shoulderSpan * 0.55, 0.24, 0.42);
+  cloth.settings.mannequinTorsoRadiusY = THREE.MathUtils.clamp(torsoHeight * 0.48, 0.28, 0.48);
+  cloth.settings.mannequinTorsoRadiusZ = THREE.MathUtils.clamp(shoulderSpan * 0.34, 0.18, 0.28);
+  cloth.settings.mannequinTorsoCenterY = torsoCenterY;
+  cloth.settings.mannequinArmRadius = THREE.MathUtils.clamp(shoulderSpan * 0.16, 0.085, 0.13);
+  cloth.settings.mannequinArmHalfLength = THREE.MathUtils.clamp(shoulderSpan * 0.88, 0.38, 0.72);
+  cloth.settings.mannequinArmCenterY = armCenterY;
+  cloth.settings.mannequinNeckRadius = 0.1;
+  cloth.settings.mannequinNeckCenterY = neck.y;
+  cloth.settings.mannequinNeckBaseRadius = 0.16;
+  cloth.settings.mannequinNeckBaseCenterY = (neck.y + chest.y) * 0.5;
+  cloth.applySettings();
+}
+
 async function bootstrap(): Promise<void> {
   const statusEl = document.querySelector<HTMLElement>('[data-testid="sim-status"]');
   const backendEl = document.querySelector<HTMLElement>('[data-testid="sim-backend"]');
@@ -725,6 +1047,11 @@ async function bootstrap(): Promise<void> {
 
   if (isTubeMode()) {
     await bootstrapZeroGravityTube(statusEl, backendEl, particlesEl);
+    return;
+  }
+
+  if (isCharacterMode()) {
+    await bootstrapCharacterPreview(statusEl, backendEl, particlesEl);
     return;
   }
 

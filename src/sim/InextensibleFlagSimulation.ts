@@ -311,6 +311,12 @@ export interface VisibleWorldGeometryAuditReport {
   issues: string[];
 }
 
+export interface BoneSdfCapsuleSample {
+  readonly start: readonly [number, number, number];
+  readonly end: readonly [number, number, number];
+  readonly radius: number;
+}
+
 interface FabricNormalMapStats {
   size: number;
   varianceR: number;
@@ -318,6 +324,8 @@ interface FabricNormalMapStats {
   varianceB: number;
   maxChannelRange: number;
 }
+
+const MAX_BONE_SDF_CAPSULES = 96;
 
 /**
  * Inextensible flag: Verlet predict (wind only) + PBD distance constraints on mesh edges.
@@ -404,6 +412,8 @@ export class InextensibleFlagSimulation {
   private bbVelocityBuffer!: ReturnType<typeof instancedArray>;
   private bbAgeBuffer!: ReturnType<typeof instancedArray>;
   private bbActiveBuffer!: ReturnType<typeof instancedArray>;
+  private boneSdfStartBuffer!: ReturnType<typeof instancedArray>;
+  private boneSdfEndRadiusBuffer!: ReturnType<typeof instancedArray>;
 
   private predictMotion!: ReturnType<ReturnType<typeof Fn>['compute']>;
   private beginSubstep!: ReturnType<ReturnType<typeof Fn>['compute']>;
@@ -413,6 +423,7 @@ export class InextensibleFlagSimulation {
   private clampSubstepTravel!: ReturnType<ReturnType<typeof Fn>['compute']>;
   private resolvePoleCollision!: ReturnType<ReturnType<typeof Fn>['compute']>;
   private resolveMannequinCollision!: ReturnType<ReturnType<typeof Fn>['compute']>;
+  private resolveBoneSdfCollision!: ReturnType<ReturnType<typeof Fn>['compute']>;
   private resolveSelfCollision!: ReturnType<ReturnType<typeof Fn>['compute']>;
   private enforcePins!: ReturnType<ReturnType<typeof Fn>['compute']>;
   private resetFlagPositions!: ReturnType<ReturnType<typeof Fn>['compute']>;
@@ -1141,6 +1152,35 @@ export class InextensibleFlagSimulation {
     this.syncSimGridDebugOverlay();
   }
 
+  setBoneSdfCapsules(capsules: readonly BoneSdfCapsuleSample[]): void {
+    if (!this.boneSdfStartBuffer || !this.boneSdfEndRadiusBuffer) {
+      return;
+    }
+
+    const startAttr = this.boneSdfStartBuffer.value as StorageInstancedBufferAttribute;
+    const endRadiusAttr = this.boneSdfEndRadiusBuffer.value as StorageInstancedBufferAttribute;
+    const startArray = startAttr.array as Float32Array;
+    const endRadiusArray = endRadiusAttr.array as Float32Array;
+    startArray.fill(0);
+    endRadiusArray.fill(0);
+
+    const count = Math.min(capsules.length, MAX_BONE_SDF_CAPSULES);
+    for (let i = 0; i < count; i++) {
+      const capsule = capsules[i]!;
+      startArray[i * 4] = capsule.start[0];
+      startArray[i * 4 + 1] = capsule.start[1];
+      startArray[i * 4 + 2] = capsule.start[2];
+      startArray[i * 4 + 3] = 1;
+      endRadiusArray[i * 4] = capsule.end[0];
+      endRadiusArray[i * 4 + 1] = capsule.end[1];
+      endRadiusArray[i * 4 + 2] = capsule.end[2];
+      endRadiusArray[i * 4 + 3] = capsule.radius;
+    }
+
+    startAttr.needsUpdate = true;
+    endRadiusAttr.needsUpdate = true;
+  }
+
   resetFlag(): void {
     this.bbPool.reset();
     if (this.bbPositionBuffer) {
@@ -1426,6 +1466,7 @@ export class InextensibleFlagSimulation {
         if (this.settings.mannequinCollision) {
           this.renderer.compute(this.resolveMannequinCollision);
         }
+        this.renderer.compute(this.resolveBoneSdfCollision);
         if (this.settings.selfCollision) {
           this.renderer.compute(this.resolveSelfCollision);
         }
@@ -2187,21 +2228,21 @@ export class InextensibleFlagSimulation {
     this.edgeActiveBuffer = instancedArray(new Uint32Array(edgeCount).fill(1), 'uint').setPBO(true);
     this.edgeVisualBuffer = instancedArray(new Uint32Array(edgeCount).fill(1), 'uint').setPBO(true);
     this.edgeDependencyStartsBuffer = instancedArray(edgeDependencyStarts, 'uint');
-    this.edgeDependencyIdsBuffer = instancedArray(edgeDependencyIds, 'uint');
+    this.edgeDependencyIdsBuffer = instancedArray(nonEmptyUint32Array(edgeDependencyIds), 'uint');
     this.simHorizontalEdgeIdBuffer = instancedArray(
-      this.packSimEdgeIdLookup(this.simHorizontalEdgeIds),
+      nonEmptyUint32Array(this.packSimEdgeIdLookup(this.simHorizontalEdgeIds)),
       'uint',
     ).setPBO(true);
     this.simVerticalEdgeIdBuffer = instancedArray(
-      this.packSimEdgeIdLookup(this.simVerticalEdgeIds),
+      nonEmptyUint32Array(this.packSimEdgeIdLookup(this.simVerticalEdgeIds)),
       'uint',
     ).setPBO(true);
     this.simShearDownEdgeIdBuffer = instancedArray(
-      this.packSimEdgeIdLookup(this.simShearDownEdgeIds),
+      nonEmptyUint32Array(this.packSimEdgeIdLookup(this.simShearDownEdgeIds)),
       'uint',
     ).setPBO(true);
     this.simShearUpEdgeIdBuffer = instancedArray(
-      this.packSimEdgeIdLookup(this.simShearUpEdgeIds),
+      nonEmptyUint32Array(this.packSimEdgeIdLookup(this.simShearUpEdgeIds)),
       'uint',
     ).setPBO(true);
     this.bbPositionBuffer = instancedArray(new Float32Array(this.bbPool.maxCount * 3), 'vec3').setPBO(
@@ -2216,6 +2257,8 @@ export class InextensibleFlagSimulation {
     );
     this.bbAgeBuffer = instancedArray(new Float32Array(this.bbPool.maxCount), 'float').setPBO(true);
     this.bbActiveBuffer = instancedArray(new Uint32Array(this.bbPool.maxCount), 'uint').setPBO(true);
+    this.boneSdfStartBuffer = instancedArray(new Float32Array(MAX_BONE_SDF_CAPSULES * 4), 'vec4');
+    this.boneSdfEndRadiusBuffer = instancedArray(new Float32Array(MAX_BONE_SDF_CAPSULES * 4), 'vec4');
   }
 
   private buildSelfCollisionExclusionArray(): Uint32Array {
@@ -3278,6 +3321,8 @@ export class InextensibleFlagSimulation {
     const bbBoundsMinUniform = this.bbBoundsMinUniform;
     const bbBoundsMaxUniform = this.bbBoundsMaxUniform;
     const bbSlotCount = this.bbPool.maxCount;
+    const boneSdfStartBuffer = this.boneSdfStartBuffer;
+    const boneSdfEndRadiusBuffer = this.boneSdfEndRadiusBuffer;
 
     this.predictMotion = Fn(() => {
       const params = vertexParamsBuffer.element(instanceIndex).toVar();
@@ -3657,6 +3702,60 @@ export class InextensibleFlagSimulation {
     })()
       .compute(vertexCount)
       .setName('Mannequin SDF Collision');
+
+    this.resolveBoneSdfCollision = Fn(() => {
+      const params = vertexParamsBuffer.element(instanceIndex).toVar();
+      const isFixed = params.x;
+
+      If(isFixed, () => {
+        Return();
+      });
+
+      const position = vertexPositionBuffer.element(instanceIndex).toVar('boneSdfPosition');
+      const sdfDistance = float(1e9).toVar('boneSdfDistance');
+      const sdfNormal = vec3(float(0), float(1), float(0)).toVar('boneSdfNormal');
+
+      Loop({ start: uint(0), end: uint(MAX_BONE_SDF_CAPSULES), type: 'uint', condition: '<' }, ({ i }) => {
+        const start = boneSdfStartBuffer.element(i);
+        const endRadius = boneSdfEndRadiusBuffer.element(i);
+        const radius = endRadius.w;
+
+        If(radius.greaterThan(float(0.0001)), () => {
+          const a = start.xyz;
+          const b = endRadius.xyz;
+          const segment = b.sub(a).toVar('boneSdfSegment');
+          const segmentLenSq = segment.dot(segment).max(float(0.000001));
+          const t = position.sub(a).dot(segment).div(segmentLenSq).clamp(float(0), float(1));
+          const closest = a.add(segment.mul(t));
+          const offset = position.sub(closest).toVar('boneSdfOffset');
+          const len = offset.length().max(float(0.000001));
+          const distance = len.sub(radius);
+
+          If(distance.lessThan(sdfDistance), () => {
+            sdfDistance.assign(distance);
+            sdfNormal.assign(offset.div(len));
+          });
+        });
+      });
+
+      const contactDistance = clothThicknessUniform.add(mannequinMarginUniform);
+      If(sdfDistance.lessThan(contactDistance), () => {
+        const penetration = contactDistance.sub(sdfDistance).clamp(0, 0.045);
+        const projected = position.add(sdfNormal.mul(penetration)).toVar('boneSdfProjected');
+        const previous = vertexPreviousBuffer.element(instanceIndex).toVar('boneSdfPrevious');
+        const velocity = projected.sub(previous).toVar('boneSdfVelocity');
+        const normalVelocity = sdfNormal.mul(velocity.dot(sdfNormal));
+        const tangentVelocity = velocity.sub(normalVelocity);
+        const dampedVelocity = normalVelocity.add(
+          tangentVelocity.mul(float(1.0).sub(mannequinFrictionUniform.clamp(0, 0.95))),
+        );
+
+        vertexPositionBuffer.element(instanceIndex).assign(projected);
+        vertexPreviousBuffer.element(instanceIndex).assign(projected.sub(dampedVelocity));
+      });
+    })()
+      .compute(vertexCount)
+      .setName('Bone SDF Collision');
 
     this.resolveSelfCollision = Fn(() => {
       const params = vertexParamsBuffer.element(instanceIndex).toVar();
@@ -4364,4 +4463,8 @@ export class InextensibleFlagSimulation {
     }
     return ids;
   }
+}
+
+function nonEmptyUint32Array(values: Uint32Array): Uint32Array {
+  return values.length > 0 ? values : new Uint32Array([0]);
 }
