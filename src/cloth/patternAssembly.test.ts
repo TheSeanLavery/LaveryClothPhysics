@@ -6,6 +6,7 @@ import {
   createPyramidAssembly,
   createQuadPatch,
   createStitchedBoxAssembly,
+  createTShirtAssembly,
   validateClothAssembly,
 } from './patternAssembly.ts';
 
@@ -47,6 +48,26 @@ test('builds a closed pyramid with side and base stitches', () => {
   assert.equal(validateClothAssembly(pyramid).length, 0);
   assert.ok(pyramid.faces.some((face) => face.stitchId === 'pyramid-base-front'));
   assertStitchesAreCoincident(pyramid);
+});
+
+test('builds a stitched T-shirt with welded seams and open neck/hem/cuffs', () => {
+  const shirt = createTShirtAssembly({
+    bodyWidth: 0.8,
+    torsoHeight: 0.9,
+    sleeveLength: 0.32,
+    sleeveOpening: 0.32,
+    depth: 0.12,
+    bodySegmentsX: 12,
+    bodySegmentsY: 18,
+    sleeveSegmentsX: 5,
+  });
+
+  assert.equal(validateClothAssembly(shirt).length, 0);
+  assert.equal(new Set(shirt.vertices.map((vertex) => vertex.patchId)).size, 6);
+  assert.ok(shirt.stitchEdges.length > 80);
+  assert.ok(shirt.faces.some((face) => face.stitchId === 'tshirt-left-sleeve-underarm'));
+  assert.ok(shirt.stitchEdges.every((edge) => edge.restLength === 0));
+  assert.ok(Math.max(...shirt.edges.filter((edge) => edge.kind === 'structural').map((edge) => edge.restLength)) < 0.12);
 });
 
 test('rejects stitches with mismatched boundary sample counts', () => {

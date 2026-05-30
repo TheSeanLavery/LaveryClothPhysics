@@ -40,6 +40,7 @@ export {
   createPyramidAssembly,
   createQuadPatch,
   createStitchedBoxAssembly,
+  createTShirtAssembly,
   createTrianglePatch,
   validateClothAssembly,
   type AssemblyEdge,
@@ -58,6 +59,7 @@ export {
   type QuadPatchOptions,
   type StitchDefinition,
   type StitchEndpoint,
+  type TShirtAssemblyOptions,
   type TrianglePatchOptions,
 } from './patternAssembly';
 import {

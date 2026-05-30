@@ -102,6 +102,18 @@ export interface PyramidAssemblyOptions {
   readonly includeBase?: boolean;
 }
 
+export interface TShirtAssemblyOptions {
+  readonly bodyWidth: number;
+  readonly torsoHeight: number;
+  readonly sleeveLength: number;
+  readonly sleeveOpening: number;
+  readonly sleeveTubeRadius?: number;
+  readonly depth?: number;
+  readonly bodySegmentsX?: number;
+  readonly bodySegmentsY?: number;
+  readonly sleeveSegmentsX?: number;
+}
+
 export interface AssemblyValidationIssue {
   readonly id: string;
   readonly message: string;
@@ -350,6 +362,331 @@ export function createPyramidAssembly(options: PyramidAssemblyOptions): ClothAss
   return buildClothAssembly({ patches, stitches, renderStitches: true });
 }
 
+export function createTShirtAssembly(options: TShirtAssemblyOptions): ClothAssembly {
+  const bodyWidth = options.bodyWidth;
+  const torsoHeight = options.torsoHeight;
+  const sleeveLength = options.sleeveLength;
+  const depth = options.depth ?? 0.12;
+  const halfDepth = depth * 0.5;
+  const sleeveTubeRadius = options.sleeveTubeRadius ?? depth * 0.42;
+  const placedSleeveHang = sleeveTubeRadius * 0.75;
+  const placedSleeveLift = sleeveTubeRadius * 0.62;
+  const bodySegmentsX = Math.max(16, Math.round(options.bodySegmentsX ?? 24));
+  const bodySegmentsY = Math.max(18, Math.round(options.bodySegmentsY ?? 28));
+  const sleeveFlatCircumference = Math.PI * 2 * sleeveTubeRadius * 1.08;
+  const sleeveSegmentsV = Math.min(
+    bodySegmentsY,
+    Math.max(8, Math.round((options.sleeveOpening / torsoHeight) * bodySegmentsY)),
+  );
+  const sleeveSegmentsX = Math.max(5, Math.round(options.sleeveSegmentsX ?? 8));
+  const armholeTopV = bodySegmentsY;
+  const armholeBottomV = bodySegmentsY - sleeveSegmentsV;
+  const neckHalfSegments = Math.max(3, Math.round(bodySegmentsX * 0.16));
+  const neckLeftEndU = Math.floor(bodySegmentsX * 0.5) - neckHalfSegments;
+  const neckRightStartU = Math.ceil(bodySegmentsX * 0.5) + neckHalfSegments;
+  const shoulderDrop = torsoHeight * 0.055;
+  const frontNeckDrop = torsoHeight * 0.13;
+  const backNeckDrop = torsoHeight * 0.045;
+  const neckBindingWidth = torsoHeight * 0.025;
+
+  const makeBody = (id: string, zSign: number, neckDrop: number, placed: boolean): ClothPatchDefinition => {
+    const vertices: AssemblyVec3[] = [];
+    const uvs: AssemblyVec2[] = [];
+    const faces: [number, number, number][] = [];
+    const idx = (u: number, v: number) => u * (bodySegmentsY + 1) + v;
+    const rowWidth = (t: number): number => {
+      const hemWidth = bodyWidth * 0.95;
+      const shoulderWidth = bodyWidth * 0.84;
+      if (t < 0.72) {
+        return mix(hemWidth, bodyWidth, smoothstep(t / 0.72));
+      }
+      return mix(bodyWidth, shoulderWidth, smoothstep((t - 0.72) / 0.28));
+    };
+    const topY = (u: number): number => {
+      const t = u / bodySegmentsX;
+      const sideDrop = shoulderDrop * Math.abs(t * 2 - 1);
+      let y = torsoHeight - sideDrop;
+      if (u >= neckLeftEndU && u <= neckRightStartU) {
+        const neckT = (u - neckLeftEndU) / (neckRightStartU - neckLeftEndU);
+        y -= Math.sin(neckT * Math.PI) * neckDrop;
+      }
+      return y;
+    };
+
+    for (let u = 0; u <= bodySegmentsX; u++) {
+      const tu = u / bodySegmentsX;
+      const columnTop = topY(u);
+      for (let v = 0; v <= bodySegmentsY; v++) {
+        const tv = v / bodySegmentsY;
+        const y = columnTop * tv;
+        const x = (tu - 0.5) * rowWidth(tv);
+        const centerBulge = Math.sin(tu * Math.PI) * (1 - smoothstep((tv - 0.9) / 0.1) * 0.1);
+        const armholeT = armholeBottomV / bodySegmentsY;
+        const armholeEdgeBulge = Math.pow(Math.abs(tu * 2 - 1), 4) * smoothstep((tv - armholeT) / 0.18);
+        const z = placed ? zSign * halfDepth * Math.max(centerBulge, armholeEdgeBulge * 1.15) : 0;
+        vertices.push([x, y, z]);
+        uvs.push([tu, tv]);
+      }
+    }
+
+    for (let u = 0; u < bodySegmentsX; u++) {
+      for (let v = 0; v < bodySegmentsY; v++) {
+        const i00 = idx(u, v);
+        const i10 = idx(u + 1, v);
+        const i01 = idx(u, v + 1);
+        const i11 = idx(u + 1, v + 1);
+        faces.push([i00, i10, i01], [i10, i11, i01]);
+      }
+    }
+
+    return {
+      id,
+      label: id,
+      vertices,
+      uvs,
+      faces,
+      boundaries: {
+        bottom: range(0, bodySegmentsX).map((u) => idx(u, 0)),
+        right: range(0, bodySegmentsY).map((v) => idx(bodySegmentsX, v)),
+        top: range(0, bodySegmentsX).map((u) => idx(u, bodySegmentsY)),
+        left: range(0, bodySegmentsY).map((v) => idx(0, v)),
+        leftLowerSide: range(0, armholeBottomV).map((v) => idx(0, v)),
+        rightLowerSide: range(0, armholeBottomV).map((v) => idx(bodySegmentsX, v)),
+        leftArmhole: range(armholeBottomV, armholeTopV).map((v) => idx(0, v)),
+        rightArmhole: range(armholeBottomV, armholeTopV).map((v) => idx(bodySegmentsX, v)),
+        leftShoulder: range(0, neckLeftEndU).map((u) => idx(u, bodySegmentsY)),
+        rightShoulder: range(neckRightStartU, bodySegmentsX).map((u) => idx(u, bodySegmentsY)),
+        neckline: range(neckLeftEndU, neckRightStartU).map((u) => idx(u, bodySegmentsY)),
+      },
+    };
+  };
+
+  const makeSleeve = (
+    id: string,
+    side: 'left' | 'right',
+    frontArmhole: readonly AssemblyVec3[],
+    backArmhole: readonly AssemblyVec3[],
+    placed: boolean,
+  ): ClothPatchDefinition => {
+    const vertices: AssemblyVec3[] = [];
+    const uvs: AssemblyVec2[] = [];
+    const faces: [number, number, number][] = [];
+    const halfRingSegments = frontArmhole.length - 1;
+    const ringSegments = halfRingSegments * 2;
+    const idx = (ring: number, length: number) => ring * (sleeveSegmentsX + 1) + length;
+    const outward = side === 'left' ? -1 : 1;
+    const centerY = frontArmhole.reduce((sum, position) => sum + position[1], 0) / frontArmhole.length;
+    const lowY = Math.min(...frontArmhole.map((position) => position[1]));
+    const highY = Math.max(...frontArmhole.map((position) => position[1]));
+    const radiusY = Math.max((highY - lowY) * 0.42, sleeveTubeRadius);
+    const radiusZ = sleeveTubeRadius;
+    const innerX = frontArmhole[Math.floor(frontArmhole.length * 0.5)]![0];
+    const outerX = innerX + outward * sleeveLength;
+    const sleeveDrop = torsoHeight * 0.04;
+
+    for (let ring = 0; ring <= ringSegments; ring++) {
+      const ringT = ring / ringSegments;
+      const inner = ring <= halfRingSegments
+        ? frontArmhole[ring]!
+        : backArmhole[ringSegments - ring]!;
+      const angle = -Math.PI * 0.5 + ringT * Math.PI * 2;
+      const cylinder: AssemblyVec3 = [
+        outerX,
+        centerY + placedSleeveLift + Math.sin(angle) * radiusY - sleeveDrop,
+        Math.cos(angle) * radiusZ,
+      ];
+      for (let length = 0; length <= sleeveSegmentsX; length++) {
+        const lengthT = length / sleeveSegmentsX;
+        const sleeveHang = placedSleeveHang * smoothstep(lengthT);
+        if (placed) {
+          vertices.push([
+            mix(inner[0], cylinder[0], lengthT),
+            cylinder[1] - sleeveHang,
+            cylinder[2],
+          ]);
+        } else {
+          vertices.push([
+            side === 'left' ? -sleeveLength * lengthT : sleeveLength * lengthT,
+            centerY + (ringT - 0.5) * sleeveFlatCircumference,
+            0,
+          ]);
+        }
+        uvs.push([lengthT, ringT]);
+      }
+    }
+
+    for (let ring = 0; ring < ringSegments; ring++) {
+      for (let length = 0; length < sleeveSegmentsX; length++) {
+        const i00 = idx(ring, length);
+        const i10 = idx(ring + 1, length);
+        const i01 = idx(ring, length + 1);
+        const i11 = idx(ring + 1, length + 1);
+        faces.push([i00, i10, i01], [i10, i11, i01]);
+      }
+    }
+
+    return {
+      id,
+      label: id,
+      vertices,
+      uvs,
+      faces,
+      boundaries: {
+        innerFrontHalf: range(0, halfRingSegments).map((ring) => idx(ring, 0)),
+        innerBackHalf: range(0, halfRingSegments).map((ring) => idx(ringSegments - ring, 0)),
+        cuff: range(0, ringSegments).map((ring) => idx(ring, sleeveSegmentsX)),
+        seamStart: range(0, sleeveSegmentsX).map((length) => idx(0, length)),
+        seamEnd: range(0, sleeveSegmentsX).map((length) => idx(ringSegments, length)),
+      },
+    };
+  };
+
+  const makeNeckBinding = (id: string, neckline: readonly AssemblyVec3[], placed: boolean): ClothPatchDefinition => {
+    const vertices: AssemblyVec3[] = [];
+    const uvs: AssemblyVec2[] = [];
+    const faces: [number, number, number][] = [];
+    const segmentsU = neckline.length - 1;
+    const segmentsV = 2;
+    const idx = (u: number, v: number) => u * (segmentsV + 1) + v;
+
+    for (let u = 0; u <= segmentsU; u++) {
+      const tu = u / segmentsU;
+      const outer = neckline[u]!;
+      const centerPull = (0.5 - tu) * neckBindingWidth * 0.28;
+      for (let v = 0; v <= segmentsV; v++) {
+        const tv = v / segmentsV;
+        vertices.push([
+          outer[0] + centerPull * tv,
+          outer[1] - neckBindingWidth * tv,
+          placed ? outer[2] : 0,
+        ]);
+        uvs.push([tu, tv]);
+      }
+    }
+
+    for (let u = 0; u < segmentsU; u++) {
+      for (let v = 0; v < segmentsV; v++) {
+        const i00 = idx(u, v);
+        const i10 = idx(u + 1, v);
+        const i01 = idx(u, v + 1);
+        const i11 = idx(u + 1, v + 1);
+        faces.push([i00, i10, i01], [i10, i11, i01]);
+      }
+    }
+
+    return {
+      id,
+      label: id,
+      vertices,
+      uvs,
+      faces,
+      boundaries: {
+        outer: range(0, segmentsU).map((u) => idx(u, 0)),
+        inner: range(0, segmentsU).map((u) => idx(u, segmentsV)),
+        leftEnd: range(0, segmentsV).map((v) => idx(0, v)),
+        rightEnd: range(0, segmentsV).map((v) => idx(segmentsU, v)),
+      },
+    };
+  };
+
+  const boundaryPositions = (patch: ClothPatchDefinition, name: BoundaryName): AssemblyVec3[] => {
+    return patch.boundaries[name]!.map((id) => patch.vertices[id]!);
+  };
+
+  const buildShirtAssembly = (
+    front: ClothPatchDefinition,
+    back: ClothPatchDefinition,
+    leftSleeve: ClothPatchDefinition,
+    rightSleeve: ClothPatchDefinition,
+    frontNeckBinding: ClothPatchDefinition,
+    backNeckBinding: ClothPatchDefinition,
+  ): ClothAssembly =>
+    buildClothAssembly({
+      patches: [
+        front,
+        back,
+        leftSleeve,
+        rightSleeve,
+        frontNeckBinding,
+        backNeckBinding,
+      ],
+      renderStitches: true,
+      stitches: [
+        stitch('tshirt-front-left-armhole', front.id, 'leftArmhole', leftSleeve.id, 'innerFrontHalf', false),
+        stitch('tshirt-back-left-armhole', back.id, 'leftArmhole', leftSleeve.id, 'innerBackHalf', false),
+        stitch('tshirt-front-right-armhole', front.id, 'rightArmhole', rightSleeve.id, 'innerFrontHalf', false),
+        stitch('tshirt-back-right-armhole', back.id, 'rightArmhole', rightSleeve.id, 'innerBackHalf', false),
+        stitch('tshirt-front-neck-binding', front.id, 'neckline', frontNeckBinding.id, 'outer', false),
+        stitch('tshirt-back-neck-binding', back.id, 'neckline', backNeckBinding.id, 'outer', false),
+        stitch('tshirt-left-side', front.id, 'leftLowerSide', back.id, 'leftLowerSide', false),
+        stitch('tshirt-right-side', front.id, 'rightLowerSide', back.id, 'rightLowerSide', false),
+        stitch('tshirt-left-shoulder', front.id, 'leftShoulder', back.id, 'leftShoulder', false),
+        stitch('tshirt-right-shoulder', front.id, 'rightShoulder', back.id, 'rightShoulder', false),
+        stitch('tshirt-left-sleeve-underarm', leftSleeve.id, 'seamStart', leftSleeve.id, 'seamEnd', false),
+        stitch('tshirt-right-sleeve-underarm', rightSleeve.id, 'seamStart', rightSleeve.id, 'seamEnd', false),
+        stitch('tshirt-neck-binding-left-join', frontNeckBinding.id, 'leftEnd', backNeckBinding.id, 'leftEnd', false),
+        stitch('tshirt-neck-binding-right-join', frontNeckBinding.id, 'rightEnd', backNeckBinding.id, 'rightEnd', false),
+      ],
+    });
+
+  const front = makeBody('tshirt-front', 1, frontNeckDrop, true);
+  const back = makeBody('tshirt-back', -1, backNeckDrop, true);
+  const leftSleeve = makeSleeve(
+    'tshirt-left-sleeve',
+    'left',
+    boundaryPositions(front, 'leftArmhole'),
+    boundaryPositions(back, 'leftArmhole'),
+    true,
+  );
+  const rightSleeve = makeSleeve(
+    'tshirt-right-sleeve',
+    'right',
+    boundaryPositions(front, 'rightArmhole'),
+    boundaryPositions(back, 'rightArmhole'),
+    true,
+  );
+  const frontNeckBinding = makeNeckBinding('tshirt-front-neck-binding', boundaryPositions(front, 'neckline'), true);
+  const backNeckBinding = makeNeckBinding('tshirt-back-neck-binding', boundaryPositions(back, 'neckline'), true);
+  const placed = buildShirtAssembly(front, back, leftSleeve, rightSleeve, frontNeckBinding, backNeckBinding);
+
+  const flatFront = makeBody('tshirt-front', 1, frontNeckDrop, false);
+  const flatBack = makeBody('tshirt-back', -1, backNeckDrop, false);
+  const flatLeftSleeve = makeSleeve(
+    'tshirt-left-sleeve',
+    'left',
+    boundaryPositions(flatFront, 'leftArmhole'),
+    boundaryPositions(flatBack, 'leftArmhole'),
+    false,
+  );
+  const flatRightSleeve = makeSleeve(
+    'tshirt-right-sleeve',
+    'right',
+    boundaryPositions(flatFront, 'rightArmhole'),
+    boundaryPositions(flatBack, 'rightArmhole'),
+    false,
+  );
+  const flatFrontNeckBinding = makeNeckBinding(
+    'tshirt-front-neck-binding',
+    boundaryPositions(flatFront, 'neckline'),
+    false,
+  );
+  const flatBackNeckBinding = makeNeckBinding(
+    'tshirt-back-neck-binding',
+    boundaryPositions(flatBack, 'neckline'),
+    false,
+  );
+  const flat = buildShirtAssembly(
+    flatFront,
+    flatBack,
+    flatLeftSleeve,
+    flatRightSleeve,
+    flatFrontNeckBinding,
+    flatBackNeckBinding,
+  );
+
+  return applyFlatRestLengthsToPlacedAssembly(flat, placed);
+}
+
 function addStructuralEdge(
   edges: AssemblyEdge[],
   edgeKeys: Set<string>,
@@ -403,6 +740,25 @@ function resolveBoundary(
   return endpoint.reversed ? ids.reverse() : ids;
 }
 
+function applyFlatRestLengthsToPlacedAssembly(flat: ClothAssembly, placed: ClothAssembly): ClothAssembly {
+  if (flat.edges.length !== placed.edges.length || flat.vertices.length !== placed.vertices.length) {
+    throw new Error('Flat and placed T-shirt assemblies must share topology');
+  }
+
+  const edges = placed.edges.map((edge, index) => ({
+    ...edge,
+    restLength: flat.edges[index]!.restLength,
+  }));
+  const edgeById = new Map(edges.map((edge) => [edge.id, edge]));
+  const stitchEdges = placed.stitchEdges.map((edge) => edgeById.get(edge.id)!);
+  return {
+    vertices: placed.vertices,
+    faces: placed.faces,
+    edges,
+    stitchEdges,
+  };
+}
+
 function stitch(
   id: string,
   panelA: string,
@@ -410,11 +766,13 @@ function stitch(
   panelB: string,
   edgeB: BoundaryName,
   reversed = false,
+  restLength?: number,
 ): StitchDefinition {
   return {
     id,
     a: { patchId: panelA, boundary: edgeA },
     b: { patchId: panelB, boundary: edgeB, reversed },
+    restLength,
   };
 }
 
@@ -434,6 +792,15 @@ function mix3(a: AssemblyVec3, b: AssemblyVec3, t: number): AssemblyVec3 {
     a[1] * (1 - t) + b[1] * t,
     a[2] * (1 - t) + b[2] * t,
   ];
+}
+
+function mix(a: number, b: number, t: number): number {
+  return a * (1 - t) + b * t;
+}
+
+function smoothstep(value: number): number {
+  const t = Math.min(1, Math.max(0, value));
+  return t * t * (3 - 2 * t);
 }
 
 function distance(a: AssemblyVec3, b: AssemblyVec3): number {

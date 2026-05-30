@@ -224,4 +224,106 @@ test.describe('GPU cloth tube scene', () => {
     expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
     expect(consoleCapture.threeMessages, consoleCapture.threeMessages.join('\n')).toEqual([]);
   });
+
+  test('spawns a realistic stitched T-shirt with a startup-only inflation pulse', async ({ page }) => {
+    const consoleCapture = attachConsoleCapture(page);
+
+    await page.goto('/?mode=tube');
+    await expect(page.locator('[data-testid="sim-status"]')).toHaveText('running (flag solver tube)', {
+      timeout: 20_000,
+    });
+
+    await page.evaluate(() => window.__zeroGravityTubeSetTearThreshold?.(1.37));
+    const faceCount = await page.evaluate(() => window.__zeroGravityTubeSpawnShape?.('tshirt'));
+    const stats = await page.evaluate(() => window.__zeroGravityTubeShapeStats?.());
+    const beforePhysics = await page.evaluate(() => window.__zeroGravityTubeStats?.());
+
+    expect(faceCount).toBeGreaterThan(500);
+    expect(stats?.activeShape).toBe('tshirt');
+    expect(stats?.vertexCount).toBeGreaterThan(500);
+    expect(stats?.stitchEdgeCount).toBeGreaterThan(80);
+    expect(stats?.simulated).toBe(true);
+    expect(stats?.sleeveStats?.crossSectionHeight).toBeGreaterThan(0.25);
+    expect(stats?.sleeveStats?.crossSectionDepth).toBeGreaterThan(0.12);
+    expect(stats?.sleeveStats?.cuffDrop).toBeGreaterThan(0.04);
+    expect(stats?.sleeveStats?.vertexCount).toBeGreaterThan(600);
+    expect(beforePhysics?.pressure).toBeGreaterThan(0);
+    expect(beforePhysics?.tearStretchThreshold).toBeGreaterThan(1000);
+    expect(beforePhysics?.mannequinCollision).toBe(true);
+    await page.waitForTimeout(1_000);
+
+    const afterPhysics = await page.evaluate(() => window.__zeroGravityTubeStats?.());
+    expect(afterPhysics?.hasNaN).toBe(false);
+    expect(afterPhysics?.pressure).toBe(0);
+    expect(afterPhysics?.tearStretchThreshold).toBeCloseTo(1.37, 2);
+    expect(afterPhysics?.mannequinCollision).toBe(true);
+    expect(afterPhysics?.centerY ?? 0).toBeGreaterThan(0.15);
+    expect(afterPhysics?.centerY ?? 0).toBeLessThan(0.75);
+    expect(afterPhysics?.minY ?? 0).toBeGreaterThan(-0.1);
+    expect(afterPhysics?.maxY ?? 0).toBeLessThan(1.15);
+
+    expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
+    expect(consoleCapture.threeMessages, consoleCapture.threeMessages.join('\n')).toEqual([]);
+  });
+
+  test('presets save and load while preserving the active T-shirt assembly', async ({ page }) => {
+    const consoleCapture = attachConsoleCapture(page);
+    const presetName = `Tube T-shirt preset ${Date.now()}`;
+
+    await page.goto('/?mode=tube');
+    await expect(page.locator('[data-testid="sim-status"]')).toHaveText('running (flag solver tube)', {
+      timeout: 20_000,
+    });
+
+    await page.evaluate(async (name) => {
+      const presets = await window.__zeroGravityTubeListSettingsPresets?.();
+      for (const preset of presets ?? []) {
+        if (preset.name === name) {
+          await window.__zeroGravityTubeDeleteSettingsPreset?.(preset.id);
+        }
+      }
+    }, presetName);
+
+    await page.evaluate(() => window.__zeroGravityTubeSpawnShape?.('tshirt'));
+    await page.waitForTimeout(300);
+    await page.evaluate(async () => {
+      await window.__zeroGravityTubeApplySettings?.({
+        windStrength: 4.75,
+        tearStretchThreshold: 1.62,
+        bbSpeed: 33,
+        shapePressure: 0,
+      });
+    });
+
+    const saved = await page.evaluate((name) => window.__zeroGravityTubeSaveSettingsPreset?.(name), presetName);
+    expect(saved?.id).toBeTruthy();
+
+    await page.evaluate(async () => {
+      await window.__zeroGravityTubeApplySettings?.({
+        windStrength: 0.5,
+        tearStretchThreshold: 1.05,
+        bbSpeed: 9,
+        shapePressure: 0,
+      });
+    });
+
+    const loaded = await page.evaluate((id) => window.__zeroGravityTubeLoadSettingsPreset?.(id!), saved!.id);
+    const settings = await page.evaluate(() => window.__zeroGravityTubeGetSettings?.());
+    const shapeStats = await page.evaluate(() => window.__zeroGravityTubeShapeStats?.());
+    const simStats = await page.evaluate(() => window.__zeroGravityTubeStats?.());
+
+    expect(loaded?.name).toBe(presetName);
+    expect(settings?.windStrength).toBeCloseTo(4.75, 2);
+    expect(settings?.tearStretchThreshold).toBeCloseTo(1.62, 2);
+    expect(settings?.bbSpeed).toBeCloseTo(33, 2);
+    expect(settings?.shapePressure).toBe(0);
+    expect(shapeStats?.activeShape).toBe('tshirt');
+    expect(shapeStats?.simulated).toBe(true);
+    expect(simStats?.hasNaN).toBe(false);
+
+    await page.evaluate((id) => window.__zeroGravityTubeDeleteSettingsPreset?.(id!), saved!.id);
+
+    expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
+    expect(consoleCapture.threeMessages, consoleCapture.threeMessages.join('\n')).toEqual([]);
+  });
 });

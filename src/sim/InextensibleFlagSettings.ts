@@ -31,6 +31,27 @@ export interface InextensibleFlagSettings {
   zoneBDirZ: number;
   dampening: number;
   gravity: number;
+  /** Outward force for inflated garment/assembly previews (0 = off). */
+  shapePressure: number;
+  /** GPU procedural T-pose mannequin collision for garment fitting. */
+  mannequinCollision: boolean;
+  /** Draw the visual mannequin proxy that matches the GPU SDF dimensions. */
+  showMannequin: boolean;
+  /** Extra world-space clearance between cloth particles and the mannequin SDF. */
+  mannequinMargin: number;
+  /** Tangential damping applied when cloth contacts the mannequin. */
+  mannequinFriction: number;
+  mannequinTorsoRadiusX: number;
+  mannequinTorsoRadiusY: number;
+  mannequinTorsoRadiusZ: number;
+  mannequinTorsoCenterY: number;
+  mannequinArmRadius: number;
+  mannequinArmHalfLength: number;
+  mannequinArmCenterY: number;
+  mannequinNeckRadius: number;
+  mannequinNeckCenterY: number;
+  mannequinNeckBaseRadius: number;
+  mannequinNeckBaseCenterY: number;
   flagColor: string;
   roughness: number;
   sheen: number;
@@ -116,6 +137,22 @@ export const defaultInextensibleFlagSettings = (): InextensibleFlagSettings => (
   zoneBDirZ: 0.35,
   dampening: 0.9925,
   gravity: 0.00006,
+  shapePressure: 0,
+  mannequinCollision: false,
+  showMannequin: false,
+  mannequinMargin: 0.006,
+  mannequinFriction: 0.18,
+  mannequinTorsoRadiusX: 0.255,
+  mannequinTorsoRadiusY: 0.42,
+  mannequinTorsoRadiusZ: 0.11,
+  mannequinTorsoCenterY: 0.43,
+  mannequinArmRadius: 0.078,
+  mannequinArmHalfLength: 0.62,
+  mannequinArmCenterY: 0.65,
+  mannequinNeckRadius: 0.075,
+  mannequinNeckCenterY: 0.93,
+  mannequinNeckBaseRadius: 0.11,
+  mannequinNeckBaseCenterY: 0.82,
   flagColor: '#ffffff',
   roughness: 0.78,
   sheen: 0.42,

@@ -18,6 +18,28 @@ function refreshGuiControllers(gui: GUI): void {
   gui.controllersRecursive().forEach((controller) => controller.updateDisplay());
 }
 
+function safePresetFilename(name: string): string {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return `${slug || 'cloth-settings'}.json`;
+}
+
+function downloadJson(filename: string, payload: unknown): void {
+  const blob = new Blob([`${JSON.stringify(payload, null, 2)}\n`], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.rel = 'noopener';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function createInextensibleFlagControls(
   sim: InextensibleFlagSimulation,
   options: InextensibleFlagControlsOptions = {},
@@ -125,6 +147,45 @@ export function createInextensibleFlagControls(
         statusController.updateDisplay();
       }
     },
+    async exportPresetJson() {
+      const selectedId = getSelectedPresetId();
+      try {
+        if (selectedId) {
+          const stored = await getFlagSettingsPreset(selectedId);
+          if (!stored) {
+            presetsState.status = 'Preset not found';
+            statusController.updateDisplay();
+            return;
+          }
+          downloadJson(safePresetFilename(stored.name), {
+            type: 'lavery-cloth-settings-preset',
+            version: 1,
+            preset: stored,
+          });
+          presetsState.status = `Exported "${stored.name}"`;
+          statusController.updateDisplay();
+          return;
+        }
+
+        const name = presetsState.presetName.trim() || 'Current settings';
+        downloadJson(safePresetFilename(name), {
+          type: 'lavery-cloth-settings-preset',
+          version: 1,
+          preset: {
+            id: null,
+            name,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            settings: cloneFlagSettings(settings),
+          },
+        });
+        presetsState.status = `Exported "${name}"`;
+      } catch (error) {
+        presetsState.status = error instanceof Error ? error.message : 'Export failed';
+      } finally {
+        statusController.updateDisplay();
+      }
+    },
   };
 
   const presetNameController = presetsFolder.add(presetsState, 'presetName').name('Preset name');
@@ -152,6 +213,8 @@ export function createInextensibleFlagControls(
   savePresetController.domElement.setAttribute('data-testid', 'preset-save-btn');
   const loadPresetController = presetsFolder.add(presetsState, 'loadPreset').name('Load preset');
   loadPresetController.domElement.setAttribute('data-testid', 'preset-load-btn');
+  const exportPresetController = presetsFolder.add(presetsState, 'exportPresetJson').name('Export JSON');
+  exportPresetController.domElement.setAttribute('data-testid', 'preset-export-btn');
   presetsFolder.add(presetsState, 'deletePreset').name('Delete preset');
   const statusController = presetsFolder.add(presetsState, 'status').name('Status').disable();
   statusController.domElement.setAttribute('data-testid', 'preset-status');
@@ -181,6 +244,10 @@ export function createInextensibleFlagControls(
   physicsFolder.add(settings, 'poleCollision').name('Pole collision').onChange(sync);
   physicsFolder.add(settings, 'dampening', 0.8, 0.9999, 0.0001).name('Dampening').onChange(sync);
   physicsFolder.add(settings, 'gravity', 0, 0.001, 0.00001).name('Gravity').onChange(sync);
+  physicsFolder.add(settings, 'mannequinCollision').name('Mannequin collision').onChange(sync);
+  physicsFolder.add(settings, 'showMannequin').name('Show mannequin').onChange(sync);
+  physicsFolder.add(settings, 'mannequinMargin', 0, 0.05, 0.001).name('Mannequin margin').onChange(sync);
+  physicsFolder.add(settings, 'mannequinFriction', 0, 0.95, 0.01).name('Mannequin friction').onChange(sync);
 
   const tearingFolder = gui.addFolder('Tearing & BB');
   tearingFolder

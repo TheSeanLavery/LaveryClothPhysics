@@ -412,6 +412,7 @@ export class InextensibleFlagSimulation {
   private applyDistanceCorrections!: ReturnType<ReturnType<typeof Fn>['compute']>;
   private clampSubstepTravel!: ReturnType<ReturnType<typeof Fn>['compute']>;
   private resolvePoleCollision!: ReturnType<ReturnType<typeof Fn>['compute']>;
+  private resolveMannequinCollision!: ReturnType<ReturnType<typeof Fn>['compute']>;
   private resolveSelfCollision!: ReturnType<ReturnType<typeof Fn>['compute']>;
   private enforcePins!: ReturnType<ReturnType<typeof Fn>['compute']>;
   private resetFlagPositions!: ReturnType<ReturnType<typeof Fn>['compute']>;
@@ -447,6 +448,19 @@ export class InextensibleFlagSimulation {
   private windTurbulenceUniform!: ReturnType<typeof uniform>;
   private windDirectionUniform!: ReturnType<typeof uniform>;
   private gravityUniform!: ReturnType<typeof uniform>;
+  private shapePressureUniform!: ReturnType<typeof uniform>;
+  private mannequinCollisionUniform!: ReturnType<typeof uniform>;
+  private mannequinMarginUniform!: ReturnType<typeof uniform>;
+  private mannequinFrictionUniform!: ReturnType<typeof uniform>;
+  private mannequinTorsoRadiiUniform!: ReturnType<typeof uniform>;
+  private mannequinTorsoCenterYUniform!: ReturnType<typeof uniform>;
+  private mannequinArmRadiusUniform!: ReturnType<typeof uniform>;
+  private mannequinArmHalfLengthUniform!: ReturnType<typeof uniform>;
+  private mannequinArmCenterYUniform!: ReturnType<typeof uniform>;
+  private mannequinNeckRadiusUniform!: ReturnType<typeof uniform>;
+  private mannequinNeckCenterYUniform!: ReturnType<typeof uniform>;
+  private mannequinNeckBaseRadiusUniform!: ReturnType<typeof uniform>;
+  private mannequinNeckBaseCenterYUniform!: ReturnType<typeof uniform>;
   private zoneAStrengthUniform!: ReturnType<typeof uniform>;
   private zoneARadiusUniform!: ReturnType<typeof uniform>;
   private zoneASpeedUniform!: ReturnType<typeof uniform>;
@@ -500,6 +514,7 @@ export class InextensibleFlagSimulation {
   private fillLight!: THREE.DirectionalLight;
   private backLight!: THREE.DirectionalLight;
   private rimLight!: THREE.DirectionalLight;
+  private mannequinVisual: THREE.Group | null = null;
 
   private readonly defaultCameraPosition = new THREE.Vector3(-2.2, 1.6, 2.4);
   private readonly defaultCameraTarget = new THREE.Vector3(0, 0.95, 0);
@@ -595,6 +610,7 @@ export class InextensibleFlagSimulation {
     if (!this.isolatedMode) {
       this.addPole();
     }
+    this.setupMannequinVisual();
     this.setupClothGeometry();
     this.setupVertexBuffers();
     this.setupEdgeBuffers();
@@ -1264,6 +1280,23 @@ export class InextensibleFlagSimulation {
     this.windTurbulenceUniform.value = s.windTurbulence;
     this.windDirectionUniform.value.set(s.windDirectionX, s.windDirectionY, s.windDirectionZ);
     this.gravityUniform.value = s.gravity;
+    this.shapePressureUniform.value = s.shapePressure;
+    this.mannequinCollisionUniform.value = s.mannequinCollision ? 1 : 0;
+    this.mannequinMarginUniform.value = s.mannequinMargin;
+    this.mannequinFrictionUniform.value = s.mannequinFriction;
+    this.mannequinTorsoRadiiUniform.value.set(
+      s.mannequinTorsoRadiusX,
+      s.mannequinTorsoRadiusY,
+      s.mannequinTorsoRadiusZ,
+    );
+    this.mannequinTorsoCenterYUniform.value = s.mannequinTorsoCenterY;
+    this.mannequinArmRadiusUniform.value = s.mannequinArmRadius;
+    this.mannequinArmHalfLengthUniform.value = s.mannequinArmHalfLength;
+    this.mannequinArmCenterYUniform.value = s.mannequinArmCenterY;
+    this.mannequinNeckRadiusUniform.value = s.mannequinNeckRadius;
+    this.mannequinNeckCenterYUniform.value = s.mannequinNeckCenterY;
+    this.mannequinNeckBaseRadiusUniform.value = s.mannequinNeckBaseRadius;
+    this.mannequinNeckBaseCenterYUniform.value = s.mannequinNeckBaseCenterY;
     this.zoneAStrengthUniform.value = s.zoneAStrength;
     this.zoneARadiusUniform.value = s.zoneARadius;
     this.zoneASpeedUniform.value = s.zoneASpeed;
@@ -1295,6 +1328,7 @@ export class InextensibleFlagSimulation {
     this.syncClothMaterial(this.clothMaterial);
     this.syncSimGridDebugOverlay();
     this.syncStrandThreadVisual();
+    this.syncMannequinVisual();
   }
 
   private syncSimGridDebugOverlay(): void {
@@ -1388,6 +1422,9 @@ export class InextensibleFlagSimulation {
       for (let i = 0; i < 4; i++) {
         if (this.settings.poleCollision) {
           this.renderer.compute(this.resolvePoleCollision);
+        }
+        if (this.settings.mannequinCollision) {
+          this.renderer.compute(this.resolveMannequinCollision);
         }
         if (this.settings.selfCollision) {
           this.renderer.compute(this.resolveSelfCollision);
@@ -1533,11 +1570,17 @@ export class InextensibleFlagSimulation {
     const prevSegmentsY = this.clothNumSegmentsY;
     const prevFabricSource = this.settings.fabricTextureSource;
     const prevRenderSubdiv = this.settings.renderSubdivisions;
+    const preserveAssemblyTopology = this.topologyMode === 'assembly';
 
     Object.assign(this.settings, next);
+    if (preserveAssemblyTopology) {
+      this.settings.segmentsX = prevSegmentsX;
+      this.settings.segmentsY = prevSegmentsY;
+    }
 
     const segmentsChanged =
-      prevSegmentsX !== this.settings.segmentsX || prevSegmentsY !== this.settings.segmentsY;
+      !preserveAssemblyTopology &&
+      (prevSegmentsX !== this.settings.segmentsX || prevSegmentsY !== this.settings.segmentsY);
     const fabricChanged = prevFabricSource !== this.settings.fabricTextureSource;
     const renderSubdivChanged = prevRenderSubdiv !== this.settings.renderSubdivisions;
 
@@ -1896,6 +1939,71 @@ export class InextensibleFlagSimulation {
     this.scene.add(ground);
   }
 
+  private setupMannequinVisual(): void {
+    const material = new THREE.MeshStandardNodeMaterial({
+      color: 0x6f7f96,
+      roughness: 0.72,
+      metalness: 0.02,
+      transparent: true,
+      opacity: 0.38,
+    });
+    const group = new THREE.Group();
+    group.name = 'sdf-mannequin-visual';
+
+    const torso = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 20), material);
+    torso.name = 'sdf-mannequin-torso';
+    group.add(torso);
+
+    const arms = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 24, 8), material);
+    arms.name = 'sdf-mannequin-arms';
+    arms.rotation.z = Math.PI * 0.5;
+    group.add(arms);
+
+    const neck = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), material);
+    neck.name = 'sdf-mannequin-neck';
+    group.add(neck);
+
+    const neckBase = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), material);
+    neckBase.name = 'sdf-mannequin-neck-base';
+    group.add(neckBase);
+
+    this.mannequinVisual = group;
+    this.scene.add(group);
+    this.syncMannequinVisual();
+  }
+
+  private syncMannequinVisual(): void {
+    if (!this.mannequinVisual) {
+      return;
+    }
+    const s = this.settings;
+    this.mannequinVisual.visible = s.showMannequin;
+
+    const torso = this.mannequinVisual.getObjectByName('sdf-mannequin-torso');
+    if (torso) {
+      torso.position.set(0, s.mannequinTorsoCenterY, 0);
+      torso.scale.set(s.mannequinTorsoRadiusX, s.mannequinTorsoRadiusY, s.mannequinTorsoRadiusZ);
+    }
+
+    const arms = this.mannequinVisual.getObjectByName('sdf-mannequin-arms');
+    if (arms) {
+      arms.position.set(0, s.mannequinArmCenterY, 0);
+      arms.scale.set(s.mannequinArmRadius, s.mannequinArmHalfLength * 2, s.mannequinArmRadius);
+    }
+
+    const neck = this.mannequinVisual.getObjectByName('sdf-mannequin-neck');
+    if (neck) {
+      neck.position.set(0, s.mannequinNeckCenterY, 0);
+      neck.scale.setScalar(s.mannequinNeckRadius);
+    }
+
+    const neckBase = this.mannequinVisual.getObjectByName('sdf-mannequin-neck-base');
+    if (neckBase) {
+      neckBase.position.set(0, s.mannequinNeckBaseCenterY, 0);
+      neckBase.scale.setScalar(s.mannequinNeckBaseRadius);
+    }
+  }
+
   private setupClothGeometry(): void {
     this.applyClothTopology(
       this.activeAssembly
@@ -2183,6 +2291,21 @@ export class InextensibleFlagSimulation {
     this.windTurbulenceUniform = uniform(s.windTurbulence);
     this.windDirectionUniform = uniform(new THREE.Vector3(s.windDirectionX, s.windDirectionY, s.windDirectionZ));
     this.gravityUniform = uniform(s.gravity);
+    this.shapePressureUniform = uniform(s.shapePressure);
+    this.mannequinCollisionUniform = uniform(s.mannequinCollision ? 1 : 0);
+    this.mannequinMarginUniform = uniform(s.mannequinMargin);
+    this.mannequinFrictionUniform = uniform(s.mannequinFriction);
+    this.mannequinTorsoRadiiUniform = uniform(
+      new THREE.Vector3(s.mannequinTorsoRadiusX, s.mannequinTorsoRadiusY, s.mannequinTorsoRadiusZ),
+    );
+    this.mannequinTorsoCenterYUniform = uniform(s.mannequinTorsoCenterY);
+    this.mannequinArmRadiusUniform = uniform(s.mannequinArmRadius);
+    this.mannequinArmHalfLengthUniform = uniform(s.mannequinArmHalfLength);
+    this.mannequinArmCenterYUniform = uniform(s.mannequinArmCenterY);
+    this.mannequinNeckRadiusUniform = uniform(s.mannequinNeckRadius);
+    this.mannequinNeckCenterYUniform = uniform(s.mannequinNeckCenterY);
+    this.mannequinNeckBaseRadiusUniform = uniform(s.mannequinNeckBaseRadius);
+    this.mannequinNeckBaseCenterYUniform = uniform(s.mannequinNeckBaseCenterY);
     this.zoneAStrengthUniform = uniform(s.zoneAStrength);
     this.zoneARadiusUniform = uniform(s.zoneARadius);
     this.zoneASpeedUniform = uniform(s.zoneASpeed);
@@ -3117,6 +3240,19 @@ export class InextensibleFlagSimulation {
     const windTurbulenceUniform = this.windTurbulenceUniform;
     const windDirectionUniform = this.windDirectionUniform;
     const gravityUniform = this.gravityUniform;
+    const shapePressureUniform = this.shapePressureUniform;
+    const mannequinCollisionUniform = this.mannequinCollisionUniform;
+    const mannequinMarginUniform = this.mannequinMarginUniform;
+    const mannequinFrictionUniform = this.mannequinFrictionUniform;
+    const mannequinTorsoRadiiUniform = this.mannequinTorsoRadiiUniform;
+    const mannequinTorsoCenterYUniform = this.mannequinTorsoCenterYUniform;
+    const mannequinArmRadiusUniform = this.mannequinArmRadiusUniform;
+    const mannequinArmHalfLengthUniform = this.mannequinArmHalfLengthUniform;
+    const mannequinArmCenterYUniform = this.mannequinArmCenterYUniform;
+    const mannequinNeckRadiusUniform = this.mannequinNeckRadiusUniform;
+    const mannequinNeckCenterYUniform = this.mannequinNeckCenterYUniform;
+    const mannequinNeckBaseRadiusUniform = this.mannequinNeckBaseRadiusUniform;
+    const mannequinNeckBaseCenterYUniform = this.mannequinNeckBaseCenterYUniform;
     const zoneAStrengthUniform = this.zoneAStrengthUniform;
     const zoneARadiusUniform = this.zoneARadiusUniform;
     const zoneASpeedUniform = this.zoneASpeedUniform;
@@ -3213,6 +3349,13 @@ export class InextensibleFlagSimulation {
       velocity.x.addAssign(weightA.mul(zoneDirA.x).mul(0.00008));
       velocity.x.addAssign(weightB.mul(zoneDirB.x).mul(0.00006));
       velocity.y.addAssign(globalWindDir.y.mul(0.00004).mul(saturatedWind));
+
+      const inflatedCenter = vec3(0, 0.38, 0);
+      const pressureDir = current.sub(inflatedCenter).toVar('pressureDir');
+      const pressureLen = pressureDir.length().toVar('pressureLen');
+      If(pressureLen.greaterThan(0.001), () => {
+        velocity.addAssign(pressureDir.div(pressureLen).mul(shapePressureUniform));
+      });
 
       const maxVelocity = float(0.018);
       const velocityLength = velocity.length().toVar('velocityLength');
@@ -3425,6 +3568,95 @@ export class InextensibleFlagSimulation {
     })()
       .compute(vertexCount)
       .setName('Pole Collision');
+
+    this.resolveMannequinCollision = Fn(() => {
+      If(mannequinCollisionUniform.lessThan(1), () => {
+        Return();
+      });
+
+      const params = vertexParamsBuffer.element(instanceIndex).toVar();
+      const isFixed = params.x;
+
+      If(isFixed, () => {
+        Return();
+      });
+
+      const position = vertexPositionBuffer.element(instanceIndex).toVar('mannequinPosition');
+      const contactDistance = clothThicknessUniform.add(mannequinMarginUniform);
+
+      const torsoCenter = vec3(0, mannequinTorsoCenterYUniform, 0);
+      const torsoLocal = position.sub(torsoCenter).toVar('mannequinTorsoLocal');
+      const torsoScaled = vec3(
+        torsoLocal.x.div(mannequinTorsoRadiiUniform.x.max(0.001)),
+        torsoLocal.y.div(mannequinTorsoRadiiUniform.y.max(0.001)),
+        torsoLocal.z.div(mannequinTorsoRadiiUniform.z.max(0.001)),
+      );
+      const torsoLen = torsoScaled.length().max(0.000001).toVar('mannequinTorsoLen');
+      const torsoMinRadius = min(
+        min(mannequinTorsoRadiiUniform.x, mannequinTorsoRadiiUniform.y),
+        mannequinTorsoRadiiUniform.z,
+      );
+      const torsoDistance = torsoLen.sub(1.0).mul(torsoMinRadius).toVar('mannequinTorsoDistance');
+      const torsoNormal = vec3(
+        torsoLocal.x.div(mannequinTorsoRadiiUniform.x.mul(mannequinTorsoRadiiUniform.x).max(0.000001)),
+        torsoLocal.y.div(mannequinTorsoRadiiUniform.y.mul(mannequinTorsoRadiiUniform.y).max(0.000001)),
+        torsoLocal.z.div(mannequinTorsoRadiiUniform.z.mul(mannequinTorsoRadiiUniform.z).max(0.000001)),
+      ).normalize();
+
+      const armClosestX = position.x.clamp(
+        mannequinArmHalfLengthUniform.negate(),
+        mannequinArmHalfLengthUniform,
+      );
+      const armClosest = vec3(armClosestX, mannequinArmCenterYUniform, 0);
+      const armOffset = position.sub(armClosest).toVar('mannequinArmOffset');
+      const armLen = armOffset.length().max(0.000001).toVar('mannequinArmLen');
+      const armDistance = armLen.sub(mannequinArmRadiusUniform).toVar('mannequinArmDistance');
+      const armNormal = armOffset.div(armLen);
+
+      const neckCenter = vec3(0, mannequinNeckCenterYUniform, 0);
+      const neckOffset = position.sub(neckCenter).toVar('mannequinNeckOffset');
+      const neckLen = neckOffset.length().max(0.000001).toVar('mannequinNeckLen');
+      const neckDistance = neckLen.sub(mannequinNeckRadiusUniform).toVar('mannequinNeckDistance');
+      const neckNormal = neckOffset.div(neckLen);
+
+      const neckBaseCenter = vec3(0, mannequinNeckBaseCenterYUniform, 0);
+      const neckBaseOffset = position.sub(neckBaseCenter).toVar('mannequinNeckBaseOffset');
+      const neckBaseLen = neckBaseOffset.length().max(0.000001).toVar('mannequinNeckBaseLen');
+      const neckBaseDistance = neckBaseLen.sub(mannequinNeckBaseRadiusUniform).toVar('mannequinNeckBaseDistance');
+      const neckBaseNormal = neckBaseOffset.div(neckBaseLen);
+
+      const sdfDistance = torsoDistance.toVar('mannequinSdfDistance');
+      const sdfNormal = torsoNormal.toVar('mannequinSdfNormal');
+      If(armDistance.lessThan(sdfDistance), () => {
+        sdfDistance.assign(armDistance);
+        sdfNormal.assign(armNormal);
+      });
+      If(neckDistance.lessThan(sdfDistance), () => {
+        sdfDistance.assign(neckDistance);
+        sdfNormal.assign(neckNormal);
+      });
+      If(neckBaseDistance.lessThan(sdfDistance), () => {
+        sdfDistance.assign(neckBaseDistance);
+        sdfNormal.assign(neckBaseNormal);
+      });
+
+      If(sdfDistance.lessThan(contactDistance), () => {
+        const penetration = contactDistance.sub(sdfDistance).clamp(0, 0.035);
+        const projected = position.add(sdfNormal.mul(penetration)).toVar('mannequinProjected');
+        const previous = vertexPreviousBuffer.element(instanceIndex).toVar('mannequinPrevious');
+        const velocity = projected.sub(previous).toVar('mannequinVelocity');
+        const normalVelocity = sdfNormal.mul(velocity.dot(sdfNormal));
+        const tangentVelocity = velocity.sub(normalVelocity);
+        const dampedVelocity = normalVelocity.add(
+          tangentVelocity.mul(float(1.0).sub(mannequinFrictionUniform.clamp(0, 0.95))),
+        );
+
+        vertexPositionBuffer.element(instanceIndex).assign(projected);
+        vertexPreviousBuffer.element(instanceIndex).assign(projected.sub(dampedVelocity));
+      });
+    })()
+      .compute(vertexCount)
+      .setName('Mannequin SDF Collision');
 
     this.resolveSelfCollision = Fn(() => {
       const params = vertexParamsBuffer.element(instanceIndex).toVar();

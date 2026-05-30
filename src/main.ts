@@ -7,6 +7,7 @@ import {
   createOctagonalTubeAssembly,
   createPyramidAssembly,
   createStitchedBoxAssembly,
+  createTShirtAssembly,
   deleteFlagSettingsPreset,
   getFlagSettingsPreset,
   listFlagSettingsPresets,
@@ -41,19 +42,35 @@ function isTubeMode(): boolean {
   return params.get('mode') === 'tube';
 }
 
-type TubeAssemblySpawnKind = 'box' | 'octagonalTube' | 'pyramid';
+type TubeAssemblySpawnKind = 'box' | 'octagonalTube' | 'pyramid' | 'tshirt';
 
 declare global {
   interface Window {
     __zeroGravityTubeSpawnShape?: (kind: TubeAssemblySpawnKind) => Promise<number>;
     __zeroGravityTubeClearSpawnedShapes?: () => Promise<void>;
     __zeroGravityTubeSetTearThreshold?: (threshold: number) => void;
+    __zeroGravityTubeSetShapePressure?: (pressure: number) => void;
+    __zeroGravityTubeGetSettings?: () => ClothSimulationSettings;
+    __zeroGravityTubeApplySettings?: (partial: Partial<ClothSimulationSettings>) => Promise<void>;
+    __zeroGravityTubeListSettingsPresets?: () => Promise<FlagSettingsPresetSummary[]>;
+    __zeroGravityTubeSaveSettingsPreset?: (
+      name: string,
+      existingId?: string,
+    ) => Promise<StoredFlagSettingsPreset>;
+    __zeroGravityTubeLoadSettingsPreset?: (id: string) => Promise<StoredFlagSettingsPreset>;
+    __zeroGravityTubeDeleteSettingsPreset?: (id: string) => Promise<void>;
     __zeroGravityTubeShapeStats?: () => {
       activeShape: TubeAssemblySpawnKind | null;
       vertexCount: number;
       faceCount: number;
       stitchEdgeCount: number;
       simulated: boolean;
+      sleeveStats?: {
+        crossSectionHeight: number;
+        crossSectionDepth: number;
+        cuffDrop: number;
+        vertexCount: number;
+      };
     };
   }
 }
@@ -357,18 +374,86 @@ async function bootstrapZeroGravityTube(
     faceCount: 0,
     stitchEdgeCount: 0,
     simulated: false,
+    sleeveStats: undefined as ReturnType<typeof measureTShirtSleeves> | undefined,
+  };
+  let shapePressurePulseTimeout: ReturnType<typeof window.setTimeout> | null = null;
+  let tearStrengthPulseTimeout: ReturnType<typeof window.setTimeout> | null = null;
+  let tearStrengthRestoreValue = cloth.settings.tearStretchThreshold;
+
+  const clearShapePressurePulse = (): void => {
+    if (shapePressurePulseTimeout !== null) {
+      window.clearTimeout(shapePressurePulseTimeout);
+      shapePressurePulseTimeout = null;
+    }
+  };
+
+  const setShapePressure = (pressure: number): void => {
+    cloth.settings.shapePressure = pressure;
+    cloth.applySettings();
+  };
+
+  const pulseShapePressure = (pressure: number, durationMs: number): void => {
+    clearShapePressurePulse();
+    setShapePressure(pressure);
+    shapePressurePulseTimeout = window.setTimeout(() => {
+      shapePressurePulseTimeout = null;
+      setShapePressure(0);
+    }, durationMs);
+  };
+
+  const clearTearStrengthPulse = (): void => {
+    if (tearStrengthPulseTimeout !== null) {
+      window.clearTimeout(tearStrengthPulseTimeout);
+      tearStrengthPulseTimeout = null;
+    }
+  };
+
+  const pulseInfiniteTearStrength = (durationMs: number): void => {
+    clearTearStrengthPulse();
+    tearStrengthRestoreValue = cloth.settings.tearStretchThreshold;
+    cloth.settings.tearStretchThreshold = 999_999;
+    cloth.applySettings();
+    tearStrengthPulseTimeout = window.setTimeout(() => {
+      tearStrengthPulseTimeout = null;
+      cloth.settings.tearStretchThreshold = tearStrengthRestoreValue;
+      cloth.applySettings();
+    }, durationMs);
   };
 
   const clearSpawnedAssembly = async (): Promise<void> => {
+    clearShapePressurePulse();
+    clearTearStrengthPulse();
+    cloth.settings.mannequinCollision = false;
+    cloth.settings.showMannequin = false;
+    setShapePressure(0);
     await cloth.rebuildFlag();
     cloth.setGrabModeEnabled(true);
-    spawnedAssemblyStats = { activeShape: null, vertexCount: 0, faceCount: 0, stitchEdgeCount: 0, simulated: false };
+    spawnedAssemblyStats = {
+      activeShape: null,
+      vertexCount: 0,
+      faceCount: 0,
+      stitchEdgeCount: 0,
+      simulated: false,
+      sleeveStats: undefined,
+    };
     particlesEl.textContent = `tube particles: ${cloth.getStats().particleCount}`;
   };
 
   const spawnAssembly = async (kind: TubeAssemblySpawnKind): Promise<number> => {
+    clearShapePressurePulse();
+    clearTearStrengthPulse();
+    cloth.settings.mannequinCollision = false;
+    cloth.settings.showMannequin = false;
+    setShapePressure(0);
     const assembly = createTubePageAssembly(kind);
     await cloth.loadClothAssembly(assembly);
+    if (kind === 'tshirt') {
+      cloth.settings.mannequinCollision = true;
+      cloth.settings.showMannequin = true;
+      cloth.applySettings();
+      pulseShapePressure(0.00005, 100);
+      pulseInfiniteTearStrength(100);
+    }
     cloth.setGrabModeEnabled(true);
     spawnedAssemblyStats = {
       activeShape: kind,
@@ -376,6 +461,7 @@ async function bootstrapZeroGravityTube(
       faceCount: assembly.faces.length,
       stitchEdgeCount: assembly.stitchEdges.length,
       simulated: true,
+      sleeveStats: kind === 'tshirt' ? measureTShirtSleeves(assembly) : undefined,
     };
     particlesEl.textContent = `${kind} cloth particles: ${cloth.getStats().particleCount}`;
     return assembly.faces.length;
@@ -385,12 +471,14 @@ async function bootstrapZeroGravityTube(
     box: () => void spawnAssembly('box'),
     octagonalTube: () => void spawnAssembly('octagonalTube'),
     pyramid: () => void spawnAssembly('pyramid'),
+    tshirt: () => void spawnAssembly('tshirt'),
     clear: () => void clearSpawnedAssembly(),
   };
   const assemblyFolder = gui.addFolder('Assembly Spawner');
   assemblyFolder.add(assemblyActions, 'box').name('Spawn stitched box');
   assemblyFolder.add(assemblyActions, 'octagonalTube').name('Spawn octagonal tube');
   assemblyFolder.add(assemblyActions, 'pyramid').name('Spawn pyramid');
+  assemblyFolder.add(assemblyActions, 'tshirt').name('Spawn T-shirt');
   assemblyFolder.add(assemblyActions, 'clear').name('Clear spawned shape');
 
   const activeBbCount = (): number => {
@@ -422,7 +510,9 @@ async function bootstrapZeroGravityTube(
       maxParticleSpeed: 0,
       hasNaN: stats.hasNaN,
       gravity: cloth.settings.gravity,
-      pressure: 0,
+      pressure: cloth.settings.shapePressure,
+      tearStretchThreshold: cloth.settings.tearStretchThreshold,
+      mannequinCollision: cloth.settings.mannequinCollision,
     };
   };
   window.__zeroGravityTubeReset = () => cloth.resetFlag();
@@ -433,9 +523,30 @@ async function bootstrapZeroGravityTube(
     cloth.applySettings();
   };
   window.__zeroGravityTubeSetTearThreshold = (threshold) => {
+    clearTearStrengthPulse();
     cloth.settings.tearStretchThreshold = threshold;
     cloth.applySettings();
   };
+  window.__zeroGravityTubeSetShapePressure = (pressure) => {
+    clearShapePressurePulse();
+    setShapePressure(pressure);
+  };
+  window.__zeroGravityTubeGetSettings = () => cloneClothSettings(cloth.settings);
+  window.__zeroGravityTubeApplySettings = async (partial) => {
+    await cloth.loadSettingsPreset(normalizeClothSettings({ ...cloth.settings, ...partial }));
+  };
+  window.__zeroGravityTubeListSettingsPresets = () => listFlagSettingsPresets();
+  window.__zeroGravityTubeSaveSettingsPreset = (name, existingId) =>
+    saveFlagSettingsPreset(name, cloneClothSettings(cloth.settings), existingId);
+  window.__zeroGravityTubeLoadSettingsPreset = async (id) => {
+    const stored = await getFlagSettingsPreset(id);
+    if (!stored) {
+      throw new Error(`Preset not found: ${id}`);
+    }
+    await cloth.loadSettingsPreset(stored.settings);
+    return stored;
+  };
+  window.__zeroGravityTubeDeleteSettingsPreset = (id) => deleteFlagSettingsPreset(id);
   window.__zeroGravityTubeFire = (ndcX, ndcY) => cloth.fireBbForTest(ndcX, ndcY) !== null;
   window.__zeroGravityTubeSpawnShape = spawnAssembly;
   window.__zeroGravityTubeClearSpawnedShapes = clearSpawnedAssembly;
@@ -528,6 +639,41 @@ async function bootstrapZeroGravityTube(
   });
 }
 
+function measureTShirtSleeves(assembly: ClothAssembly): {
+  crossSectionHeight: number;
+  crossSectionDepth: number;
+  cuffDrop: number;
+  vertexCount: number;
+} {
+  const sleeveVertices = assembly.vertices.filter((vertex) => vertex.patchId.includes('sleeve'));
+  const ys = sleeveVertices.map((vertex) => vertex.position[1]);
+  const zs = sleeveVertices.map((vertex) => vertex.position[2]);
+  const sleeveStats = ['tshirt-left-sleeve', 'tshirt-right-sleeve'].map((patchId) => {
+    const vertices = assembly.vertices.filter((vertex) => vertex.patchId === patchId);
+    const xs = vertices.map((vertex) => vertex.position[0]);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const isLeft = patchId.includes('left');
+    const span = Math.max(0.0001, maxX - minX);
+    const cuff = vertices.filter((vertex) =>
+      isLeft ? vertex.position[0] < minX + span * 0.12 : vertex.position[0] > maxX - span * 0.12,
+    );
+    const inner = vertices.filter((vertex) =>
+      isLeft ? vertex.position[0] > maxX - span * 0.12 : vertex.position[0] < minX + span * 0.12,
+    );
+    const averageY = (items: typeof vertices): number =>
+      items.reduce((sum, vertex) => sum + vertex.position[1], 0) / Math.max(1, items.length);
+    return averageY(inner) - averageY(cuff);
+  });
+
+  return {
+    crossSectionHeight: Math.max(...ys) - Math.min(...ys),
+    crossSectionDepth: Math.max(...zs) - Math.min(...zs),
+    cuffDrop: Math.min(...sleeveStats),
+    vertexCount: sleeveVertices.length,
+  };
+}
+
 function createTubePageAssembly(kind: TubeAssemblySpawnKind): ClothAssembly {
   switch (kind) {
     case 'box':
@@ -536,6 +682,18 @@ function createTubePageAssembly(kind: TubeAssemblySpawnKind): ClothAssembly {
       return createOctagonalTubeAssembly({ radius: 0.38, height: 0.9, segmentsAround: 4, segmentsHeight: 12 });
     case 'pyramid':
       return createPyramidAssembly({ baseSize: 0.9, height: 0.8, includeBase: true });
+    case 'tshirt':
+      return createTShirtAssembly({
+        bodyWidth: 0.78,
+        torsoHeight: 0.86,
+        sleeveLength: 0.38,
+        sleeveOpening: 0.34,
+        sleeveTubeRadius: 0.12,
+        depth: 0.32,
+        bodySegmentsX: 24,
+        bodySegmentsY: 28,
+        sleeveSegmentsX: 16,
+      });
   }
 }
 

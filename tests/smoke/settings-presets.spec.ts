@@ -119,4 +119,51 @@ test.describe('settings presets', () => {
     expect(updated?.id).toBe(first?.id);
     expect(loaded?.settings.windStrength).toBeCloseTo(6.6, 2);
   });
+
+  test('exports selected preset as JSON via UI controls', async ({ page }) => {
+    const consoleCapture = attachConsoleCapture(page);
+
+    await page.evaluate(async () => {
+      await window.__flagSimApplySettings?.({
+        windStrength: 8.75,
+        tearStretchThreshold: 1.72,
+        bbSpeed: 28,
+      });
+    });
+
+    await page.locator('[data-testid="flag-controls"]').click({ force: true });
+    await page.locator('[data-testid="preset-name-input"] input').fill(PRESET_NAME);
+    await page.locator('[data-testid="preset-save-btn"] button').click();
+    await expect
+      .poll(async () => page.locator('[data-testid="preset-status"] input').inputValue())
+      .toContain('Saved');
+
+    const presetId = await page.evaluate(async (name) => {
+      const presets = await window.__flagSimListSettingsPresets?.();
+      return presets?.find((preset) => preset.name === name)?.id ?? '';
+    }, PRESET_NAME);
+    expect(presetId).not.toBe('');
+
+    await page.locator('[data-testid="preset-select"] select').selectOption(presetId);
+    const downloadPromise = page.waitForEvent('download');
+    await page.locator('[data-testid="preset-export-btn"] button').click();
+    const download = await downloadPromise;
+    const stream = await download.createReadStream();
+    expect(stream).not.toBeNull();
+
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream!) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    const exported = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+
+    expect(download.suggestedFilename()).toBe('playwright-preset.json');
+    expect(exported.type).toBe('lavery-cloth-settings-preset');
+    expect(exported.version).toBe(1);
+    expect(exported.preset.name).toBe(PRESET_NAME);
+    expect(exported.preset.settings.windStrength).toBeCloseTo(8.75, 2);
+    expect(exported.preset.settings.tearStretchThreshold).toBeCloseTo(1.72, 2);
+    expect(exported.preset.settings.bbSpeed).toBeCloseTo(28, 2);
+    expect(consoleCapture.errors, consoleCapture.errors.join('\n')).toEqual([]);
+  });
 });
