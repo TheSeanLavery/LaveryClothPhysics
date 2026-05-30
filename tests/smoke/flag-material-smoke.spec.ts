@@ -1,12 +1,9 @@
 import { expect, test } from '@playwright/test';
+import { attachConsoleCapture, formatCapturedConsole } from '../helpers/consoleCapture';
 
 test.describe('smoke', () => {
   test('flag cloth pixels are lit denim, not black or background', async ({ page }) => {
-    const consoleErrors: string[] = [];
-    page.on('pageerror', (error) => consoleErrors.push(error.message));
-    page.on('console', (msg) => {
-      if (msg.type() === 'error') consoleErrors.push(msg.text());
-    });
+    const consoleCapture = attachConsoleCapture(page);
 
     await page.goto('/');
     await expect(page.locator('[data-testid="sim-status"]')).toHaveText('running', { timeout: 15_000 });
@@ -17,7 +14,8 @@ test.describe('smoke', () => {
     await expect(page.locator('[data-testid="sim-status"]')).toHaveText('running', { timeout: 2_000 });
 
     const diagnostics = await page.evaluate(async () => window.__flagSimRenderDiagnostics?.());
-    expect(consoleErrors, consoleErrors.join(' | ')).toEqual([]);
+    expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
+    expect(consoleCapture.threeMessages, consoleCapture.threeMessages.join('\n')).toEqual([]);
     expect(diagnostics?.screenBounds).not.toBeNull();
     expect(diagnostics?.meshRegion).not.toBeNull();
 

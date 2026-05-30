@@ -53,6 +53,36 @@ export interface InextensibleFlagSettings {
   fillLightIntensity: number;
   backLightIntensity: number;
   rimLightIntensity: number;
+  /** Draw sim grid particles and highlight the vertex under the mouse pointer. */
+  showSimGridDebug: boolean;
+  /** Edge stretch ratio above rest length before strain tearing (1.0 = no extra stretch). */
+  tearStretchThreshold: number;
+  /** Sim-space width of dark fray shading near broken edges. */
+  tearFringeWidth: number;
+  /** Render topology generation for torn cells. */
+  tearMeshing: 'edge-cull' | 'sdf';
+  /** Sim-cell units for rounding fully torn cells in SDF meshing. */
+  tearSdfCornerRadius: number;
+  /** Highlight ultra-stretched render triangles (likely invisible strand bridges). */
+  showBridgeSplinters: boolean;
+  /** Draw cosmetic thread capsules on single-link sim cell connections (visual only). */
+  renderStrandThreads: boolean;
+  /** World-space radius of visual strand threads. */
+  strandThreadRadius: number;
+  /** BB projectile speed (world units / sec). */
+  bbSpeed: number;
+  /** Rendered BB radius (world units). */
+  bbVisualRadius: number;
+  /** Cloth force reach beyond the BB surface (world units). */
+  bbHitRadius: number;
+  /** BB impulse strength multiplier. */
+  bbForceStrength: number;
+  /** BB bounce restitution off cloth (0–1). */
+  bbRestitution: number;
+  /** BB tangential friction on cloth (0–1). */
+  bbFriction: number;
+  /** Soft fabric yield for cloth push and BB deflection (0 = stiff, 1 = very soft). */
+  bbFabricSoftness: number;
 }
 
 export const defaultInextensibleFlagSettings = (): InextensibleFlagSettings => ({
@@ -62,7 +92,7 @@ export const defaultInextensibleFlagSettings = (): InextensibleFlagSettings => (
   bendStiffness: 0.01,
   minCompression: 0.92,
   clothThickness: 0.015,
-  renderSubdivisions: 4,
+  renderSubdivisions: 3,
   renderGeometrySmoothing: 1.5,
   flatShading: false,
   selfCollision: true,
@@ -103,4 +133,19 @@ export const defaultInextensibleFlagSettings = (): InextensibleFlagSettings => (
   fillLightIntensity: 1.35,
   backLightIntensity: 1.25,
   rimLightIntensity: 0.95,
+  showSimGridDebug: false,
+  tearStretchThreshold: 1.32,
+  tearFringeWidth: 0.075,
+  tearMeshing: 'sdf',
+  tearSdfCornerRadius: 0.35,
+  showBridgeSplinters: false,
+  renderStrandThreads: false,
+  strandThreadRadius: 0.008,
+  bbSpeed: 30,
+  bbVisualRadius: 0.022,
+  bbHitRadius: 0.07,
+  bbForceStrength: 1.2,
+  bbRestitution: 0.38,
+  bbFriction: 0.45,
+  bbFabricSoftness: 0.58,
 });

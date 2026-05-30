@@ -4,7 +4,6 @@ export interface BakedClothTextureSet {
   albedo: THREE.Texture;
   normal: THREE.Texture;
   roughness: THREE.Texture;
-  height: THREE.Texture;
 }
 
 const DENIM_512_BASE = '/textures/denim-512';
@@ -28,17 +27,15 @@ function configureTileableTexture(texture: THREE.Texture, colorSpace: THREE.Colo
 
 export async function loadDenim512ClothTextures(): Promise<BakedClothTextureSet> {
   const loader = new THREE.TextureLoader();
-  const [albedo, normal, roughness, height] = await Promise.all([
+  const [albedo, normal, roughness] = await Promise.all([
     loadTexture(loader, `${DENIM_512_BASE}/albedo.png`),
     loadTexture(loader, `${DENIM_512_BASE}/normal.png`),
     loadTexture(loader, `${DENIM_512_BASE}/roughness.png`),
-    loadTexture(loader, `${DENIM_512_BASE}/height.png`),
   ]);
 
   configureTileableTexture(albedo, THREE.SRGBColorSpace);
   configureTileableTexture(normal, THREE.NoColorSpace);
   configureTileableTexture(roughness, THREE.NoColorSpace);
-  configureTileableTexture(height, THREE.NoColorSpace);
 
-  return { albedo, normal, roughness, height };
+  return { albedo, normal, roughness };
 }

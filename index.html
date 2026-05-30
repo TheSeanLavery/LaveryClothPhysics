@@ -8,8 +8,15 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
+    <div id="toolbar">
+      <button type="button" data-testid="grab-toggle-btn" id="grab-toggle-btn">Grab</button>
+      <button type="button" data-testid="shoot-toggle-btn" id="shoot-toggle-btn">Shoot BB</button>
+    </div>
     <div id="overlay">
-      <h1>Inextensible GPU Flag</h1>
+      <div class="overlay-header">
+        <h1>Inextensible GPU Flag</h1>
+        <button type="button" data-testid="reset-flag-btn" id="reset-flag-btn">Reset flag</button>
+      </div>
       <p data-testid="sim-status">initializing</p>
       <p data-testid="sim-backend">backend: unknown</p>
       <p data-testid="sim-particles">particles: 0</p>

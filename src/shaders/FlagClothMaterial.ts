@@ -6,6 +6,7 @@ import {
   directionToFaceDirection,
   float,
   max,
+  min,
   mix,
   normalFlat,
   positionView,
@@ -24,6 +25,7 @@ import type { InextensibleFlagSettings } from '../sim/InextensibleFlagSettings';
 import { getFabricNormalMapTexture } from '../textures/createFabricNormalMap';
 import type { BakedClothTextureSet } from '../textures/loadBakedClothTextures';
 import { createApplyFabricNormalMapFn } from './fabricNormalDetail';
+import { createSimTearShading } from './simTearShading';
 
 export interface MatteCottonFlagMaterialOptions {
   settings: InextensibleFlagSettings;
@@ -34,6 +36,12 @@ export interface MatteCottonFlagMaterialOptions {
   normalSampleStep: ReturnType<typeof uniform>;
   gridMaxXUniform: ReturnType<typeof uniform>;
   gridMaxYUniform: ReturnType<typeof uniform>;
+  edgeActiveBuffer?: ReturnType<typeof import('three/tsl').instancedArray>;
+  simHorizontalEdgeIdBuffer?: ReturnType<typeof import('three/tsl').instancedArray>;
+  simVerticalEdgeIdBuffer?: ReturnType<typeof import('three/tsl').instancedArray>;
+  simShearDownEdgeIdBuffer?: ReturnType<typeof import('three/tsl').instancedArray>;
+  simShearUpEdgeIdBuffer?: ReturnType<typeof import('three/tsl').instancedArray>;
+  simGridSizeYUniform?: ReturnType<typeof uniform>;
 }
 
 export interface MatteCottonFlagMaterialUniforms {
@@ -44,6 +52,8 @@ export interface MatteCottonFlagMaterialUniforms {
   fabricNormalScale: ReturnType<typeof uniform<number>>;
   fabricTiling: ReturnType<typeof uniform<number>>;
   fabricColorTint: ReturnType<typeof uniform<number>>;
+  tearFringeWidth: ReturnType<typeof uniform<number>>;
+  showBridgeSplinters: ReturnType<typeof uniform<number>>;
 }
 
 export function configureMatteCottonFlagMaterial(
@@ -59,6 +69,12 @@ export function configureMatteCottonFlagMaterial(
     normalSampleStep,
     gridMaxXUniform,
     gridMaxYUniform,
+    edgeActiveBuffer,
+    simHorizontalEdgeIdBuffer,
+    simVerticalEdgeIdBuffer,
+    simShearDownEdgeIdBuffer,
+    simShearUpEdgeIdBuffer,
+    simGridSizeYUniform,
   } = options;
 
   const useBakedTextures =
@@ -72,7 +88,20 @@ export function configureMatteCottonFlagMaterial(
     fabricNormalScale: uniform(settings.fabricNormalScale),
     fabricTiling: uniform(settings.fabricTiling),
     fabricColorTint: uniform(settings.fabricColorTint),
+    tearFringeWidth: uniform(settings.tearFringeWidth),
+    showBridgeSplinters: uniform(settings.showBridgeSplinters ? 1 : 0),
   };
+
+  const applyBridgeSplinterDebug = Fn(([baseColor]) => {
+    const dpdx = positionWorld.dFdx().length();
+    const dpdy = positionWorld.dFdy().length();
+    const longEdge = max(dpdx, dpdy);
+    const shortEdge = max(min(dpdx, dpdy), float(1e-6));
+    const isSplinter = longEdge.div(shortEdge).greaterThan(float(10));
+    const highlight = vec3(1, 0.15, 0.85);
+    const active = clothUniforms.showBridgeSplinters.greaterThan(float(0)).and(isSplinter);
+    return mix(baseColor, highlight, select(active, float(0.92), float(0)));
+  });
 
   const fabricNormalTexture = getFabricNormalMapTexture();
   const sampleFabricUv = Fn(() => uv().mul(clothUniforms.fabricTiling));
@@ -97,7 +126,34 @@ export function configureMatteCottonFlagMaterial(
     return mix(clothUniforms.baseColor, woven, strength.clamp(0, 1));
   });
 
-  const computeRenderWorldNormal = Fn(() => {
+  const useWeaveNormals = clothUniforms.fabricNormalStrength.greaterThan(float(0.001));
+
+  const hasSimEdgeTearing =
+    edgeActiveBuffer &&
+    simHorizontalEdgeIdBuffer &&
+    simVerticalEdgeIdBuffer &&
+    simShearDownEdgeIdBuffer &&
+    simShearUpEdgeIdBuffer &&
+    simGridSizeYUniform;
+
+  const tearShading = hasSimEdgeTearing
+    ? createSimTearShading({
+        edgeActiveBuffer,
+        simHorizontalEdgeIdBuffer,
+        simVerticalEdgeIdBuffer,
+        simShearDownEdgeIdBuffer,
+        simShearUpEdgeIdBuffer,
+        simGridSizeYUniform,
+        gridMaxXUniform,
+        gridMaxYUniform,
+        tearFringeWidthUniform: clothUniforms.tearFringeWidth,
+      })
+    : null;
+
+  const tearMinDistanceVarying = tearShading ? varyingProperty('float', 'vTearMinDist') : null;
+
+  // One neighbor sample pass per vertex: position, world normal, fly tangent, view normal.
+  const emitSurfaceVaryings = Fn(() => {
     const simCoord = attribute('simGridCoord');
     const simGridX = simCoord.x;
     const simGridY = simCoord.y;
@@ -136,45 +192,38 @@ export function configureMatteCottonFlagMaterial(
     const posUw = sampleSimPosition(simGridX, simGridY.sub(wideStep).clamp(0, maxY));
     const posDw = sampleSimPosition(simGridX, simGridY.add(wideStep).clamp(0, maxY));
     const wideNormal = cross(posRw.sub(posLw), posDw.sub(posUw)).normalize();
+    const worldNormal = select(normalLen.lessThan(1e-3), wideNormal, stableNormal);
 
-    return select(normalLen.lessThan(1e-3), wideNormal, stableNormal);
+    const flyTangentRaw = select(
+      atMinX,
+      posR.sub(posC).mul(2),
+      select(atMaxX, posC.sub(posL).mul(2), posR.sub(posL)),
+    );
+    const flyBitangentRaw = posD.sub(posU);
+    const flyNormal = cross(flyTangentRaw, flyBitangentRaw)
+      .div(cross(flyTangentRaw, flyBitangentRaw).length().max(1e-4))
+      .normalize();
+    const flyTangent = flyTangentRaw.sub(flyNormal.mul(flyNormal.dot(flyTangentRaw))).normalize();
+
+    worldNormal.toVarying('vFlagNormal');
+    flyTangent.toVarying('vFabricTangent');
+    transformNormalToView(worldNormal).normalize().toVarying('vFlagNormalViewSmoothed');
+
+    if (tearShading) {
+      tearShading.computeTearMinDistance().toVarying('vTearMinDist');
+    }
+
+    return posC;
   });
 
-  const computeRenderWorldFlyTangent = Fn(() => {
-    const simCoord = attribute('simGridCoord');
-    const simGridX = simCoord.x;
-    const simGridY = simCoord.y;
-    const step = normalSampleStep;
-    const maxX = float(gridMaxXUniform);
-    const maxY = float(gridMaxYUniform);
+  const smoothNormalView = varyingProperty('vec3', 'vFlagNormalViewSmoothed');
 
-    const posC = sampleSimPosition(simGridX, simGridY);
-    const posL = sampleSimPosition(simGridX.sub(step).clamp(0, maxX), simGridY);
-    const posR = sampleSimPosition(simGridX.add(step).clamp(0, maxX), simGridY);
-    const posU = sampleSimPosition(simGridX, simGridY.sub(step).clamp(0, maxY));
-    const posD = sampleSimPosition(simGridX, simGridY.add(step).clamp(0, maxY));
-
-    const atMinX = simGridX.lessThan(step.mul(0.51));
-    const atMaxX = simGridX.greaterThan(maxX.sub(step.mul(0.51)));
-
-    const tangentRaw = select(atMinX, posR.sub(posC).mul(2), select(atMaxX, posC.sub(posL).mul(2), posR.sub(posL)));
-    const bitangentRaw = posD.sub(posU);
-    const normal = cross(tangentRaw, bitangentRaw).div(cross(tangentRaw, bitangentRaw).length().max(1e-4)).normalize();
-
-    return tangentRaw.sub(normal.mul(normal.dot(tangentRaw))).normalize();
-  });
-
-  const computeRenderNormalView = Fn(() => transformNormalToView(computeRenderWorldNormal()).normalize());
-
-  const smoothNormalView = computeRenderNormalView().toVarying('vFlagNormalViewSmoothed');
-
-  // Blend sim normals with per-triangle facet normals; directionToFaceDirection lights both DoubleSide faces.
+  // Facet normals are already face-correct; only flip the smooth vertex normal for DoubleSide.
   const computeStableFlagNormalView = Fn(() => {
     const facet = positionView.dFdx().cross(positionView.dFdy()).normalize();
-    const smooth = smoothNormalView;
-    const alignment = smooth.dot(facet).abs();
-    const blended = mix(facet, smooth, alignment.mul(0.45).add(0.3)).normalize();
-    return directionToFaceDirection(blended);
+    const smoothCorrected = directionToFaceDirection(smoothNormalView);
+    const alignment = smoothCorrected.dot(facet).abs();
+    return mix(facet, smoothCorrected, alignment.mul(0.45).add(0.3)).normalize();
   });
 
   const applyFabricNormalMap = createApplyFabricNormalMapFn(
@@ -185,7 +234,18 @@ export function configureMatteCottonFlagMaterial(
     { fromWorldSpace: true },
   );
 
-  const useWeaveNormals = clothUniforms.fabricNormalStrength.greaterThan(float(0.001));
+  const shadeWithTears = (baseColor: ReturnType<typeof Fn>, baseRoughness?: ReturnType<typeof Fn>) => {
+    if (!tearShading || !tearMinDistanceVarying) {
+      return { colorNode: baseColor(), roughnessOverride: baseRoughness?.() };
+    }
+
+    return {
+      colorNode: tearShading.applyTearColorFromMinDistance(baseColor(), tearMinDistanceVarying),
+      roughnessOverride: baseRoughness
+        ? tearShading.applyTearRoughnessFromMinDistance(baseRoughness(), tearMinDistanceVarying)
+        : undefined,
+    };
+  };
 
   material.userData.matteCottonUniforms = clothUniforms;
   material.transparent = false;
@@ -206,26 +266,30 @@ export function configureMatteCottonFlagMaterial(
 
     const bakedColor = Fn(() => texture(bakedTextures!.albedo, sampleFabricUv()).rgb);
     const bakedRoughnessSample = Fn(() => texture(bakedTextures!.roughness, sampleFabricUv()).r);
+    const bakedRoughness = Fn(() =>
+      bakedRoughnessSample().mul(clothUniforms.roughness).clamp(0.15, 0.9),
+    );
+    const tornBaked = shadeWithTears(bakedColor, bakedRoughness);
 
-    material.colorNode = bakedColor();
-    material.roughnessNode = bakedRoughnessSample().mul(clothUniforms.roughness).clamp(0.15, 0.9);
+    material.colorNode = applyBridgeSplinterDebug(tornBaked.colorNode);
+    material.roughnessNode = tornBaked.roughnessOverride ?? bakedRoughness();
     material.color.set(0xffffff);
   } else {
-    material.colorNode = computeProceduralColor();
-    const microRoughness = triNoise3D(positionWorld.mul(90), 1, float(0)).x;
-    material.roughnessNode = mix(
-      clothUniforms.roughness.mul(0.94),
-      clothUniforms.roughness.mul(1.06),
-      microRoughness,
-    );
+    const proceduralRoughness = Fn(() => {
+      const microRoughness = triNoise3D(positionWorld.mul(90), 1, float(0)).x;
+      return mix(
+        clothUniforms.roughness.mul(0.94),
+        clothUniforms.roughness.mul(1.06),
+        microRoughness,
+      );
+    });
+    const tornProcedural = shadeWithTears(computeProceduralColor, proceduralRoughness);
+
+    material.colorNode = applyBridgeSplinterDebug(tornProcedural.colorNode);
+    material.roughnessNode = tornProcedural.roughnessOverride ?? proceduralRoughness();
   }
 
-  material.positionNode = Fn(() => {
-    computeRenderWorldNormal().toVarying('vFlagNormal');
-    computeRenderWorldFlyTangent().toVarying('vFabricTangent');
-    const simCoord = attribute('simGridCoord');
-    return sampleSimPosition(simCoord.x, simCoord.y);
-  })();
+  material.positionNode = emitSurfaceVaryings();
 
   material.normalNode = select(
     flatShadingUniform.equal(uint(1)),
@@ -252,6 +316,8 @@ export function updateMatteCottonFlagMaterial(
   clothUniforms.fabricNormalScale.value = settings.fabricNormalScale;
   clothUniforms.fabricTiling.value = settings.fabricTiling;
   clothUniforms.fabricColorTint.value = settings.fabricColorTint;
+  clothUniforms.tearFringeWidth.value = settings.tearFringeWidth;
+  clothUniforms.showBridgeSplinters.value = settings.showBridgeSplinters ? 1 : 0;
 
   material.roughness = settings.roughness;
   material.sheen = settings.sheen;

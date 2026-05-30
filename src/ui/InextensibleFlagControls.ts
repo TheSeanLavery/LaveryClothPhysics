@@ -1,5 +1,17 @@
 import GUI from 'lil-gui';
 import type { InextensibleFlagSimulation } from '../sim/InextensibleFlagSimulation';
+import { cloneFlagSettings } from '../sim/settingsPreset';
+import {
+  deleteFlagSettingsPreset,
+  getFlagSettingsPreset,
+  listFlagSettingsPresets,
+  saveFlagSettingsPreset,
+  type FlagSettingsPresetSummary,
+} from '../storage/flagSettingsDb';
+
+function refreshGuiControllers(gui: GUI): void {
+  gui.controllersRecursive().forEach((controller) => controller.updateDisplay());
+}
 
 export function createInextensibleFlagControls(sim: InextensibleFlagSimulation): GUI {
   const gui = new GUI({ title: 'Inextensible Flag', width: 320 });
@@ -14,8 +26,137 @@ export function createInextensibleFlagControls(sim: InextensibleFlagSimulation):
   const settings = sim.settings;
   const sync = () => sim.applySettings();
 
+  const presetsFolder = gui.addFolder('Saved settings');
+  const presetOptions: Record<string, string> = { '': '(select preset)' };
+  let presetSummaries: FlagSettingsPresetSummary[] = [];
+
+  const presetsState = {
+    selectedPresetId: '',
+    presetName: 'My preset',
+    status: 'Ready',
+    async refreshPresetList() {
+      presetSummaries = await listFlagSettingsPresets();
+      for (const key of Object.keys(presetOptions)) {
+        delete presetOptions[key];
+      }
+      presetOptions[''] = '(select preset)';
+      for (const preset of presetSummaries) {
+        presetOptions[preset.id] = preset.name;
+      }
+      presetController.options(presetOptions);
+      if (!presetSummaries.some((preset) => preset.id === presetsState.selectedPresetId)) {
+        presetsState.selectedPresetId = '';
+      }
+      presetController.updateDisplay();
+    },
+    async savePreset() {
+      try {
+        presetsState.status = 'Saving…';
+        statusController.updateDisplay();
+        const saved = await saveFlagSettingsPreset(
+          presetsState.presetName,
+          cloneFlagSettings(settings),
+          presetsState.selectedPresetId || undefined,
+        );
+        presetsState.selectedPresetId = saved.id;
+        presetsState.presetName = saved.name;
+        presetsState.status = `Saved "${saved.name}"`;
+        await presetsState.refreshPresetList();
+      } catch (error) {
+        presetsState.status = error instanceof Error ? error.message : 'Save failed';
+      } finally {
+        statusController.updateDisplay();
+      }
+    },
+    async loadPreset() {
+      const selectedId = getSelectedPresetId();
+      if (!selectedId) {
+        presetsState.status = 'Select a preset to load';
+        statusController.updateDisplay();
+        return;
+      }
+
+      try {
+        presetsState.status = 'Loading…';
+        statusController.updateDisplay();
+        const stored = await getFlagSettingsPreset(selectedId);
+        if (!stored) {
+          presetsState.status = 'Preset not found';
+          statusController.updateDisplay();
+          return;
+        }
+
+        await sim.loadSettingsPreset(stored.settings);
+        presetsState.selectedPresetId = selectedId;
+        presetsState.presetName = stored.name;
+        refreshGuiControllers(gui);
+        presetsState.status = `Loaded "${stored.name}"`;
+      } catch (error) {
+        presetsState.status = error instanceof Error ? error.message : 'Load failed';
+      } finally {
+        statusController.updateDisplay();
+      }
+    },
+    async deletePreset() {
+      const selectedId = getSelectedPresetId();
+      if (!selectedId) {
+        presetsState.status = 'Select a preset to delete';
+        statusController.updateDisplay();
+        return;
+      }
+
+      const name = presetSummaries.find((preset) => preset.id === selectedId)?.name;
+      try {
+        await deleteFlagSettingsPreset(selectedId);
+        presetsState.selectedPresetId = '';
+        presetsState.status = name ? `Deleted "${name}"` : 'Preset deleted';
+        await presetsState.refreshPresetList();
+      } catch (error) {
+        presetsState.status = error instanceof Error ? error.message : 'Delete failed';
+      } finally {
+        statusController.updateDisplay();
+      }
+    },
+  };
+
+  const presetNameController = presetsFolder.add(presetsState, 'presetName').name('Preset name');
+  presetNameController.domElement.setAttribute('data-testid', 'preset-name-input');
+  const presetController = presetsFolder
+    .add(presetsState, 'selectedPresetId', presetOptions)
+    .name('Saved preset')
+    .onChange(() => {
+      const selected = presetSummaries.find((preset) => preset.id === presetsState.selectedPresetId);
+      if (selected) {
+        presetsState.presetName = selected.name;
+        presetNameController.updateDisplay();
+      }
+    });
+  presetController.domElement.setAttribute('data-testid', 'preset-select');
+
+  const getSelectedPresetId = (): string => {
+    const select = presetController.domElement.querySelector('select');
+    if (select instanceof HTMLSelectElement) {
+      return select.value;
+    }
+    return String(presetController.getValue() ?? '');
+  };
+  const savePresetController = presetsFolder.add(presetsState, 'savePreset').name('Save preset');
+  savePresetController.domElement.setAttribute('data-testid', 'preset-save-btn');
+  const loadPresetController = presetsFolder.add(presetsState, 'loadPreset').name('Load preset');
+  loadPresetController.domElement.setAttribute('data-testid', 'preset-load-btn');
+  presetsFolder.add(presetsState, 'deletePreset').name('Delete preset');
+  const statusController = presetsFolder.add(presetsState, 'status').name('Status').disable();
+  statusController.domElement.setAttribute('data-testid', 'preset-status');
+  void presetsState.refreshPresetList();
+  presetsFolder.open();
+
   const cameraFolder = gui.addFolder('Camera');
   cameraFolder.add({ reset: () => sim.resetCamera() }, 'reset').name('Reset view');
+  cameraFolder.add({ resetFlag: () => sim.resetFlag() }, 'resetFlag').name('Reset flag');
+  cameraFolder
+    .add(settings, 'showSimGridDebug')
+    .name('Sim grid debug')
+    .onChange(() => sim.setSimGridDebugVisible(settings.showSimGridDebug));
 
   const physicsFolder = gui.addFolder('Physics (PBD constraints)');
   physicsFolder
@@ -32,6 +173,52 @@ export function createInextensibleFlagControls(sim: InextensibleFlagSimulation):
   physicsFolder.add(settings, 'poleCollision').name('Pole collision').onChange(sync);
   physicsFolder.add(settings, 'dampening', 0.8, 0.9999, 0.0001).name('Dampening').onChange(sync);
   physicsFolder.add(settings, 'gravity', 0, 0.001, 0.00001).name('Gravity').onChange(sync);
+
+  const tearingFolder = gui.addFolder('Tearing & BB');
+  tearingFolder
+    .add(settings, 'tearStretchThreshold', 1.0, 20.0, 0.01)
+    .name('Strain tear ratio')
+    .onChange(sync);
+  tearingFolder
+    .add(settings, 'tearFringeWidth', 0.01, 0.35, 0.005)
+    .name('Tear fringe width')
+    .onChange(sync);
+  tearingFolder
+    .add(settings, 'tearMeshing', ['edge-cull', 'sdf'])
+    .name('Tear meshing')
+    .onChange(sync);
+  tearingFolder
+    .add(settings, 'tearSdfCornerRadius', 0, 0.49, 0.01)
+    .name('SDF hole radius')
+    .onChange(sync);
+  tearingFolder.add(settings, 'showBridgeSplinters').name('Show strand bridges').onChange(sync);
+  tearingFolder.add(settings, 'renderStrandThreads').name('Strand threads (visual)').onChange(sync);
+  tearingFolder
+    .add(settings, 'strandThreadRadius', 0.001, 0.02, 0.0005)
+    .name('Thread radius')
+    .onChange(sync);
+  tearingFolder.add(settings, 'bbSpeed', 0, 80, 1).name('BB speed').onChange(sync);
+  tearingFolder
+    .add(settings, 'bbVisualRadius', 0.005, 0.08, 0.001)
+    .name('BB size')
+    .onChange(sync);
+  tearingFolder
+    .add(settings, 'bbHitRadius', 0.01, 0.2, 0.001)
+    .name('BB force reach')
+    .onChange(sync);
+  tearingFolder
+    .add(settings, 'bbForceStrength', 0, 5, 0.05)
+    .name('BB force strength')
+    .onChange(sync);
+  tearingFolder
+    .add(settings, 'bbRestitution', 0, 1, 0.01)
+    .name('BB bounce')
+    .onChange(sync);
+  tearingFolder
+    .add(settings, 'bbFabricSoftness', 0.1, 1, 0.01)
+    .name('Fabric softness')
+    .onChange(sync);
+  tearingFolder.open();
 
   const windFolder = gui.addFolder('Wind');
   windFolder.add(settings, 'windStrength', 0, 20, 0.1).name('Strength').onChange(sync);
