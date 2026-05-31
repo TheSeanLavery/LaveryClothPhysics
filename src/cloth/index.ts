@@ -129,6 +129,7 @@ export function createClothControls(
   return createInextensibleFlagControls(simulation, {
     title: options.title ?? 'Cloth Simulation',
     testId: options.testId ?? 'cloth-controls',
+    collisionUi: options.collisionUi,
   });
 }
 

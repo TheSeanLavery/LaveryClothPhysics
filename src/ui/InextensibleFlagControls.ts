@@ -12,6 +12,7 @@ import {
 export interface InextensibleFlagControlsOptions {
   title?: string;
   testId?: string;
+  collisionUi?: 'mannequin' | 'boneSdf';
 }
 
 function refreshGuiControllers(gui: GUI): void {
@@ -244,10 +245,23 @@ export function createInextensibleFlagControls(
   physicsFolder.add(settings, 'poleCollision').name('Pole collision').onChange(sync);
   physicsFolder.add(settings, 'dampening', 0.8, 0.9999, 0.0001).name('Dampening').onChange(sync);
   physicsFolder.add(settings, 'gravity', 0, 0.001, 0.00001).name('Gravity').onChange(sync);
-  physicsFolder.add(settings, 'mannequinCollision').name('Mannequin collision').onChange(sync);
-  physicsFolder.add(settings, 'showMannequin').name('Show mannequin').onChange(sync);
-  physicsFolder.add(settings, 'mannequinMargin', 0, 0.05, 0.001).name('Mannequin margin').onChange(sync);
-  physicsFolder.add(settings, 'mannequinFriction', 0, 0.95, 0.01).name('Mannequin friction').onChange(sync);
+  if (options.collisionUi === 'boneSdf') {
+    const sdfFolder = gui.addFolder('Bone SDF collision');
+    sdfFolder
+      .add(settings, 'mannequinMargin', 0, 0.05, 0.001)
+      .name('Collider clearance')
+      .onChange(sync);
+    sdfFolder
+      .add(settings, 'mannequinFriction', 0, 0.95, 0.01)
+      .name('Contact friction')
+      .onChange(sync);
+    sdfFolder.open();
+  } else {
+    physicsFolder.add(settings, 'mannequinCollision').name('Mannequin collision').onChange(sync);
+    physicsFolder.add(settings, 'showMannequin').name('Show mannequin').onChange(sync);
+    physicsFolder.add(settings, 'mannequinMargin', 0, 0.05, 0.001).name('Mannequin margin').onChange(sync);
+    physicsFolder.add(settings, 'mannequinFriction', 0, 0.95, 0.01).name('Mannequin friction').onChange(sync);
+  }
 
   const tearingFolder = gui.addFolder('Tearing & BB');
   tearingFolder

@@ -1466,7 +1466,9 @@ export class InextensibleFlagSimulation {
         if (this.settings.mannequinCollision) {
           this.renderer.compute(this.resolveMannequinCollision);
         }
-        this.renderer.compute(this.resolveBoneSdfCollision);
+        for (let boneSdfPass = 0; boneSdfPass < 3; boneSdfPass++) {
+          this.renderer.compute(this.resolveBoneSdfCollision);
+        }
         if (this.settings.selfCollision) {
           this.renderer.compute(this.resolveSelfCollision);
         }
@@ -1515,9 +1517,29 @@ export class InextensibleFlagSimulation {
   async refreshHealthFromGpu(): Promise<InextensibleFlagSimulationStats> {
     const attr = this.vertexPositionBuffer.value as StorageInstancedBufferAttribute;
     const buffer = await this.renderer.getArrayBufferAsync(attr);
-    this.applyHealthFromArray(new Float32Array(buffer), attr.itemSize);
+    this.applyHealthFromArray(new Float32Array(buffer), attr.itemSize ?? 3);
     this.publishStats();
     return this.getStats();
+  }
+
+  async readCurrentClothAssembly(baseAssembly: ClothAssembly): Promise<ClothAssembly> {
+    const attr = this.vertexPositionBuffer.value as StorageInstancedBufferAttribute;
+    const buffer = await this.renderer.getArrayBufferAsync(attr);
+    const positions = new Float32Array(buffer);
+    const itemSize = attr.itemSize ?? 3;
+    return {
+      vertices: baseAssembly.vertices.map((vertex, index) => ({
+        ...vertex,
+        position: [
+          positions[(this.assemblyRenderVertexSimIds[index] ?? index) * itemSize]!,
+          positions[(this.assemblyRenderVertexSimIds[index] ?? index) * itemSize + 1]!,
+          positions[(this.assemblyRenderVertexSimIds[index] ?? index) * itemSize + 2]!,
+        ] as [number, number, number],
+      })),
+      faces: baseAssembly.faces,
+      edges: baseAssembly.edges,
+      stitchEdges: baseAssembly.stitchEdges,
+    };
   }
 
   async refreshBbVisualsFromGpu(): Promise<void> {
@@ -1897,7 +1919,7 @@ export class InextensibleFlagSimulation {
         continue;
       }
       const dist = Math.hypot(bx - ax, by - ay, bz - az);
-      const rest = edge.vertex0.position.distanceTo(edge.vertex1.position);
+      const rest = edge.restLengthOverride ?? edge.vertex0.position.distanceTo(edge.vertex1.position);
       if (rest > 1e-6) {
         worstStretch = Math.max(worstStretch, dist / rest);
       }

@@ -112,6 +112,10 @@ export interface TShirtAssemblyOptions {
   readonly bodySegmentsX?: number;
   readonly bodySegmentsY?: number;
   readonly sleeveSegmentsX?: number;
+  readonly restLengthMode?: 'flat' | 'placed';
+  readonly sleeveHangScale?: number;
+  readonly sleeveLiftScale?: number;
+  readonly sleeveVerticalRadiusScale?: number;
 }
 
 export interface AssemblyValidationIssue {
@@ -369,8 +373,8 @@ export function createTShirtAssembly(options: TShirtAssemblyOptions): ClothAssem
   const depth = options.depth ?? 0.12;
   const halfDepth = depth * 0.5;
   const sleeveTubeRadius = options.sleeveTubeRadius ?? depth * 0.42;
-  const placedSleeveHang = sleeveTubeRadius * 0.75;
-  const placedSleeveLift = sleeveTubeRadius * 0.62;
+  const placedSleeveHang = sleeveTubeRadius * (options.sleeveHangScale ?? 0.75);
+  const placedSleeveLift = sleeveTubeRadius * (options.sleeveLiftScale ?? 0.62);
   const bodySegmentsX = Math.max(16, Math.round(options.bodySegmentsX ?? 24));
   const bodySegmentsY = Math.max(18, Math.round(options.bodySegmentsY ?? 28));
   const sleeveFlatCircumference = Math.PI * 2 * sleeveTubeRadius * 1.08;
@@ -478,7 +482,10 @@ export function createTShirtAssembly(options: TShirtAssemblyOptions): ClothAssem
     const centerY = frontArmhole.reduce((sum, position) => sum + position[1], 0) / frontArmhole.length;
     const lowY = Math.min(...frontArmhole.map((position) => position[1]));
     const highY = Math.max(...frontArmhole.map((position) => position[1]));
-    const radiusY = Math.max((highY - lowY) * 0.42, sleeveTubeRadius);
+    const radiusY = Math.max(
+      (highY - lowY) * (options.sleeveVerticalRadiusScale ?? 0.42),
+      sleeveTubeRadius,
+    );
     const radiusZ = sleeveTubeRadius;
     const innerX = frontArmhole[Math.floor(frontArmhole.length * 0.5)]![0];
     const outerX = innerX + outward * sleeveLength;
@@ -684,7 +691,7 @@ export function createTShirtAssembly(options: TShirtAssemblyOptions): ClothAssem
     flatBackNeckBinding,
   );
 
-  return applyFlatRestLengthsToPlacedAssembly(flat, placed);
+  return options.restLengthMode === 'placed' ? placed : applyFlatRestLengthsToPlacedAssembly(flat, placed);
 }
 
 function addStructuralEdge(

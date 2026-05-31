@@ -9,7 +9,11 @@ import {
   type ClothAssembly,
 } from '../cloth/patternAssembly';
 export const VISIBLE_CHARACTER_MODEL_URL = '/assets/characters/meshy/blue-haired-anime-girl.fbx';
+export const MIXAMO_TPOSE_URL = '/assets/characters/mixamo/tpose.fbx';
+export const MIXAMO_IDLE_URL = '/assets/characters/mixamo/idle.fbx';
 export const MIXAMO_DANCING_TWERK_URL = '/assets/characters/mixamo/dancing-twerk.fbx';
+
+export type CharacterAnimationKind = 'tpose' | 'idle' | 'dance';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const TMP_A = new THREE.Vector3();
@@ -39,6 +43,8 @@ export interface CharacterAnchors {
 export interface CharacterStats {
   readonly loaded: boolean;
   readonly assetUrl: string;
+  readonly tposeAnimationUrl?: string;
+  readonly idleAnimationUrl?: string;
   readonly animationUrl: string;
   readonly meshCount: number;
   readonly skinnedMeshCount: number;
@@ -86,11 +92,17 @@ export class AnimatedCharacterSceneRig {
   readonly sdfDebugGroup = new THREE.Group();
 
   private readonly assetUrl: string;
+  private readonly tposeAnimationUrl: string;
+  private readonly idleAnimationUrl: string;
   private readonly animationUrl: string;
   private readonly bones: THREE.Bone[] = [];
   private readonly boneCapsules: BoneSdfCapsule[] = [];
   private readonly boneSdfMeshes = new Map<number, THREE.Object3D>();
   private mixer: THREE.AnimationMixer | null = null;
+  private tposeAction: THREE.AnimationAction | null = null;
+  private idleAction: THREE.AnimationAction | null = null;
+  private danceAction: THREE.AnimationAction | null = null;
+  private activeAction: THREE.AnimationAction | null = null;
   private loadedRoot: THREE.Object3D | null = null;
   private animationClipCount = 0;
   private retargetedTrackCount = 0;
@@ -108,9 +120,13 @@ export class AnimatedCharacterSceneRig {
   constructor(
     private readonly scene: THREE.Scene,
     assetUrl = VISIBLE_CHARACTER_MODEL_URL,
+    tposeAnimationUrl = MIXAMO_TPOSE_URL,
+    idleAnimationUrl = MIXAMO_IDLE_URL,
     animationUrl = MIXAMO_DANCING_TWERK_URL,
   ) {
     this.assetUrl = assetUrl;
+    this.tposeAnimationUrl = tposeAnimationUrl;
+    this.idleAnimationUrl = idleAnimationUrl;
     this.animationUrl = animationUrl;
     this.root.name = 'animated-character-in-cloth-scene';
     this.sdfDebugGroup.name = 'animated-character-bone-sdf-xray';
@@ -126,13 +142,50 @@ export class AnimatedCharacterSceneRig {
     this.normalizeCharacter(root);
     this.root.add(root);
 
-    const animationRoot = await loadFbxQuietly(loader, this.animationUrl);
-    this.animationClipCount = animationRoot.animations.length;
-    if (animationRoot.animations.length > 0) {
-      this.mixer = new THREE.AnimationMixer(root);
-      const clip = this.retargetClipTracks(animationRoot.animations[0]!, animationRoot);
-      this.activeClipName = clip.name || 'Dancing Twerk';
-      this.mixer.clipAction(clip, root).reset().play();
+    this.mixer = new THREE.AnimationMixer(root);
+
+    const tposeRoot = await loadFbxQuietly(loader, this.tposeAnimationUrl);
+    const idleRoot = await loadFbxQuietly(loader, this.idleAnimationUrl);
+    const danceRoot = await loadFbxQuietly(loader, this.animationUrl);
+    this.animationClipCount =
+      tposeRoot.animations.length + idleRoot.animations.length + danceRoot.animations.length;
+
+    if (tposeRoot.animations.length > 0) {
+      const clip = this.retargetClipTracks(tposeRoot.animations[0]!, tposeRoot, 'T-Pose retargeted');
+      this.tposeAction = this.mixer.clipAction(clip, root);
+      this.tposeAction.reset().play();
+      this.activeAction = this.tposeAction;
+      this.activeClipName = 'T-Pose';
+      this.mixer.update(0.001);
+    }
+
+    if (idleRoot.animations.length > 0) {
+      const clip = this.retargetClipTracks(idleRoot.animations[0]!, idleRoot, 'Idle retargeted');
+      this.idleAction = this.mixer.clipAction(clip, root);
+      this.idleAction.enabled = true;
+      this.idleAction.setEffectiveWeight(0);
+      if (!this.tposeAction) {
+        this.activeAction = this.idleAction;
+        this.activeClipName = 'Idle';
+        this.idleAction.reset().setEffectiveWeight(1).play();
+      }
+    }
+
+    if (danceRoot.animations.length > 0) {
+      const clip = this.retargetClipTracks(danceRoot.animations[0]!, danceRoot, 'Dancing Twerk retargeted');
+      this.danceAction = this.mixer.clipAction(clip, root);
+      this.danceAction.enabled = true;
+      this.danceAction.setEffectiveWeight(0);
+      if (!this.tposeAction && !this.idleAction) {
+        this.activeAction = this.danceAction;
+        this.activeClipName = 'Dancing Twerk';
+        this.danceAction.reset().setEffectiveWeight(1).play();
+      }
+    }
+
+    if (!this.tposeAction && !this.idleAction && !this.danceAction) {
+      this.mixer = null;
+    } else if (this.mixer) {
       this.mixer.update(0.001);
     }
 
@@ -152,6 +205,46 @@ export class AnimatedCharacterSceneRig {
     this.animationSpeed = THREE.MathUtils.clamp(speed, 0, 2);
   }
 
+  transitionToIdle(fadeDuration = 0.75): void {
+    this.blendToAnimation('idle', fadeDuration);
+  }
+
+  transitionToDance(fadeDuration = 0.75): void {
+    this.blendToAnimation('dance', fadeDuration);
+  }
+
+  transitionToTpose(fadeDuration = 0.75): void {
+    this.blendToAnimation('tpose', fadeDuration);
+  }
+
+  blendToAnimation(kind: CharacterAnimationKind, fadeDuration = 0.75): void {
+    if (!this.mixer) {
+      return;
+    }
+
+    const nextAction = kind === 'tpose'
+      ? this.tposeAction
+      : kind === 'idle'
+        ? this.idleAction
+        : this.danceAction;
+    if (!nextAction || nextAction === this.activeAction) {
+      return;
+    }
+
+    const clipNames: Record<CharacterAnimationKind, string> = {
+      tpose: 'T-Pose',
+      idle: 'Idle',
+      dance: 'Dancing Twerk',
+    };
+
+    nextAction.reset().setEffectiveWeight(1).play();
+    if (this.activeAction) {
+      this.activeAction.crossFadeTo(nextAction, Math.max(0.01, fadeDuration), false);
+    }
+    this.activeAction = nextAction;
+    this.activeClipName = clipNames[kind];
+  }
+
   setXrayVisible(visible: boolean): void {
     this.sdfDebugGroup.visible = visible;
   }
@@ -162,6 +255,8 @@ export class AnimatedCharacterSceneRig {
     return {
       loaded: this.loadedRoot !== null,
       assetUrl: this.assetUrl,
+      tposeAnimationUrl: this.tposeAnimationUrl,
+      idleAnimationUrl: this.idleAnimationUrl,
       animationUrl: this.animationUrl,
       meshCount: this.meshCount,
       skinnedMeshCount: this.skinnedMeshCount,
@@ -262,7 +357,11 @@ export class AnimatedCharacterSceneRig {
     return boneBounds;
   }
 
-  private retargetClipTracks(sourceClip: THREE.AnimationClip, animationRoot: THREE.Object3D): THREE.AnimationClip {
+  private retargetClipTracks(
+    sourceClip: THREE.AnimationClip,
+    animationRoot: THREE.Object3D,
+    fallbackName = 'Dancing Twerk retargeted',
+  ): THREE.AnimationClip {
     const targetBoneNamesByKey = new Map<string, string>();
     for (const bone of this.bones) {
       targetBoneNamesByKey.set(normalizeBoneName(bone.name), bone.name);
@@ -285,12 +384,12 @@ export class AnimatedCharacterSceneRig {
       return [cloned];
     });
 
-    this.retargetedTrackCount = tracks.length;
+    this.retargetedTrackCount = Math.max(this.retargetedTrackCount, tracks.length);
     if (tracks.length === 0) {
       console.warn('No direct animation tracks matched target rig');
     }
 
-    return new THREE.AnimationClip(sourceClip.name || 'Dancing Twerk retargeted', sourceClip.duration, tracks);
+    return new THREE.AnimationClip(sourceClip.name || fallbackName, sourceClip.duration, tracks);
   }
 
   private updateBoneSdfs(delta = 0): void {
@@ -357,10 +456,10 @@ export class AnimatedCharacterSceneRig {
     this.lastChestY = chest.y;
 
     const shoulderWidth = leftShoulder.distanceTo(rightShoulder);
-    const sideOffset = THREE.MathUtils.clamp(shoulderWidth * 0.18, 0.07, 0.14);
-    const frontOffset = THREE.MathUtils.clamp(shoulderWidth * 0.28, 0.13, 0.22);
+    const sideOffset = THREE.MathUtils.clamp(shoulderWidth * 0.13, 0.045, 0.095);
+    const frontOffset = THREE.MathUtils.clamp(shoulderWidth * 0.2, 0.085, 0.15);
     const base = chest.clone().lerp(neck, 0.12).addScaledVector(frontAxis, frontOffset);
-    const radius = THREE.MathUtils.clamp(shoulderWidth * 0.17, 0.09, 0.13);
+    const radius = THREE.MathUtils.clamp(shoulderWidth * 0.1, 0.055, 0.082);
 
     for (const [sideName, sign] of [['left', -1], ['right', 1]] as const) {
       const center = base

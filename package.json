@@ -13,7 +13,7 @@
     "generate:cloth": "node --experimental-strip-types tools/generate-cloth.ts",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
-    "test:unit": "node --experimental-strip-types --test src/sim/clothMeshCuts.test.ts src/sim/garmentPatternGeometry.test.ts src/cloth/patternAssembly.test.ts",
+    "test:unit": "node --experimental-strip-types --test src/sim/clothMeshCuts.test.ts src/sim/garmentPatternGeometry.test.ts src/cloth/patternAssembly.test.ts src/character/shirtDressing.test.ts",
     "test:strands": "playwright test --config playwright.strand-threads.config.ts",
     "test:bb": "playwright test tests/bb-motion.spec.ts",
     "test:bb:bg": "playwright test tests/bb-motion.spec.ts > /tmp/lavery-bb-motion.log 2>&1 & echo \"BB motion tests running in background — tail -f /tmp/lavery-bb-motion.log\"",

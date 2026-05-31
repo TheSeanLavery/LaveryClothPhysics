@@ -1,5 +1,6 @@
 import WebGPU from 'three/addons/capabilities/WebGPU.js';
 import * as THREE from 'three/webgpu';
+import type GUI from 'lil-gui';
 import {
   cloneClothSettings,
   createClothControls,
@@ -31,6 +32,26 @@ import {
   type CharacterStats,
   type ShirtAnchorReport,
 } from './character/AnimatedCharacter';
+import {
+  auditBodyNotFloatingOverArms,
+  auditAssemblyStrain,
+  auditEdgeCapsuleClearance,
+  auditPerCapsuleClearance,
+  auditShirtSdfClearance,
+  auditTriangleCapsuleClearance,
+  auditTriangleQuality,
+  DEFAULT_CHARACTER_T_SHIRT_OPTIONS,
+  placeCharacterTShirtAssembly,
+  SHIRT_SDF_CLEARANCE,
+  type AssemblyStrainReport,
+  type BodyArmDrapeReport,
+  type CharacterTShirtGenerationOptions,
+  type EdgeCapsuleClearanceReport,
+  type PerCapsuleClearanceReport,
+  type ShirtSdfClearanceReport,
+  type TriangleCapsuleClearanceReport,
+  type TriangleQualityReport,
+} from './character/shirtDressing';
 import { getFabricNormalMapStatsForTest } from './textures/createFabricNormalMap';
 
 function isFabricPlaneMode(): boolean {
@@ -54,11 +75,28 @@ function isCharacterMode(): boolean {
 }
 
 type TubeAssemblySpawnKind = 'box' | 'octagonalTube' | 'pyramid' | 'tshirt';
+interface CharacterShirtSurfaceReport {
+  readonly vertex: ShirtSdfClearanceReport;
+  readonly perCapsule: PerCapsuleClearanceReport;
+  readonly edge: EdgeCapsuleClearanceReport;
+  readonly triangle: TriangleCapsuleClearanceReport;
+  readonly strain: AssemblyStrainReport;
+  readonly quality: TriangleQualityReport;
+}
 
 declare global {
   interface Window {
     __characterStats?: () => CharacterStats;
     __characterBoneSdfs?: () => ReturnType<AnimatedCharacterSceneRig['getBoneSdfSummary']>;
+    __characterBlendTo?: (kind: 'tpose' | 'idle' | 'dance') => void;
+    __characterShirtSdfClearanceReport?: () => ShirtSdfClearanceReport;
+    __characterShirtPerCapsuleClearanceReport?: () => PerCapsuleClearanceReport;
+    __characterShirtBodyArmDrapeReport?: () => BodyArmDrapeReport;
+    __characterShirtEdgeClearanceReport?: () => EdgeCapsuleClearanceReport;
+    __characterShirtTriangleClearanceReport?: () => TriangleCapsuleClearanceReport;
+    __characterShirtStrainReport?: () => AssemblyStrainReport;
+    __characterShirtTriangleQualityReport?: () => TriangleQualityReport;
+    __characterSettledShirtSurfaceReport?: () => Promise<CharacterShirtSurfaceReport>;
     __characterProbeBoneSdfCollision?: () => BoneSdfCollisionProbe;
     __characterShirtAnchorReport?: () => ShirtAnchorReport;
     __zeroGravityTubeSpawnShape?: (kind: TubeAssemblySpawnKind) => Promise<number>;
@@ -352,6 +390,20 @@ async function bootstrapCharacterPreview(
   bonesToggleBtn.classList.add('active');
   toolbar?.appendChild(bonesToggleBtn);
 
+  const blendIdleBtn = document.createElement('button');
+  blendIdleBtn.type = 'button';
+  blendIdleBtn.id = 'blend-idle-btn';
+  blendIdleBtn.dataset.testid = 'blend-idle-btn';
+  blendIdleBtn.textContent = 'Blend Idle';
+  toolbar?.appendChild(blendIdleBtn);
+
+  const blendDanceBtn = document.createElement('button');
+  blendDanceBtn.type = 'button';
+  blendDanceBtn.id = 'blend-dance-btn';
+  blendDanceBtn.dataset.testid = 'blend-dance-btn';
+  blendDanceBtn.textContent = 'Blend Dance';
+  toolbar?.appendChild(blendDanceBtn);
+
   const cloth = await createClothSimulation(
     {
       container: document.body,
@@ -378,7 +430,7 @@ async function bootstrapCharacterPreview(
     zoneBStrength: 0,
     gravity: 0.000025,
     clothThickness: 0.003,
-    selfCollision: true,
+    selfCollision: false,
     poleCollision: false,
     mannequinCollision: false,
     showMannequin: false,
@@ -386,15 +438,30 @@ async function bootstrapCharacterPreview(
     showSimGridDebug: false,
     tearStretchThreshold: 999,
     shapePressure: 0,
+    flagColor: '#ff4fa3',
+    fabricTextureSource: 'procedural',
   });
   cloth.applySettings();
   await cloth.init();
 
   const rig = new AnimatedCharacterSceneRig(cloth.scene);
   await rig.load();
-  syncCharacterBoneSdfsToGpu(cloth, rig);
-  const assembly = placeCharacterTShirtAssembly(rig);
-  await cloth.loadClothAssembly(assembly);
+  cloth.settings.mannequinMargin = SHIRT_SDF_CLEARANCE;
+  cloth.settings.mannequinFriction = 0.85;
+  cloth.settings.mannequinCollision = false;
+  cloth.applySettings();
+  const dressTimeSdfs = rig.getBoneSdfSummary();
+  const dressTimeAnchors = rig.getCharacterAnchors();
+  const shirtOptions: CharacterTShirtGenerationOptions = { ...DEFAULT_CHARACTER_T_SHIRT_OPTIONS };
+  let assembly = placeCharacterTShirtAssembly(rig, SHIRT_SDF_CLEARANCE, shirtOptions);
+  const loadCharacterShirtAssembly = async (): Promise<void> => {
+    cloth.setBoneSdfCapsules([]);
+    assembly = placeCharacterTShirtAssembly(rig, SHIRT_SDF_CLEARANCE, shirtOptions);
+    await cloth.loadClothAssembly(assembly);
+    await warmupCharacterShirtCollision(cloth, rig);
+    particlesEl.textContent = `character cloth particles: ${cloth.getStats().particleCount}`;
+  };
+  await loadCharacterShirtAssembly();
   cloth.setSimGridDebugVisible(false);
   cloth.setGrabModeEnabled(false);
   cloth.setShootModeEnabled(false);
@@ -404,10 +471,46 @@ async function bootstrapCharacterPreview(
   statusEl.textContent = 'running (animated character cloth)';
   backendEl.textContent = `backend: ${cloth.renderer.backend.constructor.name} (character cloth)`;
   particlesEl.textContent = `character cloth particles: ${cloth.getStats().particleCount}`;
-  createClothControls(cloth, { title: 'Animated Character Cloth', testId: 'character-controls' });
+  const characterGui = createClothControls(cloth, {
+    title: 'Animated Character Cloth',
+    testId: 'character-controls',
+    collisionUi: 'boneSdf',
+  });
+  let shirtRebuildQueue = Promise.resolve();
+  addCharacterTShirtGenerationControls(characterGui, shirtOptions, () => {
+    shirtRebuildQueue = shirtRebuildQueue.then(loadCharacterShirtAssembly).catch((error: unknown) => {
+      console.error(error);
+    });
+  });
 
   window.__characterStats = () => rig.getStats();
   window.__characterBoneSdfs = () => rig.getBoneSdfSummary();
+  window.__characterBlendTo = (kind: 'tpose' | 'idle' | 'dance') => rig.blendToAnimation(kind);
+  window.__characterShirtSdfClearanceReport = () =>
+    auditShirtSdfClearance(assembly.vertices, dressTimeSdfs, SHIRT_SDF_CLEARANCE);
+  window.__characterShirtPerCapsuleClearanceReport = () =>
+    auditPerCapsuleClearance(assembly.vertices, dressTimeSdfs, SHIRT_SDF_CLEARANCE);
+  window.__characterShirtEdgeClearanceReport = () =>
+    auditEdgeCapsuleClearance(assembly, dressTimeSdfs, SHIRT_SDF_CLEARANCE);
+  window.__characterShirtTriangleClearanceReport = () =>
+    auditTriangleCapsuleClearance(assembly, dressTimeSdfs, SHIRT_SDF_CLEARANCE);
+  window.__characterShirtStrainReport = () => auditAssemblyStrain(assembly);
+  window.__characterShirtTriangleQualityReport = () => auditTriangleQuality(assembly);
+  window.__characterSettledShirtSurfaceReport = async () => {
+    const settledAssembly = await cloth.readCurrentClothAssembly(assembly);
+    return {
+      vertex: auditShirtSdfClearance(settledAssembly.vertices, dressTimeSdfs, SHIRT_SDF_CLEARANCE),
+      perCapsule: auditPerCapsuleClearance(settledAssembly.vertices, dressTimeSdfs, SHIRT_SDF_CLEARANCE),
+      edge: auditEdgeCapsuleClearance(settledAssembly, dressTimeSdfs, SHIRT_SDF_CLEARANCE),
+      triangle: auditTriangleCapsuleClearance(settledAssembly, dressTimeSdfs, SHIRT_SDF_CLEARANCE),
+      strain: auditAssemblyStrain(settledAssembly, 0.18),
+      quality: auditTriangleQuality(settledAssembly),
+    };
+  };
+  window.__characterShirtBodyArmDrapeReport = () => {
+    const armCapsules = dressTimeSdfs.filter((capsule) => /arm|shoulder|forearm/i.test(capsule.name));
+    return auditBodyNotFloatingOverArms(assembly.vertices, armCapsules, SHIRT_SDF_CLEARANCE);
+  };
   window.__characterProbeBoneSdfCollision = () => ({
     sampleCount: 0,
     sdfCount: rig.getBoneSdfSummary().length,
@@ -418,18 +521,18 @@ async function bootstrapCharacterPreview(
     hitBoneNames: [],
   });
   window.__characterShirtAnchorReport = () => {
-    const anchors = rig.getCharacterAnchors();
     const stats = cloth.getStats();
-    const namedAnchors = Object.entries(anchors).filter(([, value]) => value !== null).map(([name]) => name);
-    const neckTarget = anchors.neck ?? anchors.chest ?? new THREE.Vector3();
-    const shirtNeck = new THREE.Vector3(stats.centerX, stats.centerY + 0.36, stats.centerZ);
+    const namedAnchors = Object.entries(dressTimeAnchors).filter(([, value]) => value !== null).map(([name]) => name);
+    const neckTarget = dressTimeAnchors.neck ?? dressTimeAnchors.chest ?? new THREE.Vector3();
+    const neckVertices = assembly.vertices.filter((vertex) => vertex.patchId.includes('neck-binding'));
+    const shirtNeck = averageAssemblyPosition(neckVertices.length > 0 ? neckVertices : assembly.vertices);
     return {
-      hasRequiredAnchors: Boolean(anchors.hips && anchors.chest && anchors.neck && anchors.leftArm && anchors.rightArm),
+      hasRequiredAnchors: Boolean(dressTimeAnchors.hips && dressTimeAnchors.chest && dressTimeAnchors.neck && dressTimeAnchors.leftArm && dressTimeAnchors.rightArm),
       visible: true,
-      bodyWidth: 0.78,
-      torsoHeight: 0.86,
-      sleeveLength: 0.38,
-      sleeveOpening: 0.34,
+      bodyWidth: shirtOptions.bodyWidth,
+      torsoHeight: shirtOptions.torsoHeight,
+      sleeveLength: shirtOptions.sleeveLength,
+      sleeveOpening: shirtOptions.sleeveOpening,
       vertexCount: assembly.vertices.length,
       faceCount: assembly.faces.length,
       stitchEdgeCount: assembly.stitchEdges.length,
@@ -466,6 +569,16 @@ async function bootstrapCharacterPreview(
     bonesVisible = !bonesVisible;
     rig.setXrayVisible(bonesVisible);
     bonesToggleBtn.classList.toggle('active', bonesVisible);
+  });
+  blendIdleBtn.addEventListener('click', () => {
+    rig.transitionToIdle(0.85);
+    blendIdleBtn.classList.add('active');
+    blendDanceBtn.classList.remove('active');
+  });
+  blendDanceBtn.addEventListener('click', () => {
+    rig.transitionToDance(0.85);
+    blendDanceBtn.classList.add('active');
+    blendIdleBtn.classList.remove('active');
   });
   resetBtn?.addEventListener('click', () => {
     cloth.controls.reset();
@@ -529,6 +642,70 @@ async function bootstrapCharacterPreview(
     cloth.update();
     cloth.render();
   });
+}
+
+function averageAssemblyPosition(vertices: readonly ClothAssembly['vertices'][number][]): THREE.Vector3 {
+  const average = new THREE.Vector3();
+  for (const vertex of vertices) {
+    average.add(new THREE.Vector3(...vertex.position));
+  }
+  return vertices.length > 0 ? average.multiplyScalar(1 / vertices.length) : average;
+}
+
+function addCharacterTShirtGenerationControls(
+  gui: GUI,
+  options: CharacterTShirtGenerationOptions,
+  rebuild: () => void,
+): void {
+  const folder = gui.addFolder('T-shirt generation');
+  const addSlider = (
+    property: keyof CharacterTShirtGenerationOptions,
+    min: number,
+    max: number,
+    step: number,
+    label: string,
+  ): void => {
+    folder.add(options, property, min, max, step).name(label).onFinishChange(rebuild);
+  };
+
+  addSlider('bodyWidth', 0.5, 0.9, 0.01, 'Body width');
+  addSlider('torsoHeight', 0.55, 0.95, 0.01, 'Torso height');
+  addSlider('sleeveLength', 0.12, 0.45, 0.01, 'Sleeve length');
+  addSlider('sleeveOpening', 0.18, 0.4, 0.01, 'Sleeve opening');
+  addSlider('sleeveTubeRadius', 0.05, 0.16, 0.002, 'Sleeve tube radius');
+  addSlider('depth', 0.16, 0.38, 0.01, 'Front/back depth');
+  addSlider('sleeveHangScale', 0, 1, 0.01, 'Sleeve hang');
+  addSlider('sleeveLiftScale', 0, 1, 0.01, 'Sleeve lift');
+  addSlider('sleeveVerticalRadiusScale', 0.2, 0.7, 0.01, 'Sleeve vertical radius');
+
+  folder.add({
+    reset: () => {
+      Object.assign(options, DEFAULT_CHARACTER_T_SHIRT_OPTIONS);
+      folder.controllersRecursive().forEach((controller) => controller.updateDisplay());
+      rebuild();
+    },
+  }, 'reset').name('Reset T-shirt shape');
+}
+
+async function warmupCharacterShirtCollision(
+  cloth: ClothSimulation,
+  rig: AnimatedCharacterSceneRig,
+): Promise<void> {
+  await waitForAnimationFrames(12);
+  for (const margin of [SHIRT_SDF_CLEARANCE * 0.25, SHIRT_SDF_CLEARANCE * 0.6, SHIRT_SDF_CLEARANCE]) {
+    cloth.settings.mannequinMargin = margin;
+    cloth.applySettings();
+    syncCharacterBoneSdfsToGpu(cloth, rig);
+    await waitForAnimationFrames(10);
+  }
+}
+
+async function waitForAnimationFrames(count: number): Promise<void> {
+  for (let i = 0; i < count; i++) {
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
+  }
 }
 
 async function bootstrapZeroGravityTube(
@@ -924,67 +1101,8 @@ function createTubePageAssembly(kind: TubeAssemblySpawnKind): ClothAssembly {
   }
 }
 
-function placeCharacterTShirtAssembly(rig: AnimatedCharacterSceneRig): ClothAssembly {
-  const source = createTShirtAssembly({
-    bodyWidth: 0.78,
-    torsoHeight: 0.86,
-    sleeveLength: 0.38,
-    sleeveOpening: 0.34,
-    sleeveTubeRadius: 0.12,
-    depth: 0.32,
-    bodySegmentsX: 24,
-    bodySegmentsY: 28,
-    sleeveSegmentsX: 16,
-  });
-  const anchors = rig.getCharacterAnchors();
-  const hips = anchors.hips ?? new THREE.Vector3(0, 0.75, 0);
-  const chest = anchors.chest ?? new THREE.Vector3(0, 1.1, 0);
-  const neck = anchors.neck ?? new THREE.Vector3(0, 1.38, 0);
-  const leftShoulder = anchors.leftShoulder;
-  const rightShoulder = anchors.rightShoulder;
-  const shoulderCenter = leftShoulder && rightShoulder
-    ? leftShoulder.clone().add(rightShoulder).multiplyScalar(0.5)
-    : chest;
-  const targetCenter = hips.clone().lerp(shoulderCenter, 0.55);
-  targetCenter.y = neck.y - 0.86 * 0.86;
-
-  const xAxis = leftShoulder && rightShoulder
-    ? rightShoulder.clone().sub(leftShoulder)
-    : new THREE.Vector3(1, 0, 0);
-  xAxis.y = 0;
-  if (xAxis.lengthSq() < 0.0001) {
-    xAxis.set(1, 0, 0);
-  }
-  xAxis.normalize();
-  const zAxis = xAxis.clone().cross(new THREE.Vector3(0, 1, 0)).normalize();
-  const yAxis = new THREE.Vector3(0, 1, 0);
-  const rotation = new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis);
-  const transform = (position: readonly [number, number, number]): [number, number, number] => {
-    const world = new THREE.Vector3(
-      position[0],
-      position[1],
-      position[2],
-    ).applyMatrix4(rotation).add(targetCenter);
-    return [world.x, world.y, world.z];
-  };
-
-  return {
-    vertices: source.vertices.map((vertex) => ({
-      ...vertex,
-      position: transform(vertex.position),
-    })),
-    faces: source.faces,
-    edges: source.edges,
-    stitchEdges: source.stitchEdges,
-  };
-}
-
 function syncCharacterBoneSdfsToGpu(cloth: ClothSimulation, rig: AnimatedCharacterSceneRig): void {
   cloth.setBoneSdfCapsules(rig.getBoneSdfSummary());
-  cloth.settings.mannequinMargin = 0.035;
-  cloth.settings.mannequinFriction = 0.85;
-  cloth.settings.mannequinCollision = false;
-  cloth.applySettings();
 }
 
 function syncCharacterCollisionSdf(cloth: ClothSimulation, rig: AnimatedCharacterSceneRig): void {
