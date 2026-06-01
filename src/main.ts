@@ -77,6 +77,7 @@ function isCharacterMode(): boolean {
 }
 
 type TubeAssemblySpawnKind = 'box' | 'octagonalTube' | 'pyramid' | 'tshirt';
+const CHARACTER_SHIRT_COLLISION_MARGIN = 0.018;
 interface CharacterShirtSurfaceReport {
   readonly vertex: ShirtSdfClearanceReport;
   readonly perCapsule: PerCapsuleClearanceReport;
@@ -458,7 +459,7 @@ async function bootstrapCharacterPreview(
 
   const rig = new AnimatedCharacterSceneRig(cloth.scene);
   await rig.load();
-  cloth.settings.mannequinMargin = SHIRT_SDF_CLEARANCE;
+  cloth.settings.mannequinMargin = CHARACTER_SHIRT_COLLISION_MARGIN;
   cloth.settings.mannequinFriction = 0.85;
   cloth.settings.mannequinCollision = false;
   cloth.applySettings();
@@ -714,7 +715,11 @@ async function warmupCharacterShirtCollision(
   rig: AnimatedCharacterSceneRig,
 ): Promise<void> {
   await waitForAnimationFrames(12);
-  for (const margin of [SHIRT_SDF_CLEARANCE * 0.25, SHIRT_SDF_CLEARANCE * 0.6, SHIRT_SDF_CLEARANCE]) {
+  for (const margin of [
+    CHARACTER_SHIRT_COLLISION_MARGIN * 0.25,
+    CHARACTER_SHIRT_COLLISION_MARGIN * 0.6,
+    CHARACTER_SHIRT_COLLISION_MARGIN,
+  ]) {
     cloth.settings.mannequinMargin = margin;
     cloth.applySettings();
     syncCharacterBoneSdfsToGpu(cloth, rig);

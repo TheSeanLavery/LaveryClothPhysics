@@ -19,6 +19,7 @@ const UP = new THREE.Vector3(0, 1, 0);
 const TMP_A = new THREE.Vector3();
 const TMP_B = new THREE.Vector3();
 const TMP_C = new THREE.Vector3();
+const BONE_SDF_CLOTH_SKIN = 0.012;
 
 export interface BoneSdfCapsule {
   readonly id: number;
@@ -654,7 +655,7 @@ export class AnimatedCharacterSceneRig {
           parentName: blueprint.parentName,
           start,
           end,
-          radius: blueprint.radius,
+          radius: withClothCollisionSkin(blueprint.radius),
           length,
           fitVertexCount: blueprint.fitVertexCount,
           fitted: true,
@@ -681,7 +682,7 @@ export class AnimatedCharacterSceneRig {
         parentName: parent.name,
         start,
         end,
-        radius: radiusForBone(bone.name, length),
+        radius: withClothCollisionSkin(radiusForBone(bone.name, length)),
         length,
       });
     }
@@ -746,6 +747,28 @@ export class AnimatedCharacterSceneRig {
         lowerCenter.clone().addScaledVector(xAxis, sign * -THREE.MathUtils.clamp(shoulderWidth * 0.025, 0.01, 0.02)),
         lowerCenter.clone().addScaledVector(xAxis, sign * THREE.MathUtils.clamp(shoulderWidth * 0.025, 0.01, 0.02)),
         THREE.MathUtils.clamp(shoulderWidth * 0.078, 0.043, 0.065),
+      );
+      const outerCenter = center
+        .clone()
+        .addScaledVector(xAxis, sign * THREE.MathUtils.clamp(shoulderWidth * 0.055, 0.022, 0.045))
+        .addScaledVector(UP, -THREE.MathUtils.clamp(shoulderWidth * 0.025, 0.01, 0.02));
+      this.pushBoneCapsule(
+        `soft-chest-${sideName}-outer`,
+        'chest',
+        outerCenter.clone().addScaledVector(UP, -THREE.MathUtils.clamp(shoulderWidth * 0.045, 0.018, 0.035)),
+        outerCenter.clone().addScaledVector(UP, THREE.MathUtils.clamp(shoulderWidth * 0.035, 0.014, 0.03)),
+        THREE.MathUtils.clamp(shoulderWidth * 0.055, 0.032, 0.05),
+      );
+      const tipCenter = center
+        .clone()
+        .addScaledVector(frontAxis, THREE.MathUtils.clamp(shoulderWidth * 0.065, 0.03, 0.055))
+        .addScaledVector(UP, -THREE.MathUtils.clamp(shoulderWidth * 0.025, 0.01, 0.02));
+      this.pushBoneCapsule(
+        `soft-chest-${sideName}-tip`,
+        'chest',
+        tipCenter.clone().addScaledVector(xAxis, sign * -THREE.MathUtils.clamp(shoulderWidth * 0.018, 0.008, 0.015)),
+        tipCenter.clone().addScaledVector(xAxis, sign * THREE.MathUtils.clamp(shoulderWidth * 0.018, 0.008, 0.015)),
+        THREE.MathUtils.clamp(shoulderWidth * 0.04, 0.024, 0.038),
       );
     }
 
@@ -883,7 +906,7 @@ export class AnimatedCharacterSceneRig {
       parentName,
       start,
       end,
-      radius,
+      radius: withClothCollisionSkin(radius),
       length: start.distanceTo(end),
     });
   }
@@ -1948,6 +1971,10 @@ function clampFittedRadius(name: string, radius: number): number {
   return THREE.MathUtils.clamp(radius * 0.9, 0.01, 0.04);
 }
 
+function withClothCollisionSkin(radius: number): number {
+  return radius + BONE_SDF_CLOTH_SKIN;
+}
+
 function shouldSkipFittedBone(name: string): boolean {
   const normalized = normalizeBoneName(name);
   return (
@@ -2024,7 +2051,11 @@ function refineCoverageRegion(
   if (coarseRegion === 'torso') {
     const fromChest = point.clone().sub(axes.chest);
     if (fromChest.dot(axes.frontAxis) > 0.035 && point.y > axes.chest.y - 0.16) {
-      return 'chestFront';
+      const sideDistance = fromChest.dot(axes.xAxis);
+      if (Math.abs(sideDistance) > 0.022) {
+        return sideDistance < 0 ? 'leftBreast' : 'rightBreast';
+      }
+      return 'chestCenterFront';
     }
   }
   if (coarseRegion === 'hips' || coarseRegion === 'leftLeg' || coarseRegion === 'rightLeg') {
