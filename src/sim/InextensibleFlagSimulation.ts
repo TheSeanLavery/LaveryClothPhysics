@@ -378,6 +378,7 @@ export class InextensibleFlagSimulation {
   private clothTopologyReadbackPending = false;
   private lastBrokenEdgeCount = 0;
   private lastConnectivitySignature = '';
+  private bbVisualRefreshPending = false;
   private strandThreadMesh: THREE.InstancedMesh | null = null;
   private strandThreadEdgeVertices: StrandThreadEdge[] = [];
   private strandThreadReadbackPending = false;
@@ -485,6 +486,7 @@ export class InextensibleFlagSimulation {
   private grabActiveUniform!: ReturnType<typeof uniform>;
   private grabTryLatchUniform!: ReturnType<typeof uniform>;
   private grabPickRadiusUniform!: ReturnType<typeof uniform>;
+  private grabInfluenceRadiusUniform!: ReturnType<typeof uniform>;
   private grabCameraProjectionUniform!: ReturnType<typeof uniform>;
   private grabCameraViewUniform!: ReturnType<typeof uniform>;
   private grabCameraProjectionInverseUniform!: ReturnType<typeof uniform>;
@@ -515,6 +517,7 @@ export class InextensibleFlagSimulation {
   private isShootModeEnabled = false;
   private readonly bbPool = new BbProjectilePool();
   private readonly bbMeshes: THREE.Mesh[] = [];
+  private readonly grabHitTestPosition = new THREE.Vector3();
   private readonly bbBounds = new THREE.Box3(
     new THREE.Vector3(-4, -2, -4),
     new THREE.Vector3(4, 4, 4),
@@ -735,6 +738,51 @@ export class InextensibleFlagSimulation {
     this.isGrabActive = true;
     this.grabTryLatch = true;
     this.grabActiveUniform.value = 1;
+  }
+
+  canBeginGrabAttempt(): boolean {
+    if (!this.isReady || !this.isGrabModeEnabled) {
+      return false;
+    }
+
+    const mouse = this.mouseNdcUniform.value;
+    if (mouse.x < -1.5) {
+      return false;
+    }
+
+    const positionAttr = this.vertexPositionBuffer.value as StorageInstancedBufferAttribute;
+    const positions = positionAttr.array as Float32Array;
+    const itemSize = positionAttr.itemSize ?? 3;
+    const pickRadius = this.grabPickRadiusUniform.value;
+
+    this.camera.updateMatrixWorld();
+    for (let i = 0; i < this.clothVertices.length; i++) {
+      if (this.clothVertices[i]?.isFixed) {
+        continue;
+      }
+
+      this.grabHitTestPosition
+        .set(
+          positions[i * itemSize] ?? 0,
+          positions[i * itemSize + 1] ?? 0,
+          positions[i * itemSize + 2] ?? 0,
+        )
+        .project(this.camera);
+
+      if (this.grabHitTestPosition.z < -1 || this.grabHitTestPosition.z > 1) {
+        continue;
+      }
+
+      const dist = Math.hypot(
+        this.grabHitTestPosition.x - mouse.x,
+        this.grabHitTestPosition.y - mouse.y,
+      );
+      if (dist < pickRadius) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   endGrabAttempt(): void {
@@ -1345,6 +1393,7 @@ export class InextensibleFlagSimulation {
     this.zoneBRadiusUniform.value = s.zoneBRadius;
     this.zoneBSpeedUniform.value = s.zoneBSpeed;
     this.zoneBDirectionUniform.value.set(s.zoneBDirX, s.zoneBDirY, s.zoneBDirZ);
+    this.grabInfluenceRadiusUniform.value = s.grabRadius;
     this.tearStretchUniform.value = s.tearStretchThreshold;
     this.bbHitRadiusUniform.value = s.bbHitRadius;
     this.bbVisualRadiusUniform.value = s.bbVisualRadius;
@@ -1543,24 +1592,29 @@ export class InextensibleFlagSimulation {
   }
 
   async refreshBbVisualsFromGpu(): Promise<void> {
-    if (!this.isReady) {
+    if (!this.isReady || this.bbVisualRefreshPending) {
       return;
     }
 
-    const positionAttr = this.bbPositionBuffer.value as StorageInstancedBufferAttribute;
-    const activeAttr = this.bbActiveBuffer.value as StorageInstancedBufferAttribute;
-    const [positionBuffer, activeBuffer] = await Promise.all([
-      this.renderer.getArrayBufferAsync(positionAttr),
-      this.renderer.getArrayBufferAsync(activeAttr),
-    ]);
-    const positions = new Float32Array(positionBuffer);
-    const active = new Uint32Array(activeBuffer);
+    this.bbVisualRefreshPending = true;
+    try {
+      const positionAttr = this.bbPositionBuffer.value as StorageInstancedBufferAttribute;
+      const activeAttr = this.bbActiveBuffer.value as StorageInstancedBufferAttribute;
+      const [positionBuffer, activeBuffer] = await Promise.all([
+        this.renderer.getArrayBufferAsync(positionAttr),
+        this.renderer.getArrayBufferAsync(activeAttr),
+      ]);
+      const positions = new Float32Array(positionBuffer);
+      const active = new Uint32Array(activeBuffer);
 
-    for (let i = 0; i < this.bbPool.maxCount; i++) {
-      const bb = this.bbPool.getProjectile(i);
-      bb.alive = active[i] === 1;
-      bb.position.set(positions[i * 3]!, positions[i * 3 + 1]!, positions[i * 3 + 2]!);
-      syncBbProjectileMesh(this.bbMeshes[i]!, bb.position, this.bbPool.visualRadius, bb.alive);
+      for (let i = 0; i < this.bbPool.maxCount; i++) {
+        const bb = this.bbPool.getProjectile(i);
+        bb.alive = active[i] === 1;
+        bb.position.set(positions[i * 3]!, positions[i * 3 + 1]!, positions[i * 3 + 2]!);
+        syncBbProjectileMesh(this.bbMeshes[i]!, bb.position, this.bbPool.visualRadius, bb.alive);
+      }
+    } finally {
+      this.bbVisualRefreshPending = false;
     }
   }
 
@@ -2384,6 +2438,7 @@ export class InextensibleFlagSimulation {
     this.grabActiveUniform = uniform(0);
     this.grabTryLatchUniform = uniform(0);
     this.grabPickRadiusUniform = uniform(0.018);
+    this.grabInfluenceRadiusUniform = uniform(this.settings.grabRadius);
     this.grabCameraProjectionUniform = uniform(new THREE.Matrix4());
     this.grabCameraViewUniform = uniform(new THREE.Matrix4());
     this.grabCameraProjectionInverseUniform = uniform(new THREE.Matrix4());
@@ -3860,6 +3915,7 @@ export class InextensibleFlagSimulation {
     const grabActiveUniform = this.grabActiveUniform;
     const grabTryLatchUniform = this.grabTryLatchUniform;
     const grabPickRadiusUniform = this.grabPickRadiusUniform;
+    const grabInfluenceRadiusUniform = this.grabInfluenceRadiusUniform;
     const grabCameraProjectionUniform = this.grabCameraProjectionUniform;
     const grabCameraViewUniform = this.grabCameraViewUniform;
     const grabCameraProjectionInverseUniform = this.grabCameraProjectionInverseUniform;
@@ -3961,8 +4017,7 @@ export class InextensibleFlagSimulation {
       });
 
       const targetIdx = grabTargetBuffer.element(uint(0));
-
-      If(instanceIndex.notEqual(targetIdx).or(targetIdx.equal(invalidGrabIndex)), () => {
+      If(targetIdx.equal(invalidGrabIndex), () => {
         Return();
       });
 
@@ -3971,17 +4026,35 @@ export class InextensibleFlagSimulation {
         Return();
       });
 
-      const position = vertexPositionBuffer.element(instanceIndex).toVar('grabPosition');
-      const viewPos = grabCameraViewUniform.mul(vec4(position, float(1)));
-      const clip = grabCameraProjectionUniform.mul(viewPos);
-      const offsetNdc = vec2(
+      const pickedPosition = vertexPositionBuffer.element(targetIdx);
+      const pickedView = grabCameraViewUniform.mul(vec4(pickedPosition, float(1)));
+      const pickedClip = grabCameraProjectionUniform.mul(pickedView);
+      const pickedNdc = pickedClip.xy.div(pickedClip.w);
+      const targetOffsetNdc = vec2(
         grabOffsetNdcBuffer.element(uint(0)),
         grabOffsetNdcBuffer.element(uint(1)),
       );
-      const targetNdc = mouseNdcUniform.add(offsetNdc);
+      const targetNdc = mouseNdcUniform.add(targetOffsetNdc);
+      const dragDeltaNdc = targetNdc.sub(pickedNdc);
+
+      const position = vertexPositionBuffer.element(instanceIndex).toVar('grabPosition');
+      const viewPos = grabCameraViewUniform.mul(vec4(position, float(1)));
+      const clip = grabCameraProjectionUniform.mul(viewPos);
+      const ndc = clip.xy.div(clip.w);
+      const influenceRadius = grabInfluenceRadiusUniform.max(float(0.001));
+      const grabDistance = ndc.sub(pickedNdc).length();
+      If(grabDistance.greaterThan(influenceRadius), () => {
+        Return();
+      });
+
+      const grabWeight = float(1)
+        .sub(grabDistance.div(influenceRadius).clamp(0, 1))
+        .toVar('grabWeight');
+      grabWeight.assign(grabWeight.mul(grabWeight));
+      const movedNdc = ndc.add(dragDeltaNdc.mul(grabWeight));
       const newClip = vec4(
-        targetNdc.x.mul(clip.w),
-        targetNdc.y.mul(clip.w),
+        movedNdc.x.mul(clip.w),
+        movedNdc.y.mul(clip.w),
         clip.z,
         clip.w,
       );

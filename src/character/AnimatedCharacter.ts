@@ -107,6 +107,8 @@ interface CoverageRegionAxes {
   readonly rightKnee: THREE.Vector3 | null;
   readonly leftFoot: THREE.Vector3 | null;
   readonly rightFoot: THREE.Vector3 | null;
+  readonly leftHand: THREE.Vector3 | null;
+  readonly rightHand: THREE.Vector3 | null;
   readonly xAxis: THREE.Vector3;
   readonly frontAxis: THREE.Vector3;
 }
@@ -808,6 +810,58 @@ export class AnimatedCharacterSceneRig {
       }
     }
     this.addSoftLegRailSdfs(xAxis, frontAxis, shoulderWidth);
+    this.addSoftHandSdfs(xAxis, frontAxis, shoulderWidth);
+  }
+
+  private addSoftHandSdfs(xAxis: THREE.Vector3, frontAxis: THREE.Vector3, shoulderWidth: number): void {
+    for (const [sideName, sign] of [['left', -1], ['right', 1]] as const) {
+      const hand = this.findBoneWorldPosition([`${sideName}hand`]);
+      const index = this.findBoneWorldPosition([
+        `${sideName}handindex4`,
+        `${sideName}handindex3`,
+        `${sideName}handindex2`,
+        `${sideName}handindex1`,
+      ]);
+      const thumb = this.findBoneWorldPosition([
+        `${sideName}handthumb4`,
+        `${sideName}handthumb3`,
+        `${sideName}handthumb2`,
+        `${sideName}handthumb1`,
+      ]);
+      if (!hand) {
+        continue;
+      }
+
+      const fallbackFinger = hand
+        .clone()
+        .addScaledVector(xAxis, sign * THREE.MathUtils.clamp(shoulderWidth * 0.16, 0.075, 0.13));
+      const fingerTip = index ?? fallbackFinger;
+      const palmCenter = hand.clone().lerp(fingerTip, 0.36);
+      const palmRadius = THREE.MathUtils.clamp(shoulderWidth * 0.046, 0.026, 0.04);
+      this.pushBoneCapsule(
+        `soft-hand-${sideName}-palm`,
+        'hand-rail',
+        hand.clone().lerp(fingerTip, 0.05),
+        hand.clone().lerp(fingerTip, 0.72),
+        palmRadius,
+      );
+      this.pushBoneCapsule(
+        `soft-hand-${sideName}-width`,
+        'hand-rail',
+        palmCenter.clone().addScaledVector(frontAxis, -THREE.MathUtils.clamp(shoulderWidth * 0.055, 0.026, 0.045)),
+        palmCenter.clone().addScaledVector(frontAxis, THREE.MathUtils.clamp(shoulderWidth * 0.055, 0.026, 0.045)),
+        THREE.MathUtils.clamp(shoulderWidth * 0.034, 0.02, 0.032),
+      );
+      if (thumb) {
+        this.pushBoneCapsule(
+          `soft-hand-${sideName}-thumb`,
+          'hand-rail',
+          hand.clone().lerp(thumb, 0.12),
+          hand.clone().lerp(thumb, 0.95),
+          THREE.MathUtils.clamp(shoulderWidth * 0.03, 0.018, 0.028),
+        );
+      }
+    }
   }
 
   private addSoftLegRailSdfs(xAxis: THREE.Vector3, frontAxis: THREE.Vector3, shoulderWidth: number): void {
@@ -942,6 +996,8 @@ export class AnimatedCharacterSceneRig {
       rightKnee: this.findBoneWorldPosition(['rightleg']),
       leftFoot: this.findBoneWorldPosition(['leftfoot']),
       rightFoot: this.findBoneWorldPosition(['rightfoot']),
+      leftHand: this.findBoneWorldPosition(['lefthand']),
+      rightHand: this.findBoneWorldPosition(['righthand']),
       xAxis,
       frontAxis,
     };
@@ -1890,6 +1946,15 @@ function primaryCollisionChildBone(bone: THREE.Bone): THREE.Bone | null {
 function isUsefulTerminalEndpoint(parentName: string, childName: string): boolean {
   const parent = normalizeBoneName(parentName);
   const child = normalizeBoneName(childName);
+  if (parent.includes('hand')) {
+    return (
+      child.includes('thumb') ||
+      child.includes('index') ||
+      child.includes('middle') ||
+      child.includes('ring') ||
+      child.includes('pinky')
+    );
+  }
   if (parent.includes('foot')) {
     return child.includes('toe') || child.endsWith('end');
   }
@@ -1901,6 +1966,15 @@ function isUsefulTerminalEndpoint(parentName: string, childName: string): boolea
 
 function collisionChildPriority(name: string): number {
   const normalized = normalizeBoneName(name);
+  if (
+    normalized.includes('thumb') ||
+    normalized.includes('index') ||
+    normalized.includes('middle') ||
+    normalized.includes('ring') ||
+    normalized.includes('pinky')
+  ) {
+    return 3;
+  }
   if (normalized.includes('toe') || normalized.endsWith('end')) {
     return 3;
   }
@@ -1987,7 +2061,7 @@ function shouldSkipFittedBone(name: string): boolean {
 
 function isClothCollisionCoverageBone(name: string): boolean {
   const normalized = normalizeBoneName(name);
-  if (shouldSkipFittedBone(name) || normalized.includes('head')) {
+  if (normalized.includes('head') || normalized.endsWith('end') || normalized.includes('toe')) {
     return false;
   }
   return (
@@ -1998,6 +2072,11 @@ function isClothCollisionCoverageBone(name: string): boolean {
     normalized.includes('arm') ||
     normalized.includes('forearm') ||
     normalized.includes('hand') ||
+    normalized.includes('thumb') ||
+    normalized.includes('index') ||
+    normalized.includes('middle') ||
+    normalized.includes('ring') ||
+    normalized.includes('pinky') ||
     normalized.includes('upperleg') ||
     normalized.includes('upleg') ||
     normalized === 'leftleg' ||
@@ -2009,10 +2088,19 @@ function isClothCollisionCoverageBone(name: string): boolean {
 function collisionRegionForBone(name: string): string {
   const normalized = normalizeBoneName(name);
   if (
+    normalized.includes('hand') ||
+    normalized.includes('thumb') ||
+    normalized.includes('index') ||
+    normalized.includes('middle') ||
+    normalized.includes('ring') ||
+    normalized.includes('pinky')
+  ) {
+    return normalized.includes('left') ? 'leftHand' : normalized.includes('right') ? 'rightHand' : 'hands';
+  }
+  if (
     normalized.includes('shoulder') ||
     normalized.includes('arm') ||
-    normalized.includes('forearm') ||
-    normalized.includes('hand')
+    normalized.includes('forearm')
   ) {
     return normalized.includes('left') ? 'leftArm' : normalized.includes('right') ? 'rightArm' : 'arms';
   }
@@ -2047,6 +2135,12 @@ function refineCoverageRegion(
   }
   if (coarseRegion === 'rightArm' && axes.rightElbow && point.distanceTo(axes.rightElbow) < 0.13) {
     return 'rightElbow';
+  }
+  if (coarseRegion === 'leftHand' && axes.leftHand && point.distanceTo(axes.leftHand) < 0.22) {
+    return 'leftHand';
+  }
+  if (coarseRegion === 'rightHand' && axes.rightHand && point.distanceTo(axes.rightHand) < 0.22) {
+    return 'rightHand';
   }
   if (coarseRegion === 'torso') {
     const fromChest = point.clone().sub(axes.chest);

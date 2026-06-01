@@ -17,6 +17,7 @@ test.describe('GPU cloth tube scene', () => {
     expect(initialStats?.particleCount).toBeGreaterThan(500);
     expect(initialStats?.triangleCount).toBeGreaterThan(1000);
     expect(initialStats?.grabMode).toBe(true);
+    expect(initialStats?.grabRadius).toBeGreaterThan(0.04);
 
     await page.evaluate(() => window.__zeroGravityTubeSetShoot?.(true));
     const fired = await page.evaluate(() => window.__zeroGravityTubeFire?.(0, 0));

@@ -78,6 +78,8 @@ function isCharacterMode(): boolean {
 
 type TubeAssemblySpawnKind = 'box' | 'octagonalTube' | 'pyramid' | 'tshirt';
 const CHARACTER_SHIRT_COLLISION_MARGIN = 0.018;
+const CHARACTER_SHIRT_TEAR_PROTECTION_MS = 1_000;
+const CHARACTER_SHIRT_TEAR_PROTECTED_THRESHOLD = 999_999;
 interface CharacterShirtSurfaceReport {
   readonly vertex: ShirtSdfClearanceReport;
   readonly perCapsule: PerCapsuleClearanceReport;
@@ -94,6 +96,13 @@ declare global {
     __characterBoneSdfFitReport?: () => BoneSdfFitReport;
     __characterBoneSdfMeshCoverageReport?: () => BoneSdfMeshCoverageReport;
     __characterBlendTo?: (kind: 'tpose' | 'idle' | 'dance') => void;
+    __characterSetTearThreshold?: (threshold: number) => void;
+    __characterReloadShirtForTest?: () => Promise<void>;
+    __characterTearProtectionReport?: () => {
+      active: boolean;
+      restoreThreshold: number;
+      currentThreshold: number;
+    };
     __characterShirtSdfClearanceReport?: () => ShirtSdfClearanceReport;
     __characterShirtPerCapsuleClearanceReport?: () => PerCapsuleClearanceReport;
     __characterShirtBodyArmDrapeReport?: () => BodyArmDrapeReport;
@@ -240,6 +249,10 @@ async function bootstrapFlag(
     }
 
     if (!sim.isGrabModeOn()) {
+      return;
+    }
+
+    if (!sim.canBeginGrabAttempt()) {
       return;
     }
 
@@ -392,7 +405,6 @@ async function bootstrapCharacterPreview(
   bonesToggleBtn.id = 'bones-toggle-btn';
   bonesToggleBtn.dataset.testid = 'bones-toggle-btn';
   bonesToggleBtn.textContent = 'Bones';
-  bonesToggleBtn.classList.add('active');
   toolbar?.appendChild(bonesToggleBtn);
 
   const blendTposeBtn = document.createElement('button');
@@ -467,11 +479,37 @@ async function bootstrapCharacterPreview(
   const dressTimeAnchors = rig.getCharacterAnchors();
   const shirtOptions: CharacterTShirtGenerationOptions = { ...DEFAULT_CHARACTER_T_SHIRT_OPTIONS };
   let assembly = placeCharacterTShirtAssembly(rig, SHIRT_SDF_CLEARANCE, shirtOptions);
+  let tearProtectionTimeout: ReturnType<typeof window.setTimeout> | null = null;
+  let tearProtectionRestoreThreshold = cloth.settings.tearStretchThreshold;
+  const clearCharacterShirtTearProtection = (): void => {
+    if (tearProtectionTimeout !== null) {
+      window.clearTimeout(tearProtectionTimeout);
+      tearProtectionTimeout = null;
+    }
+  };
+  const startCharacterShirtTearProtection = (): void => {
+    clearCharacterShirtTearProtection();
+    if (cloth.settings.tearStretchThreshold < CHARACTER_SHIRT_TEAR_PROTECTED_THRESHOLD) {
+      tearProtectionRestoreThreshold = cloth.settings.tearStretchThreshold;
+    }
+    cloth.settings.tearStretchThreshold = CHARACTER_SHIRT_TEAR_PROTECTED_THRESHOLD;
+    cloth.applySettings();
+  };
+  const finishCharacterShirtTearProtectionAfterDelay = (): void => {
+    clearCharacterShirtTearProtection();
+    tearProtectionTimeout = window.setTimeout(() => {
+      tearProtectionTimeout = null;
+      cloth.settings.tearStretchThreshold = tearProtectionRestoreThreshold;
+      cloth.applySettings();
+    }, CHARACTER_SHIRT_TEAR_PROTECTION_MS);
+  };
   const loadCharacterShirtAssembly = async (): Promise<void> => {
+    startCharacterShirtTearProtection();
     cloth.setBoneSdfCapsules([]);
     assembly = placeCharacterTShirtAssembly(rig, SHIRT_SDF_CLEARANCE, shirtOptions);
     await cloth.loadClothAssembly(assembly);
     await warmupCharacterShirtCollision(cloth, rig);
+    finishCharacterShirtTearProtectionAfterDelay();
     particlesEl.textContent = `character cloth particles: ${cloth.getStats().particleCount}`;
   };
   await loadCharacterShirtAssembly();
@@ -501,6 +539,21 @@ async function bootstrapCharacterPreview(
   window.__characterBoneSdfFitReport = () => rig.getBoneSdfFitReport();
   window.__characterBoneSdfMeshCoverageReport = () => rig.getBoneSdfMeshCoverageReport();
   window.__characterBlendTo = (kind: 'tpose' | 'idle' | 'dance') => rig.blendToAnimation(kind);
+  window.__characterSetTearThreshold = (threshold: number) => {
+    if (tearProtectionTimeout === null) {
+      tearProtectionRestoreThreshold = threshold;
+      cloth.settings.tearStretchThreshold = threshold;
+    } else {
+      tearProtectionRestoreThreshold = threshold;
+    }
+    cloth.applySettings();
+  };
+  window.__characterReloadShirtForTest = () => loadCharacterShirtAssembly();
+  window.__characterTearProtectionReport = () => ({
+    active: tearProtectionTimeout !== null,
+    restoreThreshold: tearProtectionRestoreThreshold,
+    currentThreshold: cloth.settings.tearStretchThreshold,
+  });
   window.__characterShirtSdfClearanceReport = () =>
     auditShirtSdfClearance(assembly.vertices, dressTimeSdfs, SHIRT_SDF_CLEARANCE);
   window.__characterShirtPerCapsuleClearanceReport = () =>
@@ -579,7 +632,9 @@ async function bootstrapCharacterPreview(
       cloth.controls.enabled = true;
     }
   });
-  let bonesVisible = true;
+  let bonesVisible = false;
+  rig.setXrayVisible(bonesVisible);
+  bonesToggleBtn.classList.toggle('active', bonesVisible);
   bonesToggleBtn.addEventListener('click', () => {
     bonesVisible = !bonesVisible;
     rig.setXrayVisible(bonesVisible);
@@ -635,6 +690,9 @@ async function bootstrapCharacterPreview(
     if (!cloth.isGrabModeOn()) {
       return;
     }
+    if (!cloth.canBeginGrabAttempt()) {
+      return;
+    }
     cloth.beginGrabAttempt();
     cloth.controls.enabled = false;
     document.body.classList.add('grabbing');
@@ -657,13 +715,30 @@ async function bootstrapCharacterPreview(
 
   window.addEventListener('resize', () => cloth.resize());
   const timer = new THREE.Timer();
-  cloth.renderer.setAnimationLoop(() => {
-    timer.update();
-    const delta = Math.min(timer.getDelta(), 1 / 30);
-    rig.update(delta);
-    syncCharacterBoneSdfsToGpu(cloth, rig);
-    cloth.update();
-    cloth.render();
+  let bbVisualSyncBusy = false;
+  cloth.renderer.setAnimationLoop(async () => {
+    if (bbVisualSyncBusy) {
+      timer.update();
+      const delta = Math.min(timer.getDelta(), 1 / 30);
+      rig.update(delta);
+      syncCharacterBoneSdfsToGpu(cloth, rig);
+      cloth.update();
+      cloth.render();
+      return;
+    }
+
+    bbVisualSyncBusy = true;
+    try {
+      timer.update();
+      const delta = Math.min(timer.getDelta(), 1 / 30);
+      rig.update(delta);
+      syncCharacterBoneSdfsToGpu(cloth, rig);
+      cloth.update();
+      await cloth.refreshBbVisualsFromGpu();
+      cloth.render();
+    } finally {
+      bbVisualSyncBusy = false;
+    }
   });
 }
 
@@ -943,6 +1018,7 @@ async function bootstrapZeroGravityTube(
       gravity: cloth.settings.gravity,
       pressure: cloth.settings.shapePressure,
       tearStretchThreshold: cloth.settings.tearStretchThreshold,
+      grabRadius: cloth.settings.grabRadius,
       mannequinCollision: cloth.settings.mannequinCollision,
     };
   };

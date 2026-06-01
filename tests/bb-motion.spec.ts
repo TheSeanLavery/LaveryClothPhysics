@@ -109,7 +109,11 @@ test.describe('BB projectile motion', () => {
         return { ok: false, reason: 'fire-failed' as const };
       }
 
-      const samples: Array<{ alive: boolean; z: number }> = [];
+      const samples: Array<{
+        alive: boolean;
+        position: { x: number; y: number; z: number };
+        velocity: { x: number; y: number; z: number };
+      }> = [];
       for (let i = 0; i < 16; i++) {
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
         const frame = await window.__flagSimReadBbSamples?.();
@@ -117,7 +121,7 @@ test.describe('BB projectile motion', () => {
         if (!bb) {
           return { ok: false, reason: 'missing-slot' as const };
         }
-        samples.push({ alive: bb.alive, z: bb.position.z });
+        samples.push({ alive: bb.alive, position: bb.position, velocity: bb.velocity });
         if (!bb.alive && samples.length > 3) {
           break;
         }
@@ -128,13 +132,20 @@ test.describe('BB projectile motion', () => {
         return { ok: false, reason: 'died-too-soon' as const, aliveSamples: aliveSamples.length };
       }
 
-      const startZ = aliveSamples[0]!.z;
-      const endZ = aliveSamples[aliveSamples.length - 1]!.z;
-      const traveled = endZ - startZ;
+      const first = aliveSamples[0]!;
+      const last = aliveSamples[aliveSamples.length - 1]!;
+      const speed = Math.hypot(first.velocity.x, first.velocity.y, first.velocity.z);
+      const traveled =
+        speed > 0
+          ? ((last.position.x - first.position.x) * first.velocity.x +
+              (last.position.y - first.position.y) * first.velocity.y +
+              (last.position.z - first.position.z) * first.velocity.z) /
+            speed
+          : 0;
 
       return {
-        ok: traveled < -0.08,
-        reason: traveled < -0.08 ? ('ok' as const) : ('no-forward-motion' as const),
+        ok: traveled > 0.08,
+        reason: traveled > 0.08 ? ('ok' as const) : ('no-forward-motion' as const),
         traveled,
         aliveSamples: aliveSamples.length,
       };

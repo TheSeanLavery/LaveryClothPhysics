@@ -30,6 +30,8 @@ export interface InextensibleFlagSettings {
   zoneBDirY: number;
   zoneBDirZ: number;
   dampening: number;
+  /** Screen-space radius around the picked particle that follows grab dragging. */
+  grabRadius: number;
   gravity: number;
   /** Outward force for inflated garment/assembly previews (0 = off). */
   shapePressure: number;
@@ -136,6 +138,7 @@ export const defaultInextensibleFlagSettings = (): InextensibleFlagSettings => (
   zoneBDirY: 0.08,
   zoneBDirZ: 0.35,
   dampening: 0.9925,
+  grabRadius: 0.075,
   gravity: 0.00006,
   shapePressure: 0,
   mannequinCollision: false,
