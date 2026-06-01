@@ -413,6 +413,8 @@ export class InextensibleFlagSimulation {
   private bbVelocityBuffer!: ReturnType<typeof instancedArray>;
   private bbAgeBuffer!: ReturnType<typeof instancedArray>;
   private bbActiveBuffer!: ReturnType<typeof instancedArray>;
+  private previousBoneSdfStartBuffer!: ReturnType<typeof instancedArray>;
+  private previousBoneSdfEndRadiusBuffer!: ReturnType<typeof instancedArray>;
   private boneSdfStartBuffer!: ReturnType<typeof instancedArray>;
   private boneSdfEndRadiusBuffer!: ReturnType<typeof instancedArray>;
 
@@ -515,6 +517,7 @@ export class InextensibleFlagSimulation {
   private isGrabActive = false;
   private grabTryLatch = false;
   private isShootModeEnabled = false;
+  private hasBoneSdfHistory = false;
   private readonly bbPool = new BbProjectilePool();
   private readonly bbMeshes: THREE.Mesh[] = [];
   private readonly grabHitTestPosition = new THREE.Vector3();
@@ -1201,18 +1204,44 @@ export class InextensibleFlagSimulation {
   }
 
   setBoneSdfCapsules(capsules: readonly BoneSdfCapsuleSample[]): void {
-    if (!this.boneSdfStartBuffer || !this.boneSdfEndRadiusBuffer) {
+    if (
+      !this.previousBoneSdfStartBuffer ||
+      !this.previousBoneSdfEndRadiusBuffer ||
+      !this.boneSdfStartBuffer ||
+      !this.boneSdfEndRadiusBuffer
+    ) {
       return;
     }
 
+    const previousStartAttr = this.previousBoneSdfStartBuffer.value as StorageInstancedBufferAttribute;
+    const previousEndRadiusAttr = this.previousBoneSdfEndRadiusBuffer.value as StorageInstancedBufferAttribute;
     const startAttr = this.boneSdfStartBuffer.value as StorageInstancedBufferAttribute;
     const endRadiusAttr = this.boneSdfEndRadiusBuffer.value as StorageInstancedBufferAttribute;
+    const previousStartArray = previousStartAttr.array as Float32Array;
+    const previousEndRadiusArray = previousEndRadiusAttr.array as Float32Array;
     const startArray = startAttr.array as Float32Array;
     const endRadiusArray = endRadiusAttr.array as Float32Array;
+
+    if (this.hasBoneSdfHistory) {
+      previousStartArray.set(startArray);
+      previousEndRadiusArray.set(endRadiusArray);
+    }
+
     startArray.fill(0);
     endRadiusArray.fill(0);
 
     const count = Math.min(capsules.length, MAX_BONE_SDF_CAPSULES);
+    if (count === 0) {
+      previousStartArray.fill(0);
+      previousEndRadiusArray.fill(0);
+      this.hasBoneSdfHistory = false;
+      previousStartAttr.needsUpdate = true;
+      previousEndRadiusAttr.needsUpdate = true;
+      startAttr.needsUpdate = true;
+      endRadiusAttr.needsUpdate = true;
+      return;
+    }
+
     for (let i = 0; i < count; i++) {
       const capsule = capsules[i]!;
       startArray[i * 4] = capsule.start[0];
@@ -1225,6 +1254,14 @@ export class InextensibleFlagSimulation {
       endRadiusArray[i * 4 + 3] = capsule.radius;
     }
 
+    if (!this.hasBoneSdfHistory) {
+      previousStartArray.set(startArray);
+      previousEndRadiusArray.set(endRadiusArray);
+      this.hasBoneSdfHistory = true;
+    }
+
+    previousStartAttr.needsUpdate = true;
+    previousEndRadiusAttr.needsUpdate = true;
     startAttr.needsUpdate = true;
     endRadiusAttr.needsUpdate = true;
   }
@@ -2333,6 +2370,8 @@ export class InextensibleFlagSimulation {
     );
     this.bbAgeBuffer = instancedArray(new Float32Array(this.bbPool.maxCount), 'float').setPBO(true);
     this.bbActiveBuffer = instancedArray(new Uint32Array(this.bbPool.maxCount), 'uint').setPBO(true);
+    this.previousBoneSdfStartBuffer = instancedArray(new Float32Array(MAX_BONE_SDF_CAPSULES * 4), 'vec4');
+    this.previousBoneSdfEndRadiusBuffer = instancedArray(new Float32Array(MAX_BONE_SDF_CAPSULES * 4), 'vec4');
     this.boneSdfStartBuffer = instancedArray(new Float32Array(MAX_BONE_SDF_CAPSULES * 4), 'vec4');
     this.boneSdfEndRadiusBuffer = instancedArray(new Float32Array(MAX_BONE_SDF_CAPSULES * 4), 'vec4');
   }
@@ -3398,6 +3437,8 @@ export class InextensibleFlagSimulation {
     const bbBoundsMinUniform = this.bbBoundsMinUniform;
     const bbBoundsMaxUniform = this.bbBoundsMaxUniform;
     const bbSlotCount = this.bbPool.maxCount;
+    const previousBoneSdfStartBuffer = this.previousBoneSdfStartBuffer;
+    const previousBoneSdfEndRadiusBuffer = this.previousBoneSdfEndRadiusBuffer;
     const boneSdfStartBuffer = this.boneSdfStartBuffer;
     const boneSdfEndRadiusBuffer = this.boneSdfEndRadiusBuffer;
 
@@ -3791,27 +3832,45 @@ export class InextensibleFlagSimulation {
       const position = vertexPositionBuffer.element(instanceIndex).toVar('boneSdfPosition');
       const sdfDistance = float(1e9).toVar('boneSdfDistance');
       const sdfNormal = vec3(float(0), float(1), float(0)).toVar('boneSdfNormal');
+      const sdfColliderMotion = vec3(float(0), float(0), float(0)).toVar('boneSdfColliderMotion');
 
       Loop({ start: uint(0), end: uint(MAX_BONE_SDF_CAPSULES), type: 'uint', condition: '<' }, ({ i }) => {
-        const start = boneSdfStartBuffer.element(i);
-        const endRadius = boneSdfEndRadiusBuffer.element(i);
-        const radius = endRadius.w;
+        const previousStart = previousBoneSdfStartBuffer.element(i);
+        const previousEndRadius = previousBoneSdfEndRadiusBuffer.element(i);
+        const currentStart = boneSdfStartBuffer.element(i);
+        const currentEndRadius = boneSdfEndRadiusBuffer.element(i);
+        const radius = currentEndRadius.w;
 
         If(radius.greaterThan(float(0.0001)), () => {
-          const a = start.xyz;
-          const b = endRadius.xyz;
-          const segment = b.sub(a).toVar('boneSdfSegment');
-          const segmentLenSq = segment.dot(segment).max(float(0.000001));
-          const t = position.sub(a).dot(segment).div(segmentLenSq).clamp(float(0), float(1));
-          const closest = a.add(segment.mul(t));
-          const offset = position.sub(closest).toVar('boneSdfOffset');
-          const len = offset.length().max(float(0.000001));
-          const distance = len.sub(radius);
+          const previousA = previousStart.xyz;
+          const previousB = previousEndRadius.xyz;
+          const currentA = currentStart.xyz;
+          const currentB = currentEndRadius.xyz;
+          const sampleCapsule = (a: ReturnType<typeof vec3>, b: ReturnType<typeof vec3>): void => {
+            const segment = b.sub(a).toVar();
+            const segmentLenSq = segment.dot(segment).max(float(0.000001));
+            const capsuleT = position.sub(a).dot(segment).div(segmentLenSq).clamp(float(0), float(1));
+            const closest = a.add(segment.mul(capsuleT));
+            const offset = position.sub(closest).toVar();
+            const len = offset.length().max(float(0.000001));
+            const distance = len.sub(radius);
 
-          If(distance.lessThan(sdfDistance), () => {
-            sdfDistance.assign(distance);
-            sdfNormal.assign(offset.div(len));
-          });
+            If(distance.lessThan(sdfDistance), () => {
+              const previousClosest = previousA.add(
+                previousB.sub(previousA).mul(capsuleT),
+              );
+              const currentClosest = currentA.add(
+                currentB.sub(currentA).mul(capsuleT),
+              );
+              sdfDistance.assign(distance);
+              sdfNormal.assign(offset.div(len));
+              sdfColliderMotion.assign(currentClosest.sub(previousClosest));
+            });
+          };
+
+          sampleCapsule(previousA, previousB);
+          sampleCapsule(previousA.add(currentA).mul(float(0.5)), previousB.add(currentB).mul(float(0.5)));
+          sampleCapsule(currentA, currentB);
         });
       });
 
@@ -3826,9 +3885,18 @@ export class InextensibleFlagSimulation {
         const dampedVelocity = normalVelocity.add(
           tangentVelocity.mul(float(1.0).sub(mannequinFrictionUniform.clamp(0, 0.95))),
         );
+        const incomingColliderMotion = sdfColliderMotion
+          .mul(select(sdfColliderMotion.dot(sdfNormal).greaterThan(float(0)), float(1), float(0)))
+          .toVar('boneSdfIncomingMotion');
+        const incomingLen = incomingColliderMotion.length().toVar('boneSdfIncomingLen');
+        If(incomingLen.greaterThan(float(0.035)), () => {
+          incomingColliderMotion.mulAssign(float(0.035).div(incomingLen));
+        });
 
         vertexPositionBuffer.element(instanceIndex).assign(projected);
-        vertexPreviousBuffer.element(instanceIndex).assign(projected.sub(dampedVelocity));
+        vertexPreviousBuffer.element(instanceIndex).assign(
+          projected.sub(dampedVelocity.add(incomingColliderMotion.mul(float(0.65)))),
+        );
       });
     })()
       .compute(vertexCount)
