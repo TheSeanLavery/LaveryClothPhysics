@@ -12,6 +12,7 @@ import {
   type SimEdgeLookup,
   type StructuralGraphEdge,
 } from './clothMeshCuts.ts';
+import { buildEdgeStructuralDependencies, createSimStructuralEdgeLookup } from './clothEdgeDependencies.ts';
 
 function makeStructuralLookup(segmentsX: number, segmentsY: number): {
   lookup: SimEdgeLookup;
@@ -470,6 +471,21 @@ test('keeps single-link cells when attached to fixed vertices', () => {
     false,
   );
   assert.equal(edgeActive[southId], 1);
+});
+
+test('assembly bend constraints depend on two-hop structural material paths', () => {
+  const edges = [
+    { id: 0, kind: 'structural' as const, vertex0: { id: 0, gridX: 0, gridY: 0 }, vertex1: { id: 1, gridX: 1, gridY: 0 } },
+    { id: 1, kind: 'structural' as const, vertex0: { id: 1, gridX: 1, gridY: 0 }, vertex1: { id: 2, gridX: 2, gridY: 0 } },
+    { id: 2, kind: 'bend' as const, vertex0: { id: 0, gridX: 0, gridY: 0 }, vertex1: { id: 2, gridX: 2, gridY: 0 } },
+  ];
+  const deps = buildEdgeStructuralDependencies(
+    edges,
+    createSimStructuralEdgeLookup(2, 0, new Array(3).fill(-1), new Array(3).fill(-1)),
+  );
+
+  const bendDeps = Array.from(deps.edgeDependencyIds.slice(deps.edgeDependencyStarts[2], deps.edgeDependencyStarts[3]));
+  assert.deepEqual(bendDeps.sort(), [0, 1]);
 });
 
 test('collects strand thread edges for single-link interior cells', () => {

@@ -2224,7 +2224,9 @@ export class InextensibleFlagSimulation {
       this.clothEdges.push(edge);
     }
 
-    this.clothGraphEdges = buildClothGraphEdges(this.clothEdges);
+    this.clothGraphEdges = buildClothGraphEdges(
+      this.clothEdges.filter((edge) => edge.kind !== 'bend'),
+    );
     this.structuralGraphEdges = this.clothEdges
       .filter((edge) => edge.kind === 'structural')
       .map((edge) => ({
@@ -3216,11 +3218,24 @@ export class InextensibleFlagSimulation {
       return null;
     }
 
-    let edgeActive = this.lastSyncedEdgeActive;
-    if (!edgeActive) {
-      const edgeAttr = this.edgeActiveBuffer.value as StorageInstancedBufferAttribute;
-      const edgeBuffer = await this.renderer.getArrayBufferAsync(edgeAttr);
-      edgeActive = this.getSyncedEdgeActiveForStrands(new Uint32Array(edgeBuffer));
+    const edgeAttr = this.edgeActiveBuffer.value as StorageInstancedBufferAttribute;
+    const edgeBuffer = await this.renderer.getArrayBufferAsync(edgeAttr);
+    const { edgeActive, components } = this.syncClothConnectivityFromEdgeState(new Uint32Array(edgeBuffer));
+    this.lastSyncedEdgeActive = edgeActive;
+    const brokenEdgeCount = countBrokenEdges(edgeActive);
+    const visible = this.rebuildVisibleClothMesh(edgeActive, brokenEdgeCount, components);
+
+    for (let wait = 0; this.strandThreadReadbackPending && wait < 5; wait++) {
+      await this.waitForFrame();
+    }
+
+    if (this.settings.renderStrandThreads && !this.strandThreadReadbackPending) {
+      this.strandThreadReadbackPending = true;
+      try {
+        await this.syncStrandThreadsFromState(edgeActive, visible.indices, true);
+      } finally {
+        this.strandThreadReadbackPending = false;
+      }
     }
 
     const audit = auditStrandThreadCoverage(
@@ -3229,12 +3244,12 @@ export class InextensibleFlagSimulation {
       this.lastStrandThreadEdgeIds,
       this.clothVertices.length,
       (vertexId) => this.clothVertices[vertexId]?.isFixed ?? true,
-      this.strandThreadCollectionOptions(),
+      this.strandThreadCollectionOptions(visible.indices),
     );
 
     return {
       frameCount: this.frameCount,
-      brokenEdgeCount: countBrokenEdges(edgeActive),
+      brokenEdgeCount,
       requiredCount: audit.required.length,
       renderedCount: audit.rendered.length,
       missingEdgeIds: audit.missing,
@@ -4115,10 +4130,14 @@ export class InextensibleFlagSimulation {
         Return();
       });
 
-      const grabWeight = float(1)
-        .sub(grabDistance.div(influenceRadius).clamp(0, 1))
-        .toVar('grabWeight');
-      grabWeight.assign(grabWeight.mul(grabWeight));
+      const innerGrabRadius = influenceRadius.mul(float(0.62));
+      const outerGrabBand = influenceRadius.sub(innerGrabRadius).max(float(0.001));
+      const outerT = grabDistance.sub(innerGrabRadius).div(outerGrabBand).clamp(0, 1);
+      const grabWeight = select(
+        grabDistance.lessThan(innerGrabRadius),
+        float(1),
+        float(1).sub(outerT.mul(outerT).mul(float(3).sub(outerT.mul(float(2))))),
+      ).toVar('grabWeight');
       const movedNdc = ndc.add(dragDeltaNdc.mul(grabWeight));
       const newClip = vec4(
         movedNdc.x.mul(clip.w),

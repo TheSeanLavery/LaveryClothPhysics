@@ -56,6 +56,27 @@ export function buildEdgeStructuralDependencies(
   lookup: SimStructuralEdgeLookup,
 ): EdgeDependencyBuffers {
   const edgeDependencyLists: number[][] = edges.map(() => []);
+  const structuralEdgeIdsByPair = new Map<string, number>();
+  const structuralNeighbors = new Map<number, Array<{ vertexId: number; edgeId: number }>>();
+
+  const pairKey = (a: number, b: number): string => (a < b ? `${a}:${b}` : `${b}:${a}`);
+  const addStructuralNeighbor = (from: number, to: number, edgeId: number): void => {
+    const neighbors = structuralNeighbors.get(from);
+    if (neighbors) {
+      neighbors.push({ vertexId: to, edgeId });
+    } else {
+      structuralNeighbors.set(from, [{ vertexId: to, edgeId }]);
+    }
+  };
+
+  for (const edge of edges) {
+    if (edge.kind !== 'structural') {
+      continue;
+    }
+    structuralEdgeIdsByPair.set(pairKey(edge.vertex0.id, edge.vertex1.id), edge.id);
+    addStructuralNeighbor(edge.vertex0.id, edge.vertex1.id, edge.id);
+    addStructuralNeighbor(edge.vertex1.id, edge.vertex0.id, edge.id);
+  }
 
   for (const edge of edges) {
     const gx = edge.vertex0.gridX;
@@ -80,6 +101,14 @@ export function buildEdgeStructuralDependencies(
         const x = Math.max(gx, gx1);
         pushUnique(deps, horizontalId(lookup, x, gy));
         pushUnique(deps, horizontalId(lookup, x - 1, gy));
+      }
+
+      for (const neighbor of structuralNeighbors.get(edge.vertex0.id) ?? []) {
+        const secondEdgeId = structuralEdgeIdsByPair.get(pairKey(neighbor.vertexId, edge.vertex1.id));
+        if (secondEdgeId !== undefined) {
+          pushUnique(deps, neighbor.edgeId);
+          pushUnique(deps, secondEdgeId);
+        }
       }
       edgeDependencyLists[edge.id] = deps;
     }
