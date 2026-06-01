@@ -534,6 +534,37 @@ async function bootstrapCharacterPreview(
     });
   });
 
+  // --- Breast physics GUI ---
+  const breastGui = characterGui.addFolder('Breast physics');
+  const bp = rig.getBreastPhysics();
+  const bpConfig = bp.config;
+  breastGui.add(bpConfig, 'stiffnessY', 10, 200, 1).name('Stiffness Y');
+  breastGui.add(bpConfig, 'stiffnessX', 10, 200, 1).name('Stiffness X');
+  breastGui.add(bpConfig, 'stiffnessZ', 10, 200, 1).name('Stiffness Z');
+  breastGui.add(bpConfig, 'dampingY', 0.5, 20, 0.1).name('Damping Y');
+  breastGui.add(bpConfig, 'dampingX', 0.5, 20, 0.1).name('Damping X');
+  breastGui.add(bpConfig, 'dampingZ', 0.5, 20, 0.1).name('Damping Z');
+  breastGui.add(bpConfig, 'responseY', 0.01, 0.5, 0.005).name('Response Y');
+  breastGui.add(bpConfig, 'responseX', 0.01, 0.5, 0.005).name('Response X');
+  breastGui.add(bpConfig, 'responseZ', 0.01, 0.5, 0.005).name('Response Z');
+  breastGui.add(bpConfig, 'maxOffsetY', 0.01, 0.2, 0.005).name('Max offset Y');
+  breastGui.add(bpConfig, 'maxOffsetX', 0.01, 0.2, 0.005).name('Max offset X');
+  breastGui.add(bpConfig, 'maxOffsetZ', 0.01, 0.2, 0.005).name('Max offset Z');
+  breastGui.add({ slap: () => bp.applyImpulse('both', 0, 1.0, -1.5) }, 'slap').name('Test slap');
+  breastGui.add({ reset: () => bp.reset() }, 'reset').name('Reset springs');
+
+  window.__characterBreastPhysics = () => rig.getBreastPhysics().snapshot();
+  window.__characterPokeBreast = (side: 'left' | 'right' | 'both', dx = 0, dy = 0.5, dz = 0) => {
+    rig.getBreastPhysics().applyImpulse(side, dx, dy, dz);
+  };
+  window.__characterSlapBreast = (side: 'left' | 'right' | 'both', strength = 3.0) => {
+    rig.getBreastPhysics().applyImpulse(side, (Math.random() - 0.5) * strength, strength * 0.6, -strength);
+    if (side !== 'both') {
+      const other = side === 'left' ? 'right' : 'left';
+      rig.getBreastPhysics().applyImpulse(other, (Math.random() - 0.5) * strength * 0.3, strength * 0.15, -strength * 0.25);
+    }
+  };
+  window.__characterBreastMorphInfo = () => rig.getBreastMorphInfo();
   window.__characterStats = () => rig.getStats();
   window.__characterBoneSdfs = () => rig.getBoneSdfSummary();
   window.__characterBoneSdfFitReport = () => rig.getBoneSdfFitReport();
@@ -662,23 +693,139 @@ async function bootstrapCharacterPreview(
     cloth.controls.reset();
   });
 
-  const canvas = cloth.renderer.domElement;
-  const updateMouseNdc = (event: PointerEvent): void => {
-    const rect = canvas.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) {
-      return;
+  // --- Breast slap interaction ---
+  const slapToggleBtn = document.createElement('button');
+  slapToggleBtn.type = 'button';
+  slapToggleBtn.id = 'slap-toggle-btn';
+  slapToggleBtn.dataset.testid = 'slap-toggle-btn';
+  slapToggleBtn.textContent = 'Slap';
+  toolbar?.appendChild(slapToggleBtn);
+
+  let slapMode = false;
+  const SLAP_HIT_RADIUS = 0.16;
+  const SLAP_BASE_STRENGTH = 2.5;     // minimum impulse on a still click
+  const SLAP_VELOCITY_SCALE = 12.0;   // how much mouse speed amplifies the hit
+  const SLAP_FORWARD_PUSH = 1.2;      // extra push into the body on impact
+  const slapRaycaster = new THREE.Raycaster();
+  const slapNdc = new THREE.Vector2();
+
+  // Track pointer velocity for swipe-based slap direction
+  let slapPointerHistory: { x: number; y: number; t: number }[] = [];
+
+  slapToggleBtn.addEventListener('click', () => {
+    slapMode = !slapMode;
+    slapToggleBtn.classList.toggle('active', slapMode);
+    if (slapMode) {
+      cloth.setGrabModeEnabled(false);
+      cloth.setShootModeEnabled(false);
+      syncInteractionUi();
     }
-    cloth.setMousePointerNdc(
-      ((event.clientX - rect.left) / rect.width) * 2 - 1,
-      -((event.clientY - rect.top) / rect.height) * 2 + 1,
-    );
+  });
+
+  const slapHitTest = (ndcX: number, ndcY: number): {
+    side: 'left' | 'right';
+    point: THREE.Vector3;
+    center: THREE.Vector3;
+  } | null => {
+    const centers = rig.getBreastWorldCenters();
+    if (!centers) return null;
+
+    slapNdc.set(ndcX, ndcY);
+    slapRaycaster.setFromCamera(slapNdc, cloth.camera);
+    const ray = slapRaycaster.ray;
+
+    let bestDist = SLAP_HIT_RADIUS;
+    let bestSide: 'left' | 'right' | null = null;
+    let bestCenter: THREE.Vector3 | null = null;
+
+    for (const [side, center] of [['left', centers.left], ['right', centers.right]] as const) {
+      const closest = new THREE.Vector3();
+      ray.closestPointToPoint(center, closest);
+      const dist = closest.distanceTo(center);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestSide = side;
+        bestCenter = center;
+      }
+    }
+
+    if (!bestSide || !bestCenter) return null;
+    const hitPoint = new THREE.Vector3();
+    ray.closestPointToPoint(bestCenter, hitPoint);
+    return { side: bestSide, point: hitPoint, center: bestCenter };
   };
-  canvas.addEventListener('pointermove', updateMouseNdc);
+
+  /**
+   * Compute swipe velocity from pointer history.
+   * Returns NDC units/second in x and y.
+   */
+  const getSlapSwipeVelocity = (): { vx: number; vy: number } => {
+    const now = performance.now();
+    // Only use samples from the last 100ms
+    const recent = slapPointerHistory.filter((s) => now - s.t < 100);
+    if (recent.length < 2) return { vx: 0, vy: 0 };
+    const first = recent[0]!;
+    const last = recent[recent.length - 1]!;
+    const dt = (last.t - first.t) / 1000;
+    if (dt < 0.001) return { vx: 0, vy: 0 };
+    return { vx: (last.x - first.x) / dt, vy: (last.y - first.y) / dt };
+  };
+
+  const canvas = cloth.renderer.domElement;
+  const toNdc = (event: PointerEvent): { x: number; y: number } => {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: rect.width > 0 ? ((event.clientX - rect.left) / rect.width) * 2 - 1 : 0,
+      y: rect.height > 0 ? -((event.clientY - rect.top) / rect.height) * 2 + 1 : 0,
+    };
+  };
+  const updateMouseNdc = (event: PointerEvent): void => {
+    const ndc = toNdc(event);
+    cloth.setMousePointerNdc(ndc.x, ndc.y);
+  };
+  canvas.addEventListener('pointermove', (event) => {
+    updateMouseNdc(event);
+
+    // Track pointer movement for slap velocity
+    if (slapMode) {
+      const ndc = toNdc(event);
+      const now = performance.now();
+      slapPointerHistory.push({ x: ndc.x, y: ndc.y, t: now });
+      // Keep only the last 150ms of samples
+      slapPointerHistory = slapPointerHistory.filter((s) => now - s.t < 150);
+    }
+  });
   canvas.addEventListener('pointerdown', (event) => {
     if (event.button !== 0) {
       return;
     }
     updateMouseNdc(event);
+
+    // Slap mode: swipe-velocity–based impact on breast
+    if (slapMode) {
+      const ndc = toNdc(event);
+      const hit = slapHitTest(ndc.x, ndc.y);
+      if (hit) {
+        const swipe = getSlapSwipeVelocity();
+        const swipeSpeed = Math.sqrt(swipe.vx * swipe.vx + swipe.vy * swipe.vy);
+
+        // Impulse = base push + velocity-amplified directional hit
+        const impulseX = swipe.vx * SLAP_VELOCITY_SCALE + (hit.point.x - hit.center.x) * SLAP_BASE_STRENGTH;
+        const impulseY = swipe.vy * SLAP_VELOCITY_SCALE + (hit.point.y - hit.center.y) * SLAP_BASE_STRENGTH;
+        // Always push into the body (forward/Z) on impact
+        const impulseZ = -(SLAP_BASE_STRENGTH + swipeSpeed * SLAP_FORWARD_PUSH);
+
+        rig.getBreastPhysics().applyImpulse(hit.side, impulseX, impulseY, impulseZ);
+
+        // If both breasts are close to the hit, give the other a smaller sympathetic jiggle
+        const otherSide = hit.side === 'left' ? 'right' : 'left';
+        rig.getBreastPhysics().applyImpulse(otherSide, impulseX * 0.3, impulseY * 0.3, impulseZ * 0.25);
+      }
+      // Clear history after slap
+      slapPointerHistory = [];
+      return;
+    }
+
     if (cloth.isShootModeOn()) {
       const rect = canvas.getBoundingClientRect();
       cloth.fireBb(

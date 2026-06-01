@@ -8,6 +8,7 @@ import {
   createTShirtAssembly,
   type ClothAssembly,
 } from '../cloth/patternAssembly';
+import { BreastPhysicsSimulator } from './breastPhysics';
 export const VISIBLE_CHARACTER_MODEL_URL = '/assets/characters/meshy/blue-haired-anime-girl.fbx';
 export const MIXAMO_TPOSE_URL = '/assets/characters/mixamo/tpose.fbx';
 export const MIXAMO_IDLE_URL = '/assets/characters/mixamo/idle.fbx';
@@ -195,9 +196,12 @@ export class AnimatedCharacterSceneRig {
   private boundsHeight = 0;
   private boundsWidth = 0;
   private animationSpeed = 1;
-  private chestJiggleOffset = 0;
-  private chestJiggleVelocity = 0;
-  private lastChestY: number | null = null;
+  private readonly breastSim = new BreastPhysicsSimulator();
+  private breastBoneLeft: THREE.Bone | null = null;
+  private breastBoneRight: THREE.Bone | null = null;
+  private breastBonesSearched = false;
+  private breastMorphTargetsBuilt = false;
+  private readonly breastMorphMeshes: THREE.SkinnedMesh[] = [];
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -275,6 +279,8 @@ export class AnimatedCharacterSceneRig {
     this.buildBoneSdfBlueprints();
     this.updateBoneSdfs();
     this.buildBoneSdfDebugVisuals();
+    // Build breast morph targets now that bones are positioned.
+    this.buildBreastMorphTargetsIfNeeded();
   }
 
   update(delta: number): void {
@@ -495,6 +501,49 @@ export class AnimatedCharacterSceneRig {
     };
   }
 
+  getBreastPhysics(): BreastPhysicsSimulator {
+    return this.breastSim;
+  }
+
+  getBreastMorphInfo(): { meshCount: number; morphTargetsBuilt: boolean; morphCount: number; influences: number[][] } {
+    return {
+      meshCount: this.breastMorphMeshes.length,
+      morphTargetsBuilt: this.breastMorphTargetsBuilt,
+      morphCount: 12,
+      influences: this.breastMorphMeshes.map((mesh) => [...(mesh.morphTargetInfluences ?? [])]),
+    };
+  }
+
+  /**
+   * Returns the current world-space center of each breast capsule cluster.
+   * Useful for hit-testing pointer interaction against the chest area.
+   */
+  getBreastWorldCenters(): { left: THREE.Vector3; right: THREE.Vector3 } | null {
+    const chest = this.findBoneWorldPosition(['spine2', 'spine1', 'spine']);
+    const neck = this.findBoneWorldPosition(['neck']);
+    const leftShoulder = this.findBoneWorldPosition(['leftshoulder', 'leftarm']);
+    const rightShoulder = this.findBoneWorldPosition(['rightshoulder', 'rightarm']);
+    if (!chest || !neck || !leftShoulder || !rightShoulder) {
+      return null;
+    }
+    const xAxis = rightShoulder.clone().sub(leftShoulder);
+    xAxis.y = 0;
+    if (xAxis.lengthSq() < 0.0001) xAxis.set(1, 0, 0);
+    xAxis.normalize();
+    const frontAxis = UP.clone().cross(xAxis);
+    if (frontAxis.lengthSq() < 0.0001) frontAxis.set(0, 0, 1);
+    frontAxis.normalize();
+
+    const shoulderWidth = leftShoulder.distanceTo(rightShoulder);
+    const sideOffset = THREE.MathUtils.clamp(shoulderWidth * 0.15, 0.052, 0.105);
+    const frontOffset = THREE.MathUtils.clamp(shoulderWidth * 0.2, 0.085, 0.14);
+    const base = chest.clone().lerp(neck, 0.12).addScaledVector(frontAxis, frontOffset);
+    return {
+      left: base.clone().addScaledVector(xAxis, -sideOffset),
+      right: base.clone().addScaledVector(xAxis, sideOffset),
+    };
+  }
+
   private collectCharacterObjects(root: THREE.Object3D): void {
     this.meshCount = 0;
     this.skinnedMeshCount = 0;
@@ -712,17 +761,14 @@ export class AnimatedCharacterSceneRig {
     }
     frontAxis.normalize();
 
-    if (delta > 0 && this.lastChestY !== null) {
-      const chestStep = chest.y - this.lastChestY;
-      const targetLag = THREE.MathUtils.clamp(-chestStep * 1.35, -0.04, 0.04);
-      const stiffness = 55;
-      const damping = 9;
-      this.chestJiggleVelocity += (targetLag - this.chestJiggleOffset) * stiffness * delta;
-      this.chestJiggleVelocity *= Math.exp(-damping * delta);
-      this.chestJiggleOffset += this.chestJiggleVelocity * delta;
-      this.chestJiggleOffset = THREE.MathUtils.clamp(this.chestJiggleOffset, -0.045, 0.045);
-    }
-    this.lastChestY = chest.y;
+    // Project chest position into local frame for multi-axis breast physics.
+    const chestLocalX = chest.dot(xAxis);
+    const chestLocalY = chest.y;
+    const chestLocalZ = chest.dot(frontAxis);
+    this.breastSim.step(chestLocalX, chestLocalY, chestLocalZ, delta);
+
+    // Drive breast bones (if the model has them) for mesh deformation.
+    this.applyBreastBoneRotations();
 
     const shoulderWidth = leftShoulder.distanceTo(rightShoulder);
     const sideOffset = THREE.MathUtils.clamp(shoulderWidth * 0.15, 0.052, 0.105);
@@ -731,10 +777,13 @@ export class AnimatedCharacterSceneRig {
     const radius = THREE.MathUtils.clamp(shoulderWidth * 0.112, 0.06, 0.09);
 
     for (const [sideName, sign] of [['left', -1], ['right', 1]] as const) {
+      const spring = sideName === 'left' ? this.breastSim.left : this.breastSim.right;
       const center = base
         .clone()
         .addScaledVector(xAxis, sign * sideOffset)
-        .addScaledVector(UP, this.chestJiggleOffset);
+        .addScaledVector(UP, spring.offsetY)
+        .addScaledVector(xAxis, spring.offsetX)
+        .addScaledVector(frontAxis, spring.offsetZ);
       const start = center.clone().addScaledVector(UP, -0.018);
       const end = center.clone().addScaledVector(UP, 0.018);
       this.pushBoneCapsule(`soft-chest-${sideName}-jiggle`, 'chest', start, end, radius);
@@ -944,6 +993,189 @@ export class AnimatedCharacterSceneRig {
         footCenter.clone().addScaledVector(xAxis, sign * THREE.MathUtils.clamp(shoulderWidth * 0.075, 0.038, 0.065)),
         THREE.MathUtils.clamp(shoulderWidth * 0.052, 0.03, 0.046),
       );
+    }
+  }
+
+  /**
+   * Find breast bones on the skeleton and apply jiggle rotation.
+   * Common bone names: Breast_L/R, bust_L/R, Mune_L/R, BreastBone_L/R.
+   * Rotation magnitude maps from the spring offset to a bone rotation angle.
+   */
+  private applyBreastBoneRotations(): void {
+    if (!this.breastBonesSearched) {
+      this.breastBonesSearched = true;
+      this.breastBoneLeft = this.findBone([
+        'breastl', 'breast_l', 'leftbreast', 'bustl', 'bust_l', 'munel', 'mune_l',
+      ]);
+      this.breastBoneRight = this.findBone([
+        'breastr', 'breast_r', 'rightbreast', 'bustr', 'bust_r', 'muner', 'mune_r',
+      ]);
+    }
+
+    const ROTATION_SCALE = 6.0; // radians per unit offset — tuned for visual appeal
+
+    if (this.breastBoneLeft) {
+      const spring = this.breastSim.left;
+      this.breastBoneLeft.rotation.x += -spring.offsetY * ROTATION_SCALE;
+      this.breastBoneLeft.rotation.z += spring.offsetX * ROTATION_SCALE;
+      this.breastBoneLeft.rotation.y += spring.offsetZ * ROTATION_SCALE;
+      this.breastBoneLeft.updateMatrixWorld(true);
+    }
+    if (this.breastBoneRight) {
+      const spring = this.breastSim.right;
+      this.breastBoneRight.rotation.x += -spring.offsetY * ROTATION_SCALE;
+      this.breastBoneRight.rotation.z += spring.offsetX * ROTATION_SCALE;
+      this.breastBoneRight.rotation.y += spring.offsetZ * ROTATION_SCALE;
+      this.breastBoneRight.updateMatrixWorld(true);
+    }
+
+    // Vertex displacement via morph targets (works on any skeleton).
+    this.buildBreastMorphTargetsIfNeeded();
+    this.syncBreastMorphInfluences();
+  }
+
+  /**
+   * Build morph targets on each SkinnedMesh for breast vertex displacement.
+   * Creates 12 targets: left/right × Y/X/Z × positive/negative.
+   * Using separate +/- targets avoids negative morph influence clamping.
+   * Vertices are weighted by a smooth falloff from breast center.
+   *
+   * Layout: [LY+, LY-, LX+, LX-, LZ+, LZ-, RY+, RY-, RX+, RX-, RZ+, RZ-]
+   */
+  private buildBreastMorphTargetsIfNeeded(): void {
+    if (this.breastMorphTargetsBuilt || !this.loadedRoot) {
+      return;
+    }
+    this.breastMorphTargetsBuilt = true;
+
+    const centers = this.getBreastWorldCenters();
+    if (!centers) return;
+
+    // Displacement magnitude at the breast center (full strength).
+    const MORPH_DISPLACEMENT = 0.055;
+    // Radius of influence around each breast center.
+    const INFLUENCE_RADIUS = 0.14;
+
+    this.loadedRoot.traverse((object) => {
+      if (!(object instanceof THREE.SkinnedMesh)) return;
+
+      const geometry = object.geometry;
+      const positionAttr = geometry.getAttribute('position');
+      if (!positionAttr) return;
+
+      const vertexCount = positionAttr.count;
+      // 12 morph targets: per side (L/R) × per axis (Y/X/Z) × direction (+/-)
+      const MORPH_COUNT = 12;
+      const morphArrays = Array.from({ length: MORPH_COUNT }, () => new Float32Array(vertexCount * 3));
+      let hasAnyWeight = false;
+
+      // Precompute local-space axes from bind matrix (same for all vertices on this mesh).
+      const normalMatrix = new THREE.Matrix3().setFromMatrix4(object.bindMatrixInverse);
+      const localUp = new THREE.Vector3(0, 1, 0).applyMatrix3(normalMatrix).normalize();
+      const localRight = new THREE.Vector3(1, 0, 0).applyMatrix3(normalMatrix).normalize();
+      const localForward = new THREE.Vector3(0, 0, 1).applyMatrix3(normalMatrix).normalize();
+
+      const worldPos = new THREE.Vector3();
+      for (let i = 0; i < vertexCount; i++) {
+        getSkinnedVertexWorldPosition(object, i, worldPos);
+
+        for (const [sideIndex, center] of [[0, centers.left], [1, centers.right]] as const) {
+          const dist = worldPos.distanceTo(center);
+          if (dist >= INFLUENCE_RADIUS) continue;
+
+          // Smooth falloff: 1 at center, 0 at edge.
+          const t = dist / INFLUENCE_RADIUS;
+          const weight = (1 - t * t) * (1 - t * t); // quartic falloff
+
+          if (weight < 0.001) continue;
+          hasAnyWeight = true;
+
+          const disp = MORPH_DISPLACEMENT * weight;
+          const baseOffset = sideIndex * 6; // 0..5 for left, 6..11 for right
+          const idx = i * 3;
+
+          // Y+ (up)
+          morphArrays[baseOffset]![idx] += localUp.x * disp;
+          morphArrays[baseOffset]![idx + 1] += localUp.y * disp;
+          morphArrays[baseOffset]![idx + 2] += localUp.z * disp;
+          // Y- (down)
+          morphArrays[baseOffset + 1]![idx] -= localUp.x * disp;
+          morphArrays[baseOffset + 1]![idx + 1] -= localUp.y * disp;
+          morphArrays[baseOffset + 1]![idx + 2] -= localUp.z * disp;
+          // X+ (right)
+          morphArrays[baseOffset + 2]![idx] += localRight.x * disp;
+          morphArrays[baseOffset + 2]![idx + 1] += localRight.y * disp;
+          morphArrays[baseOffset + 2]![idx + 2] += localRight.z * disp;
+          // X- (left)
+          morphArrays[baseOffset + 3]![idx] -= localRight.x * disp;
+          morphArrays[baseOffset + 3]![idx + 1] -= localRight.y * disp;
+          morphArrays[baseOffset + 3]![idx + 2] -= localRight.z * disp;
+          // Z+ (forward)
+          morphArrays[baseOffset + 4]![idx] += localForward.x * disp;
+          morphArrays[baseOffset + 4]![idx + 1] += localForward.y * disp;
+          morphArrays[baseOffset + 4]![idx + 2] += localForward.z * disp;
+          // Z- (back)
+          morphArrays[baseOffset + 5]![idx] -= localForward.x * disp;
+          morphArrays[baseOffset + 5]![idx + 1] -= localForward.y * disp;
+          morphArrays[baseOffset + 5]![idx + 2] -= localForward.z * disp;
+        }
+      }
+
+      if (!hasAnyWeight) return;
+
+      // Attach morph targets to geometry.
+      geometry.morphAttributes.position = morphArrays.map((array) => {
+        const attr = new THREE.Float32BufferAttribute(array, 3);
+        attr.name = 'breastMorph';
+        return attr;
+      });
+      geometry.morphTargetsRelative = true;
+
+      // Enable morph targets on the mesh.
+      object.morphTargetInfluences = new Array(MORPH_COUNT).fill(0);
+      object.updateMorphTargets();
+
+      this.breastMorphMeshes.push(object);
+    });
+  }
+
+  /**
+   * Map breast physics offsets to morph target influences.
+   * Positive offsets drive the + target, negative offsets drive the - target.
+   * All influences stay >= 0 to avoid renderer clamping.
+   */
+  private syncBreastMorphInfluences(): void {
+    if (this.breastMorphMeshes.length === 0) return;
+
+    const left = this.breastSim.left;
+    const right = this.breastSim.right;
+    const SCALE = 1.0 / 0.055;
+
+    for (const mesh of this.breastMorphMeshes) {
+      const inf = mesh.morphTargetInfluences;
+      if (!inf || inf.length < 12) continue;
+
+      // Left: Y+/Y-/X+/X-/Z+/Z-
+      const ly = left.offsetY * SCALE;
+      inf[0] = ly > 0 ? ly : 0;
+      inf[1] = ly < 0 ? -ly : 0;
+      const lx = left.offsetX * SCALE;
+      inf[2] = lx > 0 ? lx : 0;
+      inf[3] = lx < 0 ? -lx : 0;
+      const lz = left.offsetZ * SCALE;
+      inf[4] = lz > 0 ? lz : 0;
+      inf[5] = lz < 0 ? -lz : 0;
+
+      // Right: Y+/Y-/X+/X-/Z+/Z-
+      const ry = right.offsetY * SCALE;
+      inf[6] = ry > 0 ? ry : 0;
+      inf[7] = ry < 0 ? -ry : 0;
+      const rx = right.offsetX * SCALE;
+      inf[8] = rx > 0 ? rx : 0;
+      inf[9] = rx < 0 ? -rx : 0;
+      const rz = right.offsetZ * SCALE;
+      inf[10] = rz > 0 ? rz : 0;
+      inf[11] = rz < 0 ? -rz : 0;
     }
   }
 
