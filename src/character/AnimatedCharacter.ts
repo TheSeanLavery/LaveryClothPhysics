@@ -28,6 +28,8 @@ export interface BoneSdfCapsule {
   readonly end: THREE.Vector3;
   readonly radius: number;
   readonly length: number;
+  readonly fitVertexCount?: number;
+  readonly fitted?: boolean;
 }
 
 export interface CharacterAnchors {
@@ -72,6 +74,82 @@ export interface BoneSdfCollisionProbe {
   readonly hitBoneNames: string[];
 }
 
+interface BoneSdfCapsuleBlueprint {
+  readonly name: string;
+  readonly parentName: string;
+  readonly startBone: THREE.Bone;
+  readonly endBone: THREE.Bone;
+  readonly t0: number;
+  readonly t1: number;
+  readonly radius: number;
+  readonly fitVertexCount: number;
+}
+
+interface MutableRegionCoverage {
+  sampledVertexCount: number;
+  nearSurfaceCount: number;
+  outsideHoleCount: number;
+  insideBlobCount: number;
+  signedDistanceSum: number;
+  absDistanceSum: number;
+  outsideMeshDepthSum: number;
+}
+
+interface CoverageRegionAxes {
+  readonly chest: THREE.Vector3;
+  readonly hips: THREE.Vector3;
+  readonly leftHip: THREE.Vector3 | null;
+  readonly rightHip: THREE.Vector3 | null;
+  readonly leftElbow: THREE.Vector3 | null;
+  readonly rightElbow: THREE.Vector3 | null;
+  readonly leftKnee: THREE.Vector3 | null;
+  readonly rightKnee: THREE.Vector3 | null;
+  readonly leftFoot: THREE.Vector3 | null;
+  readonly rightFoot: THREE.Vector3 | null;
+  readonly xAxis: THREE.Vector3;
+  readonly frontAxis: THREE.Vector3;
+}
+
+export interface BoneSdfFitReport {
+  readonly fitted: boolean;
+  readonly capsuleCount: number;
+  readonly fittedCapsuleCount: number;
+  readonly heuristicCapsuleCount: number;
+  readonly fittedVertexCount: number;
+  readonly maxCapsulesPerBone: number;
+  readonly boneNames: string[];
+}
+
+export interface BoneSdfMeshCoverageReport {
+  readonly surfaceVertexCount: number;
+  readonly sampledVertexCount: number;
+  readonly nearSurfaceRatio: number;
+  readonly outsideHoleRatio: number;
+  readonly insideBlobRatio: number;
+  readonly meanSignedDistance: number;
+  readonly meanAbsDistance: number;
+  readonly meanHoleDistance: number;
+  readonly meanOutsideMeshDepth: number;
+  readonly balancedError: number;
+  readonly p90AbsDistance: number;
+  readonly maxOutsideDistance: number;
+  readonly maxInsideDepth: number;
+  readonly worstOutsideCapsuleName: string | null;
+  readonly worstInsideCapsuleName: string | null;
+  readonly regions: Record<string, BoneSdfRegionCoverageReport>;
+}
+
+export interface BoneSdfRegionCoverageReport {
+  readonly sampledVertexCount: number;
+  readonly nearSurfaceRatio: number;
+  readonly outsideHoleRatio: number;
+  readonly insideBlobRatio: number;
+  readonly meanSignedDistance: number;
+  readonly meanAbsDistance: number;
+  readonly meanOutsideMeshDepth: number;
+  readonly balancedError: number;
+}
+
 export interface ShirtAnchorReport {
   readonly hasRequiredAnchors: boolean;
   readonly visible: boolean;
@@ -97,6 +175,7 @@ export class AnimatedCharacterSceneRig {
   private readonly animationUrl: string;
   private readonly bones: THREE.Bone[] = [];
   private readonly boneCapsules: BoneSdfCapsule[] = [];
+  private readonly boneSdfBlueprints: BoneSdfCapsuleBlueprint[] = [];
   private readonly boneSdfMeshes = new Map<number, THREE.Object3D>();
   private mixer: THREE.AnimationMixer | null = null;
   private tposeAction: THREE.AnimationAction | null = null;
@@ -190,6 +269,7 @@ export class AnimatedCharacterSceneRig {
     }
 
     root.updateMatrixWorld(true);
+    this.buildBoneSdfBlueprints();
     this.updateBoneSdfs();
     this.buildBoneSdfDebugVisuals();
   }
@@ -295,6 +375,111 @@ export class AnimatedCharacterSceneRig {
     }));
   }
 
+  getBoneSdfFitReport(): BoneSdfFitReport {
+    return {
+      fitted: this.boneSdfBlueprints.length > 0,
+      capsuleCount: this.boneCapsules.length,
+      fittedCapsuleCount: this.boneCapsules.filter((capsule) => capsule.fitted).length,
+      heuristicCapsuleCount: this.boneCapsules.filter((capsule) => !capsule.fitted).length,
+      fittedVertexCount: this.boneCapsules.reduce((sum, capsule) => sum + (capsule.fitVertexCount ?? 0), 0),
+      maxCapsulesPerBone: maxCapsulesPerBone(this.boneCapsules),
+      boneNames: this.boneCapsules.slice(0, 48).map((capsule) => capsule.name),
+    };
+  }
+
+  getBoneSdfMeshCoverageReport(surfaceBand = 0.035): BoneSdfMeshCoverageReport {
+    if (!this.loadedRoot || this.boneCapsules.length === 0) {
+      return emptyBoneSdfMeshCoverageReport();
+    }
+
+    this.loadedRoot.updateMatrixWorld(true);
+    const distances: number[] = [];
+    let outsideHoleCount = 0;
+    let insideBlobCount = 0;
+    let nearSurfaceCount = 0;
+    let signedDistanceSum = 0;
+    let holeDistanceSum = 0;
+    let outsideMeshDepthSum = 0;
+    let maxOutsideDistance = 0;
+    let maxInsideDepth = 0;
+    let worstOutsideCapsuleName: string | null = null;
+    let worstInsideCapsuleName: string | null = null;
+    let surfaceVertexCount = 0;
+    const regions = new Map<string, MutableRegionCoverage>();
+    const regionAxes = this.buildCoverageRegionAxes();
+
+    this.loadedRoot.traverse((object) => {
+      if (!(object instanceof THREE.SkinnedMesh)) {
+        return;
+      }
+      const positionAttr = object.geometry.getAttribute('position');
+      const skinIndexAttr = object.geometry.getAttribute('skinIndex');
+      const skinWeightAttr = object.geometry.getAttribute('skinWeight');
+      if (!positionAttr) {
+        return;
+      }
+      surfaceVertexCount += positionAttr.count;
+      const sampleStride = Math.max(1, Math.floor(positionAttr.count / 2500));
+      const point = new THREE.Vector3();
+      for (let vertexIndex = 0; vertexIndex < positionAttr.count; vertexIndex += sampleStride) {
+        let regionName = collisionCoverageRegionForVertex(object, vertexIndex, skinIndexAttr, skinWeightAttr);
+        if (!regionName) {
+          continue;
+        }
+        getSkinnedVertexWorldPosition(object, vertexIndex, point);
+        regionName = refineCoverageRegion(regionName, point, regionAxes);
+        const sample = closestCapsuleSignedDistance(point, this.boneCapsules);
+        accumulateRegionCoverage(regions, regionName, sample.distance, surfaceBand);
+        distances.push(sample.distance);
+        signedDistanceSum += sample.distance;
+        const absDistance = Math.abs(sample.distance);
+        if (absDistance <= surfaceBand) {
+          nearSurfaceCount += 1;
+        } else if (sample.distance > surfaceBand) {
+          outsideHoleCount += 1;
+          holeDistanceSum += sample.distance;
+          if (sample.distance > maxOutsideDistance) {
+            maxOutsideDistance = sample.distance;
+            worstOutsideCapsuleName = sample.name;
+          }
+        } else {
+          const depth = -sample.distance;
+          insideBlobCount += 1;
+          outsideMeshDepthSum += depth;
+          if (depth > maxInsideDepth) {
+            maxInsideDepth = depth;
+            worstInsideCapsuleName = sample.name;
+          }
+        }
+      }
+    });
+
+    const absDistances = distances.map((distance) => Math.abs(distance)).sort((a, b) => a - b);
+    const sampledVertexCount = distances.length;
+    const meanAbsDistance = sampledVertexCount > 0
+      ? absDistances.reduce((sum, value) => sum + value, 0) / sampledVertexCount
+      : 0;
+
+    return {
+      surfaceVertexCount,
+      sampledVertexCount,
+      nearSurfaceRatio: sampledVertexCount > 0 ? nearSurfaceCount / sampledVertexCount : 0,
+      outsideHoleRatio: sampledVertexCount > 0 ? outsideHoleCount / sampledVertexCount : 0,
+      insideBlobRatio: sampledVertexCount > 0 ? insideBlobCount / sampledVertexCount : 0,
+      meanSignedDistance: sampledVertexCount > 0 ? signedDistanceSum / sampledVertexCount : 0,
+      meanAbsDistance,
+      meanHoleDistance: sampledVertexCount > 0 ? holeDistanceSum / sampledVertexCount : 0,
+      meanOutsideMeshDepth: sampledVertexCount > 0 ? outsideMeshDepthSum / sampledVertexCount : 0,
+      balancedError: meanAbsDistance + Math.abs(sampledVertexCount > 0 ? signedDistanceSum / sampledVertexCount : 0),
+      p90AbsDistance: percentile(absDistances, 0.9),
+      maxOutsideDistance,
+      maxInsideDepth,
+      worstOutsideCapsuleName,
+      worstInsideCapsuleName,
+      regions: finalizeRegionCoverage(regions),
+    };
+  }
+
   getCharacterAnchors(): CharacterAnchors {
     return {
       hips: this.findBoneWorldPosition(['hips']),
@@ -392,12 +577,93 @@ export class AnimatedCharacterSceneRig {
     return new THREE.AnimationClip(sourceClip.name || fallbackName, sourceClip.duration, tracks);
   }
 
+  private buildBoneSdfBlueprints(): void {
+    if (!this.loadedRoot) {
+      return;
+    }
+    this.loadedRoot.updateMatrixWorld(true);
+    this.boneSdfBlueprints.length = 0;
+
+    const pointsByBone = new Map<THREE.Bone, THREE.Vector3[]>();
+    this.loadedRoot.traverse((object) => {
+      if (!(object instanceof THREE.SkinnedMesh)) {
+        return;
+      }
+      const geometry = object.geometry;
+      const positionAttr = geometry.getAttribute('position');
+      const skinIndexAttr = geometry.getAttribute('skinIndex');
+      const skinWeightAttr = geometry.getAttribute('skinWeight');
+      if (!positionAttr || !skinIndexAttr || !skinWeightAttr || !object.skeleton) {
+        return;
+      }
+
+      const worldVertex = new THREE.Vector3();
+      for (let vertexIndex = 0; vertexIndex < positionAttr.count; vertexIndex++) {
+        getSkinnedVertexWorldPosition(object, vertexIndex, worldVertex);
+
+        for (let influence = 0; influence < Math.min(4, skinWeightAttr.itemSize); influence++) {
+          const weight = skinWeightAttr.getComponent(vertexIndex, influence);
+          if (weight < 0.18) {
+            continue;
+          }
+          const boneIndex = Math.round(skinIndexAttr.getComponent(vertexIndex, influence));
+          const bone = object.skeleton.bones[boneIndex];
+          if (!bone || shouldSkipFittedBone(bone.name)) {
+            continue;
+          }
+          const points = pointsByBone.get(bone);
+          if (points) {
+            points.push(worldVertex.clone());
+          } else {
+            pointsByBone.set(bone, [worldVertex.clone()]);
+          }
+        }
+      }
+    });
+
+    for (const bone of this.bones) {
+      const endBone = primaryCollisionChildBone(bone) ?? (bone.parent instanceof THREE.Bone ? bone.parent : null);
+      if (!endBone || shouldSkipFittedBone(bone.name)) {
+        continue;
+      }
+      const points = pointsByBone.get(bone) ?? [];
+      const fitted = buildCapsuleBlueprintsForBone(bone, endBone, points);
+      this.boneSdfBlueprints.push(...fitted);
+    }
+  }
+
   private updateBoneSdfs(delta = 0): void {
     if (!this.loadedRoot) {
       return;
     }
     this.loadedRoot.updateMatrixWorld(true);
     this.boneCapsules.length = 0;
+    if (this.boneSdfBlueprints.length > 0) {
+      for (const blueprint of this.boneSdfBlueprints) {
+        const startPosition = blueprint.startBone.getWorldPosition(new THREE.Vector3());
+        const endPosition = blueprint.endBone.getWorldPosition(new THREE.Vector3());
+        const start = startPosition.clone().lerp(endPosition, blueprint.t0);
+        const end = startPosition.clone().lerp(endPosition, blueprint.t1);
+        const length = start.distanceTo(end);
+        if (length < 0.004) {
+          continue;
+        }
+        this.boneCapsules.push({
+          id: this.boneCapsules.length,
+          name: blueprint.name,
+          parentName: blueprint.parentName,
+          start,
+          end,
+          radius: blueprint.radius,
+          length,
+          fitVertexCount: blueprint.fitVertexCount,
+          fitted: true,
+        });
+      }
+      this.addSoftChestJiggleSdfs(delta);
+      return;
+    }
+
     for (const bone of this.bones) {
       const parent = bone.parent;
       if (!(parent instanceof THREE.Bone)) {
@@ -456,10 +722,10 @@ export class AnimatedCharacterSceneRig {
     this.lastChestY = chest.y;
 
     const shoulderWidth = leftShoulder.distanceTo(rightShoulder);
-    const sideOffset = THREE.MathUtils.clamp(shoulderWidth * 0.13, 0.045, 0.095);
-    const frontOffset = THREE.MathUtils.clamp(shoulderWidth * 0.2, 0.085, 0.15);
+    const sideOffset = THREE.MathUtils.clamp(shoulderWidth * 0.15, 0.052, 0.105);
+    const frontOffset = THREE.MathUtils.clamp(shoulderWidth * 0.2, 0.085, 0.14);
     const base = chest.clone().lerp(neck, 0.12).addScaledVector(frontAxis, frontOffset);
-    const radius = THREE.MathUtils.clamp(shoulderWidth * 0.1, 0.055, 0.082);
+    const radius = THREE.MathUtils.clamp(shoulderWidth * 0.112, 0.06, 0.09);
 
     for (const [sideName, sign] of [['left', -1], ['right', 1]] as const) {
       const center = base
@@ -468,16 +734,194 @@ export class AnimatedCharacterSceneRig {
         .addScaledVector(UP, this.chestJiggleOffset);
       const start = center.clone().addScaledVector(UP, -0.018);
       const end = center.clone().addScaledVector(UP, 0.018);
-      this.boneCapsules.push({
-        id: this.boneCapsules.length,
-        name: `soft-chest-${sideName}-jiggle`,
-        parentName: 'chest',
-        start,
-        end,
-        radius,
-        length: start.distanceTo(end),
-      });
+      this.pushBoneCapsule(`soft-chest-${sideName}-jiggle`, 'chest', start, end, radius);
+
+      const lowerCenter = center
+        .clone()
+        .addScaledVector(UP, -THREE.MathUtils.clamp(shoulderWidth * 0.085, 0.035, 0.06))
+        .addScaledVector(frontAxis, THREE.MathUtils.clamp(shoulderWidth * 0.04, 0.018, 0.035));
+      this.pushBoneCapsule(
+        `soft-chest-${sideName}-lower`,
+        'chest',
+        lowerCenter.clone().addScaledVector(xAxis, sign * -THREE.MathUtils.clamp(shoulderWidth * 0.025, 0.01, 0.02)),
+        lowerCenter.clone().addScaledVector(xAxis, sign * THREE.MathUtils.clamp(shoulderWidth * 0.025, 0.01, 0.02)),
+        THREE.MathUtils.clamp(shoulderWidth * 0.078, 0.043, 0.065),
+      );
     }
+
+    const hips = this.findBoneWorldPosition(['hips']);
+    if (hips) {
+      const buttBase = hips.clone().addScaledVector(frontAxis, -THREE.MathUtils.clamp(shoulderWidth * 0.16, 0.07, 0.12));
+      const buttRadius = THREE.MathUtils.clamp(shoulderWidth * 0.085, 0.045, 0.07);
+      const buttSideOffset = THREE.MathUtils.clamp(shoulderWidth * 0.11, 0.045, 0.08);
+      for (const [sideName, sign] of [['left', -1], ['right', 1]] as const) {
+        const center = buttBase.clone().addScaledVector(xAxis, sign * buttSideOffset);
+        const start = center.clone().addScaledVector(UP, -0.018);
+        const end = center.clone().addScaledVector(UP, 0.018);
+        this.boneCapsules.push({
+          id: this.boneCapsules.length,
+          name: `soft-butt-${sideName}`,
+          parentName: 'hips',
+          start,
+          end,
+          radius: buttRadius,
+          length: start.distanceTo(end),
+        });
+        const thighCenter = center
+          .clone()
+          .addScaledVector(frontAxis, -THREE.MathUtils.clamp(shoulderWidth * 0.035, 0.015, 0.03))
+          .addScaledVector(UP, -THREE.MathUtils.clamp(shoulderWidth * 0.18, 0.075, 0.13));
+        const thighStart = thighCenter.clone().addScaledVector(UP, -0.055);
+        const thighEnd = thighCenter.clone().addScaledVector(UP, 0.035);
+        this.boneCapsules.push({
+          id: this.boneCapsules.length,
+          name: `soft-butt-leg-${sideName}`,
+          parentName: 'hips',
+          start: thighStart,
+          end: thighEnd,
+          radius: THREE.MathUtils.clamp(shoulderWidth * 0.08, 0.045, 0.068),
+          length: thighStart.distanceTo(thighEnd),
+        });
+      }
+    }
+    this.addSoftLegRailSdfs(xAxis, frontAxis, shoulderWidth);
+  }
+
+  private addSoftLegRailSdfs(xAxis: THREE.Vector3, frontAxis: THREE.Vector3, shoulderWidth: number): void {
+    for (const [sideName, sign] of [['left', -1], ['right', 1]] as const) {
+      const hip = this.findBoneWorldPosition([`${sideName}upleg`]);
+      const knee = this.findBoneWorldPosition([`${sideName}leg`]);
+      const foot = this.findBoneWorldPosition([`${sideName}foot`]);
+      if (!hip || !knee) {
+        continue;
+      }
+
+      const thighStartBase = hip.clone().lerp(knee, 0.08);
+      const thighEndBase = hip.clone().lerp(knee, 0.86);
+      const thighRadius = THREE.MathUtils.clamp(shoulderWidth * 0.052, 0.028, 0.044);
+      const thighSideOffset = THREE.MathUtils.clamp(shoulderWidth * 0.075, 0.035, 0.06);
+      const thighFrontOffset = THREE.MathUtils.clamp(shoulderWidth * 0.062, 0.028, 0.05);
+      this.pushBoneCapsule(
+        `soft-thigh-${sideName}-outer`,
+        'thigh-rail',
+        thighStartBase.clone().addScaledVector(xAxis, sign * thighSideOffset),
+        thighEndBase.clone().addScaledVector(xAxis, sign * thighSideOffset),
+        thighRadius,
+      );
+      this.pushBoneCapsule(
+        `soft-thigh-${sideName}-back`,
+        'thigh-rail',
+        thighStartBase.clone().addScaledVector(frontAxis, -thighFrontOffset),
+        thighEndBase.clone().addScaledVector(frontAxis, -thighFrontOffset),
+        thighRadius,
+      );
+      this.pushBoneCapsule(
+        `soft-thigh-${sideName}-front`,
+        'thigh-rail',
+        thighStartBase.clone().addScaledVector(frontAxis, thighFrontOffset * 0.75),
+        thighEndBase.clone().addScaledVector(frontAxis, thighFrontOffset * 0.75),
+        thighRadius * 0.82,
+      );
+
+      if (!foot) {
+        continue;
+      }
+      const calfStartBase = knee.clone().lerp(foot, 0.1);
+      const calfEndBase = knee.clone().lerp(foot, 0.82);
+      const calfRadius = THREE.MathUtils.clamp(shoulderWidth * 0.056, 0.032, 0.048);
+      const calfBackOffset = THREE.MathUtils.clamp(shoulderWidth * 0.06, 0.03, 0.052);
+      const calfSideOffset = THREE.MathUtils.clamp(shoulderWidth * 0.06, 0.03, 0.05);
+      this.pushBoneCapsule(
+        `soft-calf-${sideName}-back`,
+        'calf-rail',
+        calfStartBase.clone().addScaledVector(frontAxis, -calfBackOffset),
+        calfEndBase.clone().addScaledVector(frontAxis, -calfBackOffset),
+        calfRadius,
+      );
+      this.pushBoneCapsule(
+        `soft-calf-${sideName}-outer`,
+        'calf-rail',
+        calfStartBase.clone().addScaledVector(xAxis, sign * calfSideOffset),
+        calfEndBase.clone().addScaledVector(xAxis, sign * calfSideOffset),
+        calfRadius * 0.86,
+      );
+      this.pushBoneCapsule(
+        `soft-calf-${sideName}-front`,
+        'calf-rail',
+        calfStartBase.clone().addScaledVector(frontAxis, calfBackOffset * 0.62),
+        calfEndBase.clone().addScaledVector(frontAxis, calfBackOffset * 0.62),
+        calfRadius * 0.78,
+      );
+      const footCenter = foot.clone().addScaledVector(frontAxis, THREE.MathUtils.clamp(shoulderWidth * 0.04, 0.02, 0.035));
+      this.pushBoneCapsule(
+        `soft-foot-${sideName}-length`,
+        'foot-rail',
+        footCenter.clone().addScaledVector(frontAxis, -THREE.MathUtils.clamp(shoulderWidth * 0.12, 0.06, 0.1)),
+        footCenter.clone().addScaledVector(frontAxis, THREE.MathUtils.clamp(shoulderWidth * 0.18, 0.09, 0.15)),
+        THREE.MathUtils.clamp(shoulderWidth * 0.06, 0.035, 0.052),
+      );
+      this.pushBoneCapsule(
+        `soft-foot-${sideName}-width`,
+        'foot-rail',
+        footCenter.clone().addScaledVector(xAxis, sign * -THREE.MathUtils.clamp(shoulderWidth * 0.075, 0.038, 0.065)),
+        footCenter.clone().addScaledVector(xAxis, sign * THREE.MathUtils.clamp(shoulderWidth * 0.075, 0.038, 0.065)),
+        THREE.MathUtils.clamp(shoulderWidth * 0.052, 0.03, 0.046),
+      );
+    }
+  }
+
+  private pushBoneCapsule(
+    name: string,
+    parentName: string,
+    start: THREE.Vector3,
+    end: THREE.Vector3,
+    radius: number,
+  ): void {
+    this.boneCapsules.push({
+      id: this.boneCapsules.length,
+      name,
+      parentName,
+      start,
+      end,
+      radius,
+      length: start.distanceTo(end),
+    });
+  }
+
+  private buildCoverageRegionAxes(): CoverageRegionAxes | null {
+    const chest = this.findBoneWorldPosition(['spine2', 'spine1', 'spine']);
+    const hips = this.findBoneWorldPosition(['hips']);
+    const leftShoulder = this.findBoneWorldPosition(['leftshoulder', 'leftarm']);
+    const rightShoulder = this.findBoneWorldPosition(['rightshoulder', 'rightarm']);
+    if (!chest || !hips || !leftShoulder || !rightShoulder) {
+      return null;
+    }
+
+    const xAxis = rightShoulder.clone().sub(leftShoulder);
+    xAxis.y = 0;
+    if (xAxis.lengthSq() < 0.0001) {
+      xAxis.set(1, 0, 0);
+    }
+    xAxis.normalize();
+    const frontAxis = UP.clone().cross(xAxis);
+    if (frontAxis.lengthSq() < 0.0001) {
+      frontAxis.set(0, 0, 1);
+    }
+    frontAxis.normalize();
+    return {
+      chest,
+      hips,
+      leftHip: this.findBoneWorldPosition(['leftupleg']),
+      rightHip: this.findBoneWorldPosition(['rightupleg']),
+      leftElbow: this.findBoneWorldPosition(['leftforearm']),
+      rightElbow: this.findBoneWorldPosition(['rightforearm']),
+      leftKnee: this.findBoneWorldPosition(['leftleg']),
+      rightKnee: this.findBoneWorldPosition(['rightleg']),
+      leftFoot: this.findBoneWorldPosition(['leftfoot']),
+      rightFoot: this.findBoneWorldPosition(['rightfoot']),
+      xAxis,
+      frontAxis,
+    };
   }
 
   private buildBoneSdfDebugVisuals(): void {
@@ -1233,6 +1677,470 @@ function splitTrackName(trackName: string): { targetName: string; propertyPath: 
     targetName: trackName.slice(0, dot),
     propertyPath: trackName.slice(dot + 1),
   };
+}
+
+function emptyBoneSdfMeshCoverageReport(): BoneSdfMeshCoverageReport {
+  return {
+    surfaceVertexCount: 0,
+    sampledVertexCount: 0,
+    nearSurfaceRatio: 0,
+    outsideHoleRatio: 1,
+    insideBlobRatio: 1,
+    meanSignedDistance: Number.POSITIVE_INFINITY,
+    meanAbsDistance: Number.POSITIVE_INFINITY,
+    meanHoleDistance: Number.POSITIVE_INFINITY,
+    meanOutsideMeshDepth: Number.POSITIVE_INFINITY,
+    balancedError: Number.POSITIVE_INFINITY,
+    p90AbsDistance: Number.POSITIVE_INFINITY,
+    maxOutsideDistance: Number.POSITIVE_INFINITY,
+    maxInsideDepth: Number.POSITIVE_INFINITY,
+    worstOutsideCapsuleName: null,
+    worstInsideCapsuleName: null,
+    regions: {},
+  };
+}
+
+function getSkinnedVertexWorldPosition(
+  mesh: THREE.SkinnedMesh,
+  vertexIndex: number,
+  target: THREE.Vector3,
+): THREE.Vector3 {
+  const positionAttr = mesh.geometry.getAttribute('position');
+  const skinIndexAttr = mesh.geometry.getAttribute('skinIndex');
+  const skinWeightAttr = mesh.geometry.getAttribute('skinWeight');
+  target.fromBufferAttribute(positionAttr, vertexIndex);
+  if (!skinIndexAttr || !skinWeightAttr || !mesh.skeleton) {
+    return mesh.localToWorld(target);
+  }
+
+  const bindPosition = target.clone().applyMatrix4(mesh.bindMatrix);
+  const skinned = new THREE.Vector3();
+  const boneMatrix = new THREE.Matrix4();
+  for (let influence = 0; influence < Math.min(4, skinWeightAttr.itemSize); influence++) {
+    const weight = skinWeightAttr.getComponent(vertexIndex, influence);
+    if (weight <= 0) {
+      continue;
+    }
+    const boneIndex = Math.round(skinIndexAttr.getComponent(vertexIndex, influence));
+    const bone = mesh.skeleton.bones[boneIndex];
+    const inverse = mesh.skeleton.boneInverses[boneIndex];
+    if (!bone || !inverse) {
+      continue;
+    }
+    boneMatrix.multiplyMatrices(bone.matrixWorld, inverse);
+    skinned.addScaledVector(bindPosition.clone().applyMatrix4(boneMatrix), weight);
+  }
+
+  target.copy(skinned.applyMatrix4(mesh.bindMatrixInverse));
+  return mesh.localToWorld(target);
+}
+
+function collisionCoverageRegionForVertex(
+  mesh: THREE.SkinnedMesh,
+  vertexIndex: number,
+  skinIndexAttr: THREE.BufferAttribute | THREE.InterleavedBufferAttribute | undefined,
+  skinWeightAttr: THREE.BufferAttribute | THREE.InterleavedBufferAttribute | undefined,
+): string | null {
+  if (!skinIndexAttr || !skinWeightAttr || !mesh.skeleton) {
+    return 'body';
+  }
+
+  let bestRegion: string | null = null;
+  let bestWeight = 0;
+  for (let influence = 0; influence < Math.min(4, skinWeightAttr.itemSize); influence++) {
+    const weight = skinWeightAttr.getComponent(vertexIndex, influence);
+    if (weight < 0.18) {
+      continue;
+    }
+    const boneIndex = Math.round(skinIndexAttr.getComponent(vertexIndex, influence));
+    const bone = mesh.skeleton.bones[boneIndex];
+    if (bone && isClothCollisionCoverageBone(bone.name) && weight > bestWeight) {
+      bestWeight = weight;
+      bestRegion = collisionRegionForBone(bone.name);
+    }
+  }
+  return bestRegion;
+}
+
+function buildCapsuleBlueprintsForBone(
+  bone: THREE.Bone,
+  endBone: THREE.Bone,
+  points: readonly THREE.Vector3[],
+): BoneSdfCapsuleBlueprint[] {
+  const startPosition = bone.getWorldPosition(new THREE.Vector3());
+  const endPosition = endBone.getWorldPosition(new THREE.Vector3());
+  const axis = endPosition.clone().sub(startPosition);
+  const length = axis.length();
+  if (length < 0.01) {
+    return [];
+  }
+  axis.normalize();
+
+  if (points.length < 6) {
+    return [{
+      name: bone.name,
+      parentName: bone.name,
+      startBone: bone,
+      endBone,
+      t0: 0,
+      t1: 1,
+      radius: radiusForBone(bone.name, length),
+      fitVertexCount: points.length,
+    }];
+  }
+
+  const samples = points.map((point) => {
+    const offset = point.clone().sub(startPosition);
+    const t = THREE.MathUtils.clamp(offset.dot(axis) / length, -0.1, 1.1);
+    const axisPoint = startPosition.clone().addScaledVector(axis, t * length);
+    return { t, radius: point.distanceTo(axisPoint) };
+  });
+  samples.sort((a, b) => a.t - b.t);
+
+  const segmentCount = segmentCountForBone(bone.name);
+  const blueprints: BoneSdfCapsuleBlueprint[] = [];
+  const fallbackRadii = samples.map((sample) => sample.radius).sort((a, b) => a - b);
+  const limbBone = isLimbBone(bone.name);
+  const sampleOverlap = limbBone ? 0.055 : 0.12;
+  const endpointPadding = limbBone ? 0.006 : 0.025;
+  const radiusPercentile = limbBone ? 0.4 : 0.45;
+  for (let segment = 0; segment < segmentCount; segment++) {
+    const minT = segment / segmentCount;
+    const maxT = (segment + 1) / segmentCount;
+    const segmentSamples = samples.filter((sample) =>
+      sample.t >= minT - sampleOverlap && sample.t <= maxT + sampleOverlap,
+    );
+    const radii = (segmentSamples.length >= 4 ? segmentSamples : samples)
+      .map((sample) => sample.radius)
+      .sort((a, b) => a - b);
+    const t0 = THREE.MathUtils.clamp(minT - endpointPadding, 0, 1);
+    const t1 = THREE.MathUtils.clamp(maxT + endpointPadding, 0, 1);
+    const radius = clampFittedRadius(bone.name, percentile(radii.length > 0 ? radii : fallbackRadii, radiusPercentile));
+    if (t1 - t0 < 0.035 || radius <= 0) {
+      continue;
+    }
+    blueprints.push({
+      name: segmentCount > 1 ? `${bone.name}-fit-${segment + 1}` : bone.name,
+      parentName: bone.name,
+      startBone: bone,
+      endBone,
+      t0,
+      t1,
+      radius,
+      fitVertexCount: segmentSamples.length,
+    });
+  }
+
+  if (blueprints.length > 0) {
+    return blueprints;
+  }
+
+  const radii = samples.map((sample) => sample.radius).sort((a, b) => a - b);
+  return [{
+    name: bone.name,
+    parentName: bone.name,
+    startBone: bone,
+    endBone,
+    t0: 0,
+    t1: 1,
+    radius: clampFittedRadius(bone.name, percentile(radii, 0.88)),
+    fitVertexCount: points.length,
+  }];
+}
+
+function primaryCollisionChildBone(bone: THREE.Bone): THREE.Bone | null {
+  let best: THREE.Bone | null = null;
+  for (const child of bone.children) {
+    if (!(child instanceof THREE.Bone)) {
+      continue;
+    }
+    if (shouldSkipFittedBone(child.name) && !isUsefulTerminalEndpoint(bone.name, child.name)) {
+      continue;
+    }
+    if (!best || collisionChildPriority(child.name) > collisionChildPriority(best.name)) {
+      best = child;
+    }
+  }
+  return best;
+}
+
+function isUsefulTerminalEndpoint(parentName: string, childName: string): boolean {
+  const parent = normalizeBoneName(parentName);
+  const child = normalizeBoneName(childName);
+  if (parent.includes('foot')) {
+    return child.includes('toe') || child.endsWith('end');
+  }
+  if (parent.includes('head')) {
+    return child.includes('head') || child.endsWith('end');
+  }
+  return false;
+}
+
+function collisionChildPriority(name: string): number {
+  const normalized = normalizeBoneName(name);
+  if (normalized.includes('toe') || normalized.endsWith('end')) {
+    return 3;
+  }
+  if (
+    normalized.includes('arm') ||
+    normalized.includes('forearm') ||
+    normalized.includes('hand') ||
+    normalized.includes('upleg') ||
+    normalized.includes('leg') ||
+    normalized.includes('foot') ||
+    normalized.includes('spine') ||
+    normalized.includes('neck')
+  ) {
+    return 2;
+  }
+  return 1;
+}
+
+function segmentCountForBone(name: string): number {
+  const normalized = normalizeBoneName(name);
+  if (normalized.includes('spine') || normalized.includes('hips')) {
+    return 3;
+  }
+  if (
+    normalized.includes('arm') ||
+    normalized.includes('forearm') ||
+    normalized.includes('upperleg') ||
+    normalized === 'leftleg' ||
+    normalized === 'rightleg'
+  ) {
+    return 2;
+  }
+  return 1;
+}
+
+function isLimbBone(name: string): boolean {
+  const normalized = normalizeBoneName(name);
+  return (
+    normalized.includes('arm') ||
+    normalized.includes('forearm') ||
+    normalized.includes('upperleg') ||
+    normalized.includes('upleg') ||
+    normalized === 'leftleg' ||
+    normalized === 'rightleg'
+  );
+}
+
+function clampFittedRadius(name: string, radius: number): number {
+  const normalized = normalizeBoneName(name);
+  if (normalized.includes('spine') || normalized.includes('hips')) {
+    return THREE.MathUtils.clamp(radius * 0.82, 0.04, 0.12);
+  }
+  if (normalized.includes('upperleg') || normalized.includes('upleg')) {
+    return THREE.MathUtils.clamp(radius * 0.92, 0.035, 0.095);
+  }
+  if (normalized === 'leftleg' || normalized === 'rightleg') {
+    return THREE.MathUtils.clamp(radius * 0.92, 0.025, 0.075);
+  }
+  if (normalized.includes('arm') || normalized.includes('shoulder')) {
+    return THREE.MathUtils.clamp(radius * 0.9, 0.022, 0.068);
+  }
+  if (normalized.includes('forearm') || normalized.includes('hand')) {
+    return THREE.MathUtils.clamp(radius * 0.9, 0.018, 0.052);
+  }
+  if (normalized.includes('neck') || normalized.includes('head')) {
+    return THREE.MathUtils.clamp(radius * 0.9, 0.035, 0.11);
+  }
+  return THREE.MathUtils.clamp(radius * 0.9, 0.01, 0.04);
+}
+
+function shouldSkipFittedBone(name: string): boolean {
+  const normalized = normalizeBoneName(name);
+  return (
+    normalized.endsWith('end') ||
+    normalized.includes('thumb') ||
+    normalized.includes('index') ||
+    normalized.includes('toe')
+  );
+}
+
+function isClothCollisionCoverageBone(name: string): boolean {
+  const normalized = normalizeBoneName(name);
+  if (shouldSkipFittedBone(name) || normalized.includes('head')) {
+    return false;
+  }
+  return (
+    normalized.includes('hips') ||
+    normalized.includes('spine') ||
+    normalized.includes('neck') ||
+    normalized.includes('shoulder') ||
+    normalized.includes('arm') ||
+    normalized.includes('forearm') ||
+    normalized.includes('hand') ||
+    normalized.includes('upperleg') ||
+    normalized.includes('upleg') ||
+    normalized === 'leftleg' ||
+    normalized === 'rightleg' ||
+    normalized.includes('foot')
+  );
+}
+
+function collisionRegionForBone(name: string): string {
+  const normalized = normalizeBoneName(name);
+  if (
+    normalized.includes('shoulder') ||
+    normalized.includes('arm') ||
+    normalized.includes('forearm') ||
+    normalized.includes('hand')
+  ) {
+    return normalized.includes('left') ? 'leftArm' : normalized.includes('right') ? 'rightArm' : 'arms';
+  }
+  if (
+    normalized.includes('upperleg') ||
+    normalized.includes('upleg') ||
+    normalized === 'leftleg' ||
+    normalized === 'rightleg' ||
+    normalized.includes('foot')
+  ) {
+    return normalized.includes('left') ? 'leftLeg' : normalized.includes('right') ? 'rightLeg' : 'legs';
+  }
+  if (normalized.includes('hips')) {
+    return 'hips';
+  }
+  if (normalized.includes('spine') || normalized.includes('neck')) {
+    return 'torso';
+  }
+  return 'body';
+}
+
+function refineCoverageRegion(
+  coarseRegion: string,
+  point: THREE.Vector3,
+  axes: CoverageRegionAxes | null,
+): string {
+  if (!axes) {
+    return coarseRegion;
+  }
+  if (coarseRegion === 'leftArm' && axes.leftElbow && point.distanceTo(axes.leftElbow) < 0.13) {
+    return 'leftElbow';
+  }
+  if (coarseRegion === 'rightArm' && axes.rightElbow && point.distanceTo(axes.rightElbow) < 0.13) {
+    return 'rightElbow';
+  }
+  if (coarseRegion === 'torso') {
+    const fromChest = point.clone().sub(axes.chest);
+    if (fromChest.dot(axes.frontAxis) > 0.035 && point.y > axes.chest.y - 0.16) {
+      return 'chestFront';
+    }
+  }
+  if (coarseRegion === 'hips' || coarseRegion === 'leftLeg' || coarseRegion === 'rightLeg') {
+    const fromHips = point.clone().sub(axes.hips);
+    if (fromHips.dot(axes.frontAxis) < -0.035 && point.y > axes.hips.y - 0.2) {
+      return coarseRegion === 'hips' ? 'buttBack' : 'buttLegBack';
+    }
+  }
+  if (coarseRegion === 'leftLeg') {
+    return refineLegCoverageRegion('left', point, axes.leftHip, axes.leftKnee, axes.leftFoot);
+  }
+  if (coarseRegion === 'rightLeg') {
+    return refineLegCoverageRegion('right', point, axes.rightHip, axes.rightKnee, axes.rightFoot);
+  }
+  return coarseRegion;
+}
+
+function refineLegCoverageRegion(
+  sideName: 'left' | 'right',
+  point: THREE.Vector3,
+  hip: THREE.Vector3 | null,
+  knee: THREE.Vector3 | null,
+  foot: THREE.Vector3 | null,
+): string {
+  if (knee && point.distanceTo(knee) < 0.16) {
+    return `${sideName}Knee`;
+  }
+  if (foot && point.distanceTo(foot) < 0.18) {
+    return `${sideName}Foot`;
+  }
+  if (hip && knee) {
+    const hipToKnee = knee.clone().sub(hip);
+    const lengthSq = hipToKnee.lengthSq();
+    if (lengthSq > 0.000001) {
+      const t = point.clone().sub(hip).dot(hipToKnee) / lengthSq;
+      if (t >= -0.1 && t <= 1.12) {
+        return `${sideName}Thigh`;
+      }
+    }
+  }
+  return `${sideName}Calf`;
+}
+
+function accumulateRegionCoverage(
+  regions: Map<string, MutableRegionCoverage>,
+  regionName: string,
+  distance: number,
+  surfaceBand: number,
+): void {
+  let region = regions.get(regionName);
+  if (!region) {
+    region = {
+      sampledVertexCount: 0,
+      nearSurfaceCount: 0,
+      outsideHoleCount: 0,
+      insideBlobCount: 0,
+      signedDistanceSum: 0,
+      absDistanceSum: 0,
+      outsideMeshDepthSum: 0,
+    };
+    regions.set(regionName, region);
+  }
+
+  region.sampledVertexCount += 1;
+  region.signedDistanceSum += distance;
+  region.absDistanceSum += Math.abs(distance);
+  if (Math.abs(distance) <= surfaceBand) {
+    region.nearSurfaceCount += 1;
+  } else if (distance > surfaceBand) {
+    region.outsideHoleCount += 1;
+  } else {
+    region.insideBlobCount += 1;
+    region.outsideMeshDepthSum += -distance;
+  }
+}
+
+function finalizeRegionCoverage(
+  regions: ReadonlyMap<string, MutableRegionCoverage>,
+): Record<string, BoneSdfRegionCoverageReport> {
+  const report: Record<string, BoneSdfRegionCoverageReport> = {};
+  for (const [name, region] of regions) {
+    const count = region.sampledVertexCount;
+    const meanSignedDistance = count > 0 ? region.signedDistanceSum / count : 0;
+    const meanAbsDistance = count > 0 ? region.absDistanceSum / count : 0;
+    report[name] = {
+      sampledVertexCount: count,
+      nearSurfaceRatio: count > 0 ? region.nearSurfaceCount / count : 0,
+      outsideHoleRatio: count > 0 ? region.outsideHoleCount / count : 0,
+      insideBlobRatio: count > 0 ? region.insideBlobCount / count : 0,
+      meanSignedDistance,
+      meanAbsDistance,
+      meanOutsideMeshDepth: count > 0 ? region.outsideMeshDepthSum / count : 0,
+      balancedError: meanAbsDistance + Math.abs(meanSignedDistance),
+    };
+  }
+  return report;
+}
+
+function percentile(values: readonly number[], p: number): number {
+  if (values.length === 0) {
+    return 0;
+  }
+  const index = THREE.MathUtils.clamp((values.length - 1) * p, 0, values.length - 1);
+  const low = Math.floor(index);
+  const high = Math.ceil(index);
+  const t = index - low;
+  return THREE.MathUtils.lerp(values[low]!, values[high]!, t);
+}
+
+function maxCapsulesPerBone(capsules: readonly BoneSdfCapsule[]): number {
+  const counts = new Map<string, number>();
+  for (const capsule of capsules) {
+    const key = capsule.name.replace(/-fit-\d+$/, '');
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return Math.max(0, ...counts.values());
 }
 
 function radiusForBone(name: string, length: number): number {

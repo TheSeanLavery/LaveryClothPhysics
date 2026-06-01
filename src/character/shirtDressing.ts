@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { createTShirtAssembly, type AssemblyVertex, type ClothAssembly } from '../cloth/patternAssembly.ts';
 import type { AnimatedCharacterSceneRig } from './AnimatedCharacter.ts';
 
-export const SHIRT_SDF_CLEARANCE = 0.028;
+export const SHIRT_SDF_CLEARANCE = 0.008;
 
 export interface BoneSdfCapsuleSample {
   readonly start: readonly [number, number, number];

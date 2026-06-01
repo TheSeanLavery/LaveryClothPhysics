@@ -29,6 +29,8 @@ import {
 import {
   AnimatedCharacterSceneRig,
   type BoneSdfCollisionProbe,
+  type BoneSdfFitReport,
+  type BoneSdfMeshCoverageReport,
   type CharacterStats,
   type ShirtAnchorReport,
 } from './character/AnimatedCharacter';
@@ -88,6 +90,8 @@ declare global {
   interface Window {
     __characterStats?: () => CharacterStats;
     __characterBoneSdfs?: () => ReturnType<AnimatedCharacterSceneRig['getBoneSdfSummary']>;
+    __characterBoneSdfFitReport?: () => BoneSdfFitReport;
+    __characterBoneSdfMeshCoverageReport?: () => BoneSdfMeshCoverageReport;
     __characterBlendTo?: (kind: 'tpose' | 'idle' | 'dance') => void;
     __characterShirtSdfClearanceReport?: () => ShirtSdfClearanceReport;
     __characterShirtPerCapsuleClearanceReport?: () => PerCapsuleClearanceReport;
@@ -390,6 +394,14 @@ async function bootstrapCharacterPreview(
   bonesToggleBtn.classList.add('active');
   toolbar?.appendChild(bonesToggleBtn);
 
+  const blendTposeBtn = document.createElement('button');
+  blendTposeBtn.type = 'button';
+  blendTposeBtn.id = 'blend-tpose-btn';
+  blendTposeBtn.dataset.testid = 'blend-tpose-btn';
+  blendTposeBtn.textContent = 'T-Pose';
+  blendTposeBtn.classList.add('active');
+  toolbar?.appendChild(blendTposeBtn);
+
   const blendIdleBtn = document.createElement('button');
   blendIdleBtn.type = 'button';
   blendIdleBtn.id = 'blend-idle-btn';
@@ -485,6 +497,8 @@ async function bootstrapCharacterPreview(
 
   window.__characterStats = () => rig.getStats();
   window.__characterBoneSdfs = () => rig.getBoneSdfSummary();
+  window.__characterBoneSdfFitReport = () => rig.getBoneSdfFitReport();
+  window.__characterBoneSdfMeshCoverageReport = () => rig.getBoneSdfMeshCoverageReport();
   window.__characterBlendTo = (kind: 'tpose' | 'idle' | 'dance') => rig.blendToAnimation(kind);
   window.__characterShirtSdfClearanceReport = () =>
     auditShirtSdfClearance(assembly.vertices, dressTimeSdfs, SHIRT_SDF_CLEARANCE);
@@ -572,13 +586,21 @@ async function bootstrapCharacterPreview(
   });
   blendIdleBtn.addEventListener('click', () => {
     rig.transitionToIdle(0.85);
+    blendTposeBtn.classList.remove('active');
     blendIdleBtn.classList.add('active');
     blendDanceBtn.classList.remove('active');
   });
   blendDanceBtn.addEventListener('click', () => {
     rig.transitionToDance(0.85);
+    blendTposeBtn.classList.remove('active');
     blendDanceBtn.classList.add('active');
     blendIdleBtn.classList.remove('active');
+  });
+  blendTposeBtn.addEventListener('click', () => {
+    rig.blendToAnimation('tpose', 0.45);
+    blendTposeBtn.classList.add('active');
+    blendIdleBtn.classList.remove('active');
+    blendDanceBtn.classList.remove('active');
   });
   resetBtn?.addEventListener('click', () => {
     cloth.controls.reset();
@@ -668,15 +690,15 @@ function addCharacterTShirtGenerationControls(
     folder.add(options, property, min, max, step).name(label).onFinishChange(rebuild);
   };
 
-  addSlider('bodyWidth', 0.5, 0.9, 0.01, 'Body width');
-  addSlider('torsoHeight', 0.55, 0.95, 0.01, 'Torso height');
-  addSlider('sleeveLength', 0.12, 0.45, 0.01, 'Sleeve length');
-  addSlider('sleeveOpening', 0.18, 0.4, 0.01, 'Sleeve opening');
-  addSlider('sleeveTubeRadius', 0.05, 0.16, 0.002, 'Sleeve tube radius');
-  addSlider('depth', 0.16, 0.38, 0.01, 'Front/back depth');
+  addSlider('bodyWidth', 0.2, 0.9, 0.01, 'Body width');
+  addSlider('torsoHeight', 0.22, 0.95, 0.01, 'Torso height');
+  addSlider('sleeveLength', 0, 0.45, 0.01, 'Sleeve length');
+  addSlider('sleeveOpening', 0.035, 0.4, 0.005, 'Sleeve opening');
+  addSlider('sleeveTubeRadius', 0.01, 0.16, 0.001, 'Sleeve tube radius');
+  addSlider('depth', 0.035, 0.38, 0.005, 'Front/back depth');
   addSlider('sleeveHangScale', 0, 1, 0.01, 'Sleeve hang');
   addSlider('sleeveLiftScale', 0, 1, 0.01, 'Sleeve lift');
-  addSlider('sleeveVerticalRadiusScale', 0.2, 0.7, 0.01, 'Sleeve vertical radius');
+  addSlider('sleeveVerticalRadiusScale', 0.02, 0.7, 0.01, 'Sleeve vertical radius');
 
   folder.add({
     reset: () => {

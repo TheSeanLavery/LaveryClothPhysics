@@ -14,6 +14,7 @@ test.describe('Animated Mixamo character preview', () => {
     await expect(page.locator('[data-testid="grab-toggle-btn"]')).toHaveText('Grab');
     await expect(page.locator('[data-testid="shoot-toggle-btn"]')).toHaveText('Shoot');
     await expect(page.locator('[data-testid="bones-toggle-btn"]')).toHaveText('Bones');
+    await expect(page.locator('[data-testid="blend-tpose-btn"]')).toHaveText('T-Pose');
     await expect(page.locator('[data-testid="blend-idle-btn"]')).toHaveText('Blend Idle');
     await expect(page.locator('[data-testid="blend-dance-btn"]')).toHaveText('Blend Dance');
 
@@ -35,9 +36,53 @@ test.describe('Animated Mixamo character preview', () => {
     expect(initial?.boundsHeight ?? 0).toBeGreaterThan(1.2);
 
     const initialSdfs = await page.evaluate(() => window.__characterBoneSdfs?.());
+    const initialFootSdfs = initialSdfs?.filter((sdf) => /^mixamorig.*Foot$/i.test(sdf.name)) ?? [];
+    expect(initialFootSdfs).toHaveLength(2);
+    expect(initialFootSdfs.every((sdf) => sdf.length > 0.08 && sdf.length < 0.22)).toBe(true);
+    const initialHeadSdf = initialSdfs?.find((sdf) => /^mixamorigHead$/i.test(sdf.name));
+    expect(initialHeadSdf?.length ?? 0).toBeGreaterThan(0.08);
+    expect(initialHeadSdf?.length ?? 1).toBeLessThan(0.32);
+    expect((initialHeadSdf?.end[1] ?? 0) - (initialHeadSdf?.start[1] ?? 1)).toBeGreaterThan(0.05);
+    const fitReport = await page.evaluate(() => window.__characterBoneSdfFitReport?.());
+    expect(fitReport?.fitted).toBe(true);
+    expect(fitReport?.capsuleCount ?? 0).toBeGreaterThanOrEqual(58);
+    expect(fitReport?.fittedCapsuleCount ?? 0).toBeGreaterThanOrEqual(34);
+    expect(fitReport?.heuristicCapsuleCount).toBe(24);
+    expect(fitReport?.fittedVertexCount ?? 0).toBeGreaterThan(500);
+    expect(fitReport?.maxCapsulesPerBone ?? 0).toBeGreaterThanOrEqual(2);
+    const meshCoverage = await page.evaluate(() => window.__characterBoneSdfMeshCoverageReport?.());
+    expect(meshCoverage?.sampledVertexCount ?? 0).toBeGreaterThan(1_000);
+    expect(meshCoverage?.nearSurfaceRatio ?? 0).toBeGreaterThan(0.94);
+    expect(meshCoverage?.outsideHoleRatio ?? 1).toBeLessThan(0.05);
+    expect(meshCoverage?.insideBlobRatio ?? 1).toBeLessThan(0.1);
+    expect(Math.abs(meshCoverage?.meanSignedDistance ?? 1)).toBeLessThan(0.008);
+    expect(meshCoverage?.meanOutsideMeshDepth ?? 1).toBeLessThan(0.006);
+    expect(meshCoverage?.balancedError ?? 1).toBeLessThan(0.018);
+    expect(meshCoverage?.regions?.chestFront?.sampledVertexCount ?? 0).toBeGreaterThan(50);
+    expect(meshCoverage?.regions?.chestFront?.nearSurfaceRatio ?? 0).toBeGreaterThan(0.94);
+    expect(meshCoverage?.regions?.chestFront?.outsideHoleRatio ?? 1).toBeLessThan(0.06);
+    expect(meshCoverage?.regions?.chestFront?.balancedError ?? 1).toBeLessThan(0.022);
+    expect(meshCoverage?.regions?.buttBack?.sampledVertexCount ?? 0).toBeGreaterThan(20);
+    expect(meshCoverage?.regions?.buttBack?.balancedError ?? 1).toBeLessThan(0.035);
+    expect(meshCoverage?.regions?.buttLegBack?.sampledVertexCount ?? 0).toBeGreaterThan(20);
+    expect(meshCoverage?.regions?.buttLegBack?.nearSurfaceRatio ?? 0).toBeGreaterThan(0.9);
+    expect(meshCoverage?.regions?.buttLegBack?.outsideHoleRatio ?? 1).toBeLessThan(0.1);
+    expect(meshCoverage?.regions?.leftElbow?.sampledVertexCount ?? 0).toBeGreaterThan(50);
+    expect(meshCoverage?.regions?.leftElbow?.balancedError ?? 1).toBeLessThan(0.012);
+    expect(meshCoverage?.regions?.rightElbow?.sampledVertexCount ?? 0).toBeGreaterThan(50);
+    expect(meshCoverage?.regions?.rightElbow?.balancedError ?? 1).toBeLessThan(0.012);
+    expect(meshCoverage?.regions?.leftArm?.meanAbsDistance ?? 1).toBeLessThan(0.012);
+    expect(meshCoverage?.regions?.rightArm?.meanAbsDistance ?? 1).toBeLessThan(0.012);
+    expect(meshCoverage?.regions?.leftThigh?.nearSurfaceRatio ?? 0).toBeGreaterThan(0.95);
+    expect(meshCoverage?.regions?.rightThigh?.nearSurfaceRatio ?? 0).toBeGreaterThan(0.95);
+    expect(meshCoverage?.regions?.leftCalf?.nearSurfaceRatio ?? 0).toBeGreaterThan(0.8);
+    expect(meshCoverage?.regions?.rightCalf?.nearSurfaceRatio ?? 0).toBeGreaterThan(0.8);
+    expect(meshCoverage?.regions?.leftFoot?.nearSurfaceRatio ?? 0).toBeGreaterThan(0.65);
+    expect(meshCoverage?.regions?.rightFoot?.nearSurfaceRatio ?? 0).toBeGreaterThan(0.65);
     const sdfClearance = await page.evaluate(() => window.__characterShirtSdfClearanceReport?.());
     expect(sdfClearance?.vertexCount).toBeGreaterThan(500);
     expect(sdfClearance?.sdfCount ?? 0).toBeGreaterThan(15);
+    expect(sdfClearance?.requiredClearance).toBe(0.008);
 
     const strain = await page.evaluate(() => window.__characterShirtStrainReport?.());
     expect(strain?.edgeCount ?? 0).toBeGreaterThan(500);
@@ -56,7 +101,7 @@ test.describe('Animated Mixamo character preview', () => {
 
     const settledSurface = await page.evaluate(() => window.__characterSettledShirtSurfaceReport?.());
     expect(settledSurface?.vertex.penetrationCount).toBe(0);
-    expect(settledSurface?.vertex.minSignedDistance ?? 0).toBeGreaterThan(0.025);
+    expect(settledSurface?.vertex.minSignedDistance ?? 0).toBeGreaterThan(0.006);
     expect(settledSurface?.quality.degenerateCount).toBe(0);
     expect(settledSurface?.quality.minArea ?? 0).toBeGreaterThan(1e-7);
     expect(settledSurface?.strain.averageStrain ?? 1).toBeLessThan(0.18);
@@ -71,7 +116,12 @@ test.describe('Animated Mixamo character preview', () => {
     const sdfs = await page.evaluate(() => window.__characterBoneSdfs?.());
     expect(sdfs?.length).toBe(initial?.sdfCapsuleCount);
     expect(sdfs?.some((sdf) => /arm|forearm/i.test(sdf.name))).toBe(true);
+    expect(sdfs?.filter((sdf) => /upleg/i.test(sdf.name)).every((sdf) => sdf.length > 0.3)).toBe(true);
     expect(sdfs?.filter((sdf) => /soft-chest-.*-jiggle/i.test(sdf.name))).toHaveLength(2);
+    expect(sdfs?.filter((sdf) => /soft-chest-.*-lower/i.test(sdf.name))).toHaveLength(2);
+    expect(sdfs?.filter((sdf) => /soft-chest-/i.test(sdf.name))).toHaveLength(4);
+    expect(sdfs?.filter((sdf) => /soft-butt-/i.test(sdf.name))).toHaveLength(4);
+    expect(sdfs?.filter((sdf) => /soft-(thigh|calf|foot)-/i.test(sdf.name))).toHaveLength(16);
     expect(sdfs?.every((sdf) => sdf.radius > 0 && sdf.length > 0)).toBe(true);
     const armMotion = Math.max(
       ...(sdfs ?? [])
@@ -95,6 +145,12 @@ test.describe('Animated Mixamo character preview', () => {
         }),
     );
     expect(armMotion).toBeGreaterThan(0.005);
+
+    await page.locator('[data-testid="blend-tpose-btn"]').click();
+    await page.waitForTimeout(500);
+    const tpose = await page.evaluate(() => window.__characterStats?.());
+    expect(tpose?.activeClipName?.toLowerCase()).toContain('t-pose');
+
     await page.locator('[data-testid="bones-toggle-btn"]').click();
     const bonesHidden = await page.evaluate(() => window.__characterStats?.());
     expect(bonesHidden?.xrayVisible).toBe(false);
