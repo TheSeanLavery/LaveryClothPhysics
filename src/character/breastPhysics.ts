@@ -46,18 +46,18 @@ export interface BreastPhysicsSnapshot {
 }
 
 export const DEFAULT_BREAST_PHYSICS_CONFIG: Readonly<BreastPhysicsConfig> = {
-  stiffnessY: 65,
-  stiffnessX: 60,
-  stiffnessZ: 55,
-  dampingY: 5.5,
-  dampingX: 5.0,
-  dampingZ: 5.0,
-  responseY: 0.08,
-  responseX: 0.08,
-  responseZ: 0.05,
-  maxOffsetY: 0.07,
-  maxOffsetX: 0.07,
-  maxOffsetZ: 0.04,
+  stiffnessY: 92,
+  stiffnessX: 86,
+  stiffnessZ: 80,
+  dampingY: 8.2,
+  dampingX: 7.6,
+  dampingZ: 7.2,
+  responseY: 0.055,
+  responseX: 0.055,
+  responseZ: 0.035,
+  maxOffsetY: 0.048,
+  maxOffsetX: 0.048,
+  maxOffsetZ: 0.03,
 };
 
 function createSpring(): BreastSpringState {

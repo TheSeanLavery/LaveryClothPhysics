@@ -1,5 +1,28 @@
+import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { attachConsoleCapture, formatCapturedConsole } from './helpers/consoleCapture';
+
+type RecordedPointerEvent = {
+  readonly type: 'pointer';
+  readonly phase: 'move' | 'down' | 'up' | 'cancel' | 'leave';
+  readonly t: number;
+  readonly clientX: number;
+  readonly clientY: number;
+};
+
+type RecordedActionEvent = {
+  readonly type: 'action';
+  readonly name: string;
+  readonly t: number;
+  readonly details?: Record<string, unknown>;
+};
+
+type RecordedEvent = RecordedPointerEvent | RecordedActionEvent | { readonly type: 'note'; readonly t: number };
+
+type CharacterReproFixture = {
+  readonly viewport: { readonly width: number; readonly height: number };
+  readonly events: readonly RecordedEvent[];
+};
 
 test.describe('Animated Mixamo character preview', () => {
   test('loads the bundled FBX and renders an animated Mixamo rig', async ({ page }) => {
@@ -149,6 +172,13 @@ test.describe('Animated Mixamo character preview', () => {
     expect(sdfs?.filter((sdf) => /soft-chest-.*-outer/i.test(sdf.name))).toHaveLength(2);
     expect(sdfs?.filter((sdf) => /soft-chest-.*-tip/i.test(sdf.name))).toHaveLength(2);
     expect(sdfs?.filter((sdf) => /soft-chest-/i.test(sdf.name))).toHaveLength(8);
+    const breastAlignment = await page.evaluate(() => window.__characterBreastVisualAlignmentReport?.());
+    expect(breastAlignment?.modelAvailable).toBe(true);
+    expect(breastAlignment?.sdfCapsuleCount).toBe(8);
+    expect(breastAlignment?.morphTargetsBuilt).toBe(true);
+    expect(breastAlignment?.morphMeshCount ?? 0).toBeGreaterThan(0);
+    expect(breastAlignment?.maxSdfCenterError ?? 1).toBeLessThan(1e-8);
+    expect(breastAlignment?.morphInfluenceError ?? 1).toBeLessThan(1e-8);
     expect(sdfs?.filter((sdf) => /soft-butt-/i.test(sdf.name))).toHaveLength(4);
     expect(sdfs?.filter((sdf) => /soft-hand-/i.test(sdf.name))).toHaveLength(6);
     expect(sdfs?.filter((sdf) => /soft-(thigh|calf|foot)-/i.test(sdf.name))).toHaveLength(16);
@@ -201,6 +231,65 @@ test.describe('Animated Mixamo character preview', () => {
     expect(Math.abs(shirt?.center[0] ?? 1)).toBeLessThan(0.35);
     expect(shirt?.center[1] ?? 0).toBeGreaterThan(0.55);
     expect(shirt?.center[1] ?? 2).toBeLessThan(1.45);
+
+    expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
+    expect(consoleCapture.warnings, formatCapturedConsole(consoleCapture)).toEqual([]);
+    expect(consoleCapture.threeMessages, consoleCapture.threeMessages.join('\n')).toEqual([]);
+  });
+
+  test('replays recorded sleeve pull without crossing the arm capsule', async ({ page }) => {
+    const consoleCapture = attachConsoleCapture(page);
+    const recording = JSON.parse(
+      readFileSync('tests/fixtures/character-repros/latest.json', 'utf8'),
+    ) as CharacterReproFixture;
+
+    await page.setViewportSize(recording.viewport);
+    await page.goto('/?mode=character');
+    await expect(page.locator('[data-testid="sim-status"]')).toHaveText('running (animated character cloth)', {
+      timeout: 20_000,
+    });
+    await page.locator('[data-testid="blend-tpose-btn"]').click();
+    await page.evaluate(() => window.__characterReloadShirtForTest?.());
+    await page.waitForTimeout(700);
+
+    let previousT = 0;
+    for (const event of recording.events) {
+      const delay = Math.min(40, Math.max(0, event.t - previousT));
+      if (delay > 0) {
+        await page.waitForTimeout(delay);
+      }
+      previousT = event.t;
+
+      if (event.type === 'action') {
+        if (event.name === 'toggle-grab' && event.details?.enabled === true) {
+          const button = page.locator('[data-testid="grab-toggle-btn"]');
+          if (!(await button.evaluate((element) => element.classList.contains('active')))) {
+            await button.click();
+          }
+        }
+        continue;
+      }
+
+      if (event.type !== 'pointer') {
+        continue;
+      }
+
+      if (event.phase === 'move') {
+        await page.mouse.move(event.clientX, event.clientY);
+      } else if (event.phase === 'down') {
+        await page.mouse.move(event.clientX, event.clientY);
+        await page.mouse.down();
+      } else if (event.phase === 'up' || event.phase === 'cancel' || event.phase === 'leave') {
+        await page.mouse.move(event.clientX, event.clientY);
+        await page.mouse.up();
+      }
+    }
+
+    await page.waitForTimeout(900);
+    const settledSurface = await page.evaluate(() => window.__characterSettledShirtSurfaceReport?.());
+    expect(settledSurface?.vertex.penetrationCount).toBe(0);
+    expect(settledSurface?.edge.failureCount).toBe(0);
+    expect(settledSurface?.triangle.failureCount).toBe(0);
 
     expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
     expect(consoleCapture.warnings, formatCapturedConsole(consoleCapture)).toEqual([]);

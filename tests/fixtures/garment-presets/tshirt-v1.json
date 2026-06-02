@@ -1,0 +1,16 @@
+{
+  "kind": "lavery-garment-generator-preset",
+  "schemaVersion": 1,
+  "id": "fixture-tshirt-v1",
+  "name": "Fixture legacy T-shirt",
+  "garmentType": "tshirt",
+  "createdAt": 1710000000000,
+  "updatedAt": 1710000000000,
+  "params": {
+    "bodyWidth": 0.72,
+    "torsoHeight": 0.78,
+    "sleeveLength": 0.28,
+    "sleeveOpening": 0.3,
+    "depth": 0.24
+  }
+}

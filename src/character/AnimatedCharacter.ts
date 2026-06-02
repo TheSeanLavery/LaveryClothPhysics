@@ -154,6 +154,50 @@ export interface BoneSdfRegionCoverageReport {
   readonly balancedError: number;
 }
 
+type BreastSideName = 'left' | 'right';
+
+interface BreastCollisionPrimitive {
+  readonly name: string;
+  readonly start: THREE.Vector3;
+  readonly end: THREE.Vector3;
+  readonly radius: number;
+}
+
+interface BreastCollisionSideModel {
+  readonly sideName: BreastSideName;
+  readonly center: THREE.Vector3;
+  readonly restCenter: THREE.Vector3;
+  readonly offset: THREE.Vector3;
+  readonly capsules: readonly BreastCollisionPrimitive[];
+}
+
+interface BreastCollisionModel {
+  readonly shoulderWidth: number;
+  readonly xAxis: THREE.Vector3;
+  readonly frontAxis: THREE.Vector3;
+  readonly sides: readonly BreastCollisionSideModel[];
+  readonly capsules: readonly BreastCollisionPrimitive[];
+}
+
+export interface BreastVisualAlignmentSideReport {
+  readonly center: [number, number, number];
+  readonly sdfCenter: [number, number, number] | null;
+  readonly offset: [number, number, number];
+  readonly offsetLength: number;
+  readonly sdfCenterError: number;
+}
+
+export interface BreastVisualAlignmentReport {
+  readonly modelAvailable: boolean;
+  readonly sdfCapsuleCount: number;
+  readonly morphTargetsBuilt: boolean;
+  readonly morphMeshCount: number;
+  readonly morphInfluenceError: number;
+  readonly maxSdfCenterError: number;
+  readonly left: BreastVisualAlignmentSideReport | null;
+  readonly right: BreastVisualAlignmentSideReport | null;
+}
+
 export interface ShirtAnchorReport {
   readonly hasRequiredAnchors: boolean;
   readonly visible: boolean;
@@ -202,6 +246,8 @@ export class AnimatedCharacterSceneRig {
   private breastBonesSearched = false;
   private breastMorphTargetsBuilt = false;
   private readonly breastMorphMeshes: THREE.SkinnedMesh[] = [];
+  private readonly breastBaseQuaternions = new WeakMap<THREE.Bone, THREE.Quaternion>();
+  private lastBreastCollisionModel: BreastCollisionModel | null = null;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -514,33 +560,81 @@ export class AnimatedCharacterSceneRig {
     };
   }
 
+  getBreastVisualAlignmentReport(): BreastVisualAlignmentReport {
+    const model = this.lastBreastCollisionModel ?? this.buildBreastCollisionModel(0, false);
+    if (!model) {
+      return {
+        modelAvailable: false,
+        sdfCapsuleCount: 0,
+        morphTargetsBuilt: this.breastMorphTargetsBuilt,
+        morphMeshCount: this.breastMorphMeshes.length,
+        morphInfluenceError: Number.POSITIVE_INFINITY,
+        maxSdfCenterError: Number.POSITIVE_INFINITY,
+        left: null,
+        right: null,
+      };
+    }
+
+    const expectedInfluences = breastMorphInfluencesForModel(model);
+    const actualInfluences = this.breastMorphMeshes[0]?.morphTargetInfluences ?? [];
+    const morphInfluenceError = expectedInfluences.reduce((maxError, expected, index) => {
+      const actual = actualInfluences[index] ?? 0;
+      return Math.max(maxError, Math.abs(actual - expected));
+    }, 0);
+
+    const left = this.breastAlignmentSideReport(model, 'left');
+    const right = this.breastAlignmentSideReport(model, 'right');
+    return {
+      modelAvailable: true,
+      sdfCapsuleCount: this.boneCapsules.filter((capsule) => capsule.name.startsWith('soft-chest-')).length,
+      morphTargetsBuilt: this.breastMorphTargetsBuilt,
+      morphMeshCount: this.breastMorphMeshes.length,
+      morphInfluenceError,
+      maxSdfCenterError: Math.max(left?.sdfCenterError ?? 0, right?.sdfCenterError ?? 0),
+      left,
+      right,
+    };
+  }
+
   /**
    * Returns the current world-space center of each breast capsule cluster.
    * Useful for hit-testing pointer interaction against the chest area.
    */
   getBreastWorldCenters(): { left: THREE.Vector3; right: THREE.Vector3 } | null {
-    const chest = this.findBoneWorldPosition(['spine2', 'spine1', 'spine']);
-    const neck = this.findBoneWorldPosition(['neck']);
-    const leftShoulder = this.findBoneWorldPosition(['leftshoulder', 'leftarm']);
-    const rightShoulder = this.findBoneWorldPosition(['rightshoulder', 'rightarm']);
-    if (!chest || !neck || !leftShoulder || !rightShoulder) {
+    const model = this.lastBreastCollisionModel ?? this.buildBreastCollisionModel(0, false);
+    if (!model) {
       return null;
     }
-    const xAxis = rightShoulder.clone().sub(leftShoulder);
-    xAxis.y = 0;
-    if (xAxis.lengthSq() < 0.0001) xAxis.set(1, 0, 0);
-    xAxis.normalize();
-    const frontAxis = UP.clone().cross(xAxis);
-    if (frontAxis.lengthSq() < 0.0001) frontAxis.set(0, 0, 1);
-    frontAxis.normalize();
-
-    const shoulderWidth = leftShoulder.distanceTo(rightShoulder);
-    const sideOffset = THREE.MathUtils.clamp(shoulderWidth * 0.15, 0.052, 0.105);
-    const frontOffset = THREE.MathUtils.clamp(shoulderWidth * 0.2, 0.085, 0.14);
-    const base = chest.clone().lerp(neck, 0.12).addScaledVector(frontAxis, frontOffset);
+    const left = model.sides.find((side) => side.sideName === 'left');
+    const right = model.sides.find((side) => side.sideName === 'right');
+    if (!left || !right) {
+      return null;
+    }
     return {
-      left: base.clone().addScaledVector(xAxis, -sideOffset),
-      right: base.clone().addScaledVector(xAxis, sideOffset),
+      left: left.center.clone(),
+      right: right.center.clone(),
+    };
+  }
+
+  private breastAlignmentSideReport(
+    model: BreastCollisionModel,
+    sideName: BreastSideName,
+  ): BreastVisualAlignmentSideReport | null {
+    const side = model.sides.find((candidate) => candidate.sideName === sideName);
+    if (!side) {
+      return null;
+    }
+    const jiggleCapsule = this.boneCapsules.find((capsule) => capsule.name === `soft-chest-${sideName}-jiggle`);
+    const sdfCenter = jiggleCapsule
+      ? jiggleCapsule.start.clone().add(jiggleCapsule.end).multiplyScalar(0.5)
+      : null;
+    const sdfCenterError = sdfCenter ? sdfCenter.distanceTo(side.center) : Number.POSITIVE_INFINITY;
+    return {
+      center: vectorTuple(side.center),
+      sdfCenter: sdfCenter ? vectorTuple(sdfCenter) : null,
+      offset: vectorTuple(side.offset),
+      offsetLength: side.offset.length(),
+      sdfCenterError,
     };
   }
 
@@ -740,13 +834,13 @@ export class AnimatedCharacterSceneRig {
     this.addSoftChestJiggleSdfs(delta);
   }
 
-  private addSoftChestJiggleSdfs(delta: number): void {
+  private buildBreastCollisionModel(delta: number, stepPhysics: boolean): BreastCollisionModel | null {
     const chest = this.findBoneWorldPosition(['spine2', 'spine1', 'spine']);
     const neck = this.findBoneWorldPosition(['neck']);
     const leftShoulder = this.findBoneWorldPosition(['leftshoulder', 'leftarm']);
     const rightShoulder = this.findBoneWorldPosition(['rightshoulder', 'rightarm']);
     if (!chest || !neck || !leftShoulder || !rightShoulder) {
-      return;
+      return null;
     }
 
     const xAxis = rightShoulder.clone().sub(leftShoulder);
@@ -761,75 +855,64 @@ export class AnimatedCharacterSceneRig {
     }
     frontAxis.normalize();
 
-    // Project chest position into local frame for multi-axis breast physics.
-    const chestLocalX = chest.dot(xAxis);
-    const chestLocalY = chest.y;
-    const chestLocalZ = chest.dot(frontAxis);
-    this.breastSim.step(chestLocalX, chestLocalY, chestLocalZ, delta);
-
-    // Drive breast bones (if the model has them) for mesh deformation.
-    this.applyBreastBoneRotations();
+    if (stepPhysics) {
+      this.breastSim.step(chest.dot(xAxis), chest.y, chest.dot(frontAxis), delta);
+    }
 
     const shoulderWidth = leftShoulder.distanceTo(rightShoulder);
     const sideOffset = THREE.MathUtils.clamp(shoulderWidth * 0.15, 0.052, 0.105);
     const frontOffset = THREE.MathUtils.clamp(shoulderWidth * 0.2, 0.085, 0.14);
-    const base = chest.clone().lerp(neck, 0.12).addScaledVector(frontAxis, frontOffset);
-    const radius = THREE.MathUtils.clamp(shoulderWidth * 0.112, 0.06, 0.09);
-
-    for (const [sideName, sign] of [['left', -1], ['right', 1]] as const) {
+    const verticalDrop = THREE.MathUtils.clamp(shoulderWidth * 0.055, 0.022, 0.038);
+    const base = chest
+      .clone()
+      .lerp(neck, 0.08)
+      .addScaledVector(UP, -verticalDrop)
+      .addScaledVector(frontAxis, frontOffset);
+    const sides = ([['left', -1], ['right', 1]] as const).map(([sideName, sign]) => {
       const spring = sideName === 'left' ? this.breastSim.left : this.breastSim.right;
-      const center = base
-        .clone()
-        .addScaledVector(xAxis, sign * sideOffset)
+      const restCenter = base.clone().addScaledVector(xAxis, sign * sideOffset);
+      const offset = new THREE.Vector3()
         .addScaledVector(UP, spring.offsetY)
         .addScaledVector(xAxis, spring.offsetX)
         .addScaledVector(frontAxis, spring.offsetZ);
-      const start = center.clone().addScaledVector(UP, -0.018);
-      const end = center.clone().addScaledVector(UP, 0.018);
-      this.pushBoneCapsule(`soft-chest-${sideName}-jiggle`, 'chest', start, end, radius);
+      const center = restCenter.clone().add(offset);
+      return {
+        sideName,
+        center,
+        restCenter,
+        offset,
+        capsules: buildBreastCapsulesForSide(sideName, sign, center, xAxis, frontAxis, shoulderWidth),
+      };
+    });
 
-      const lowerCenter = center
-        .clone()
-        .addScaledVector(UP, -THREE.MathUtils.clamp(shoulderWidth * 0.085, 0.035, 0.06))
-        .addScaledVector(frontAxis, THREE.MathUtils.clamp(shoulderWidth * 0.04, 0.018, 0.035));
-      this.pushBoneCapsule(
-        `soft-chest-${sideName}-lower`,
-        'chest',
-        lowerCenter.clone().addScaledVector(xAxis, sign * -THREE.MathUtils.clamp(shoulderWidth * 0.025, 0.01, 0.02)),
-        lowerCenter.clone().addScaledVector(xAxis, sign * THREE.MathUtils.clamp(shoulderWidth * 0.025, 0.01, 0.02)),
-        THREE.MathUtils.clamp(shoulderWidth * 0.078, 0.043, 0.065),
-      );
-      const outerCenter = center
-        .clone()
-        .addScaledVector(xAxis, sign * THREE.MathUtils.clamp(shoulderWidth * 0.055, 0.022, 0.045))
-        .addScaledVector(UP, -THREE.MathUtils.clamp(shoulderWidth * 0.025, 0.01, 0.02));
-      this.pushBoneCapsule(
-        `soft-chest-${sideName}-outer`,
-        'chest',
-        outerCenter.clone().addScaledVector(UP, -THREE.MathUtils.clamp(shoulderWidth * 0.045, 0.018, 0.035)),
-        outerCenter.clone().addScaledVector(UP, THREE.MathUtils.clamp(shoulderWidth * 0.035, 0.014, 0.03)),
-        THREE.MathUtils.clamp(shoulderWidth * 0.055, 0.032, 0.05),
-      );
-      const tipCenter = center
-        .clone()
-        .addScaledVector(frontAxis, THREE.MathUtils.clamp(shoulderWidth * 0.065, 0.03, 0.055))
-        .addScaledVector(UP, -THREE.MathUtils.clamp(shoulderWidth * 0.025, 0.01, 0.02));
-      this.pushBoneCapsule(
-        `soft-chest-${sideName}-tip`,
-        'chest',
-        tipCenter.clone().addScaledVector(xAxis, sign * -THREE.MathUtils.clamp(shoulderWidth * 0.018, 0.008, 0.015)),
-        tipCenter.clone().addScaledVector(xAxis, sign * THREE.MathUtils.clamp(shoulderWidth * 0.018, 0.008, 0.015)),
-        THREE.MathUtils.clamp(shoulderWidth * 0.04, 0.024, 0.038),
-      );
+    return {
+      shoulderWidth,
+      xAxis,
+      frontAxis,
+      sides,
+      capsules: sides.flatMap((side) => side.capsules),
+    };
+  }
+
+  private addSoftChestJiggleSdfs(delta: number): void {
+    const model = this.buildBreastCollisionModel(delta, true);
+    if (!model) {
+      return;
+    }
+
+    this.lastBreastCollisionModel = model;
+    this.applyBreastDeformation(model);
+    for (const capsule of model.capsules) {
+      this.pushBoneCapsule(capsule.name, 'chest', capsule.start, capsule.end, capsule.radius);
     }
 
     const hips = this.findBoneWorldPosition(['hips']);
     if (hips) {
-      const buttBase = hips.clone().addScaledVector(frontAxis, -THREE.MathUtils.clamp(shoulderWidth * 0.16, 0.07, 0.12));
-      const buttRadius = THREE.MathUtils.clamp(shoulderWidth * 0.085, 0.045, 0.07);
-      const buttSideOffset = THREE.MathUtils.clamp(shoulderWidth * 0.11, 0.045, 0.08);
+      const buttBase = hips.clone().addScaledVector(model.frontAxis, -THREE.MathUtils.clamp(model.shoulderWidth * 0.16, 0.07, 0.12));
+      const buttRadius = THREE.MathUtils.clamp(model.shoulderWidth * 0.085, 0.045, 0.07);
+      const buttSideOffset = THREE.MathUtils.clamp(model.shoulderWidth * 0.11, 0.045, 0.08);
       for (const [sideName, sign] of [['left', -1], ['right', 1]] as const) {
-        const center = buttBase.clone().addScaledVector(xAxis, sign * buttSideOffset);
+        const center = buttBase.clone().addScaledVector(model.xAxis, sign * buttSideOffset);
         const start = center.clone().addScaledVector(UP, -0.018);
         const end = center.clone().addScaledVector(UP, 0.018);
         this.boneCapsules.push({
@@ -843,8 +926,8 @@ export class AnimatedCharacterSceneRig {
         });
         const thighCenter = center
           .clone()
-          .addScaledVector(frontAxis, -THREE.MathUtils.clamp(shoulderWidth * 0.035, 0.015, 0.03))
-          .addScaledVector(UP, -THREE.MathUtils.clamp(shoulderWidth * 0.18, 0.075, 0.13));
+          .addScaledVector(model.frontAxis, -THREE.MathUtils.clamp(model.shoulderWidth * 0.035, 0.015, 0.03))
+          .addScaledVector(UP, -THREE.MathUtils.clamp(model.shoulderWidth * 0.18, 0.075, 0.13));
         const thighStart = thighCenter.clone().addScaledVector(UP, -0.055);
         const thighEnd = thighCenter.clone().addScaledVector(UP, 0.035);
         this.boneCapsules.push({
@@ -853,13 +936,13 @@ export class AnimatedCharacterSceneRig {
           parentName: 'hips',
           start: thighStart,
           end: thighEnd,
-          radius: THREE.MathUtils.clamp(shoulderWidth * 0.08, 0.045, 0.068),
+          radius: THREE.MathUtils.clamp(model.shoulderWidth * 0.08, 0.045, 0.068),
           length: thighStart.distanceTo(thighEnd),
         });
       }
     }
-    this.addSoftLegRailSdfs(xAxis, frontAxis, shoulderWidth);
-    this.addSoftHandSdfs(xAxis, frontAxis, shoulderWidth);
+    this.addSoftLegRailSdfs(model.xAxis, model.frontAxis, model.shoulderWidth);
+    this.addSoftHandSdfs(model.xAxis, model.frontAxis, model.shoulderWidth);
   }
 
   private addSoftHandSdfs(xAxis: THREE.Vector3, frontAxis: THREE.Vector3, shoulderWidth: number): void {
@@ -996,12 +1079,17 @@ export class AnimatedCharacterSceneRig {
     }
   }
 
+  private applyBreastDeformation(model: BreastCollisionModel): void {
+    this.applyBreastBoneRotations(model);
+    this.buildBreastMorphTargetsIfNeeded(model);
+    this.syncBreastMorphInfluences(model);
+  }
+
   /**
-   * Find breast bones on the skeleton and apply jiggle rotation.
-   * Common bone names: Breast_L/R, bust_L/R, Mune_L/R, BreastBone_L/R.
-   * Rotation magnitude maps from the spring offset to a bone rotation angle.
+   * Find breast bones on the skeleton and apply jiggle rotation from the
+   * current breast model. The base quaternion prevents frame-to-frame drift.
    */
-  private applyBreastBoneRotations(): void {
+  private applyBreastBoneRotations(model: BreastCollisionModel): void {
     if (!this.breastBonesSearched) {
       this.breastBonesSearched = true;
       this.breastBoneLeft = this.findBone([
@@ -1014,24 +1102,28 @@ export class AnimatedCharacterSceneRig {
 
     const ROTATION_SCALE = 6.0; // radians per unit offset — tuned for visual appeal
 
-    if (this.breastBoneLeft) {
-      const spring = this.breastSim.left;
-      this.breastBoneLeft.rotation.x += -spring.offsetY * ROTATION_SCALE;
-      this.breastBoneLeft.rotation.z += spring.offsetX * ROTATION_SCALE;
-      this.breastBoneLeft.rotation.y += spring.offsetZ * ROTATION_SCALE;
-      this.breastBoneLeft.updateMatrixWorld(true);
+    for (const [sideName, bone] of [['left', this.breastBoneLeft], ['right', this.breastBoneRight]] as const) {
+      if (!bone) {
+        continue;
+      }
+      const side = model.sides.find((candidate) => candidate.sideName === sideName);
+      if (!side) {
+        continue;
+      }
+      let baseQuaternion = this.breastBaseQuaternions.get(bone);
+      if (!baseQuaternion) {
+        baseQuaternion = bone.quaternion.clone();
+        this.breastBaseQuaternions.set(bone, baseQuaternion);
+      }
+      const rotation = new THREE.Euler(
+        -side.offset.y * ROTATION_SCALE,
+        side.offset.dot(model.frontAxis) * ROTATION_SCALE,
+        side.offset.dot(model.xAxis) * ROTATION_SCALE,
+        'XYZ',
+      );
+      bone.quaternion.copy(baseQuaternion).multiply(new THREE.Quaternion().setFromEuler(rotation));
+      bone.updateMatrixWorld(true);
     }
-    if (this.breastBoneRight) {
-      const spring = this.breastSim.right;
-      this.breastBoneRight.rotation.x += -spring.offsetY * ROTATION_SCALE;
-      this.breastBoneRight.rotation.z += spring.offsetX * ROTATION_SCALE;
-      this.breastBoneRight.rotation.y += spring.offsetZ * ROTATION_SCALE;
-      this.breastBoneRight.updateMatrixWorld(true);
-    }
-
-    // Vertex displacement via morph targets (works on any skeleton).
-    this.buildBreastMorphTargetsIfNeeded();
-    this.syncBreastMorphInfluences();
   }
 
   /**
@@ -1042,14 +1134,13 @@ export class AnimatedCharacterSceneRig {
    *
    * Layout: [LY+, LY-, LX+, LX-, LZ+, LZ-, RY+, RY-, RX+, RX-, RZ+, RZ-]
    */
-  private buildBreastMorphTargetsIfNeeded(): void {
+  private buildBreastMorphTargetsIfNeeded(model = this.lastBreastCollisionModel ?? this.buildBreastCollisionModel(0, false)): void {
     if (this.breastMorphTargetsBuilt || !this.loadedRoot) {
       return;
     }
-    this.breastMorphTargetsBuilt = true;
 
-    const centers = this.getBreastWorldCenters();
-    if (!centers) return;
+    if (!model) return;
+    this.breastMorphTargetsBuilt = true;
 
     // Displacement magnitude at the breast center (full strength).
     const MORPH_DISPLACEMENT = 0.055;
@@ -1079,8 +1170,8 @@ export class AnimatedCharacterSceneRig {
       for (let i = 0; i < vertexCount; i++) {
         getSkinnedVertexWorldPosition(object, i, worldPos);
 
-        for (const [sideIndex, center] of [[0, centers.left], [1, centers.right]] as const) {
-          const dist = worldPos.distanceTo(center);
+        for (const [sideIndex, side] of model.sides.entries()) {
+          const dist = worldPos.distanceTo(side.restCenter);
           if (dist >= INFLUENCE_RADIUS) continue;
 
           // Smooth falloff: 1 at center, 0 at edge.
@@ -1144,38 +1235,17 @@ export class AnimatedCharacterSceneRig {
    * Positive offsets drive the + target, negative offsets drive the - target.
    * All influences stay >= 0 to avoid renderer clamping.
    */
-  private syncBreastMorphInfluences(): void {
+  private syncBreastMorphInfluences(model = this.lastBreastCollisionModel ?? this.buildBreastCollisionModel(0, false)): void {
     if (this.breastMorphMeshes.length === 0) return;
 
-    const left = this.breastSim.left;
-    const right = this.breastSim.right;
-    const SCALE = 1.0 / 0.055;
+    const influences = model ? breastMorphInfluencesForModel(model) : new Array(12).fill(0);
 
     for (const mesh of this.breastMorphMeshes) {
       const inf = mesh.morphTargetInfluences;
       if (!inf || inf.length < 12) continue;
-
-      // Left: Y+/Y-/X+/X-/Z+/Z-
-      const ly = left.offsetY * SCALE;
-      inf[0] = ly > 0 ? ly : 0;
-      inf[1] = ly < 0 ? -ly : 0;
-      const lx = left.offsetX * SCALE;
-      inf[2] = lx > 0 ? lx : 0;
-      inf[3] = lx < 0 ? -lx : 0;
-      const lz = left.offsetZ * SCALE;
-      inf[4] = lz > 0 ? lz : 0;
-      inf[5] = lz < 0 ? -lz : 0;
-
-      // Right: Y+/Y-/X+/X-/Z+/Z-
-      const ry = right.offsetY * SCALE;
-      inf[6] = ry > 0 ? ry : 0;
-      inf[7] = ry < 0 ? -ry : 0;
-      const rx = right.offsetX * SCALE;
-      inf[8] = rx > 0 ? rx : 0;
-      inf[9] = rx < 0 ? -rx : 0;
-      const rz = right.offsetZ * SCALE;
-      inf[10] = rz > 0 ? rz : 0;
-      inf[11] = rz < 0 ? -rz : 0;
+      for (let index = 0; index < 12; index++) {
+        inf[index] = influences[index] ?? 0;
+      }
     }
   }
 
@@ -1956,6 +2026,82 @@ function directionalLight(color: THREE.ColorRepresentation, intensity: number, x
   const light = new THREE.DirectionalLight(color, intensity);
   light.position.set(x, y, z);
   return light;
+}
+
+function buildBreastCapsulesForSide(
+  sideName: BreastSideName,
+  sign: -1 | 1,
+  center: THREE.Vector3,
+  xAxis: THREE.Vector3,
+  frontAxis: THREE.Vector3,
+  shoulderWidth: number,
+): BreastCollisionPrimitive[] {
+  const radius = THREE.MathUtils.clamp(shoulderWidth * 0.112, 0.06, 0.09);
+  const lowerDrop = THREE.MathUtils.clamp(shoulderWidth * 0.085, 0.035, 0.06);
+  const lowerForward = THREE.MathUtils.clamp(shoulderWidth * 0.04, 0.018, 0.035);
+  const lowerHalfWidth = THREE.MathUtils.clamp(shoulderWidth * 0.025, 0.01, 0.02);
+  const outerOffset = THREE.MathUtils.clamp(shoulderWidth * 0.055, 0.022, 0.045);
+  const outerDrop = THREE.MathUtils.clamp(shoulderWidth * 0.025, 0.01, 0.02);
+  const outerDown = THREE.MathUtils.clamp(shoulderWidth * 0.045, 0.018, 0.035);
+  const outerUp = THREE.MathUtils.clamp(shoulderWidth * 0.035, 0.014, 0.03);
+  const tipForward = THREE.MathUtils.clamp(shoulderWidth * 0.065, 0.03, 0.055);
+  const tipDrop = THREE.MathUtils.clamp(shoulderWidth * 0.025, 0.01, 0.02);
+  const tipHalfWidth = THREE.MathUtils.clamp(shoulderWidth * 0.018, 0.008, 0.015);
+
+  const lowerCenter = center.clone()
+    .addScaledVector(UP, -lowerDrop)
+    .addScaledVector(frontAxis, lowerForward);
+  const outerCenter = center.clone()
+    .addScaledVector(xAxis, sign * outerOffset)
+    .addScaledVector(UP, -outerDrop);
+  const tipCenter = center.clone()
+    .addScaledVector(frontAxis, tipForward)
+    .addScaledVector(UP, -tipDrop);
+
+  return [
+    {
+      name: `soft-chest-${sideName}-jiggle`,
+      start: center.clone().addScaledVector(UP, -0.018),
+      end: center.clone().addScaledVector(UP, 0.018),
+      radius,
+    },
+    {
+      name: `soft-chest-${sideName}-lower`,
+      start: lowerCenter.clone().addScaledVector(xAxis, sign * -lowerHalfWidth),
+      end: lowerCenter.clone().addScaledVector(xAxis, sign * lowerHalfWidth),
+      radius: THREE.MathUtils.clamp(shoulderWidth * 0.078, 0.043, 0.065),
+    },
+    {
+      name: `soft-chest-${sideName}-outer`,
+      start: outerCenter.clone().addScaledVector(UP, -outerDown),
+      end: outerCenter.clone().addScaledVector(UP, outerUp),
+      radius: THREE.MathUtils.clamp(shoulderWidth * 0.055, 0.032, 0.05),
+    },
+    {
+      name: `soft-chest-${sideName}-tip`,
+      start: tipCenter.clone().addScaledVector(xAxis, sign * -tipHalfWidth),
+      end: tipCenter.clone().addScaledVector(xAxis, sign * tipHalfWidth),
+      radius: THREE.MathUtils.clamp(shoulderWidth * 0.04, 0.024, 0.038),
+    },
+  ];
+}
+
+function breastMorphInfluencesForModel(model: BreastCollisionModel): number[] {
+  const influences = new Array(12).fill(0);
+  const scale = 1.0 / 0.055;
+  for (const [sideIndex, side] of model.sides.entries()) {
+    const y = side.offset.y * scale;
+    const x = side.offset.dot(model.xAxis) * scale;
+    const z = side.offset.dot(model.frontAxis) * scale;
+    const base = sideIndex * 6;
+    influences[base] = y > 0 ? y : 0;
+    influences[base + 1] = y < 0 ? -y : 0;
+    influences[base + 2] = x > 0 ? x : 0;
+    influences[base + 3] = x < 0 ? -x : 0;
+    influences[base + 4] = z > 0 ? z : 0;
+    influences[base + 5] = z < 0 ? -z : 0;
+  }
+  return influences;
 }
 
 function syncCapsuleGroup(group: THREE.Object3D, capsule: BoneSdfCapsule): void {

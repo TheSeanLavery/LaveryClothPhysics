@@ -1,0 +1,6268 @@
+{
+  "schemaVersion": 1,
+  "kind": "character-sleeve-repro",
+  "createdAt": "2026-06-01T22:22:40.638Z",
+  "url": "http://localhost:5173/?mode=character",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+  "viewport": {
+    "width": 1295,
+    "height": 771,
+    "devicePixelRatio": 2
+  },
+  "canvas": {
+    "width": 2590,
+    "height": 1542,
+    "clientWidth": 1295,
+    "clientHeight": 771
+  },
+  "startState": {
+    "capturedAt": "2026-06-01T22:22:35.652Z",
+    "appMode": "character",
+    "characterStats": {
+      "loaded": true,
+      "assetUrl": "/assets/characters/meshy/blue-haired-anime-girl.fbx",
+      "tposeAnimationUrl": "/assets/characters/mixamo/tpose.fbx",
+      "idleAnimationUrl": "/assets/characters/mixamo/idle.fbx",
+      "animationUrl": "/assets/characters/mixamo/dancing-twerk.fbx",
+      "meshCount": 1,
+      "skinnedMeshCount": 1,
+      "boneCount": 41,
+      "animationClipCount": 3,
+      "retargetedTrackCount": 34,
+      "activeClipName": "T-Pose",
+      "mixerTime": 2.9341666666666666,
+      "frameCount": 345,
+      "sdfCapsuleCount": 68,
+      "renderProxyCount": 69,
+      "xrayVisible": false,
+      "boundsHeight": 1.75,
+      "boundsWidth": 1.3748083135709477,
+      "boneNames": [
+        "mixamorigHips",
+        "mixamorigLeftUpLeg",
+        "mixamorigLeftLeg",
+        "mixamorigLeftFoot",
+        "mixamorigLeftToeBase",
+        "mixamorigLeftToe_End",
+        "mixamorigSpine",
+        "mixamorigSpine1",
+        "mixamorigSpine2",
+        "mixamorigNeck",
+        "mixamorigHead",
+        "mixamorigHeadTop_End",
+        "mixamorigLeftShoulder",
+        "mixamorigLeftArm",
+        "mixamorigLeftForeArm",
+        "mixamorigLeftHand",
+        "mixamorigLeftHandThumb1",
+        "mixamorigLeftHandThumb2",
+        "mixamorigLeftHandThumb3",
+        "mixamorigLeftHandThumb4",
+        "mixamorigLeftHandIndex1",
+        "mixamorigLeftHandIndex2",
+        "mixamorigLeftHandIndex3",
+        "mixamorigLeftHandIndex4",
+        "mixamorigRightShoulder",
+        "mixamorigRightArm",
+        "mixamorigRightForeArm",
+        "mixamorigRightHand",
+        "mixamorigRightHandThumb1",
+        "mixamorigRightHandThumb2",
+        "mixamorigRightHandThumb3",
+        "mixamorigRightHandThumb4",
+        "mixamorigRightHandIndex1",
+        "mixamorigRightHandIndex2",
+        "mixamorigRightHandIndex3",
+        "mixamorigRightHandIndex4",
+        "mixamorigRightUpLeg",
+        "mixamorigRightLeg",
+        "mixamorigRightFoot",
+        "mixamorigRightToeBase",
+        "mixamorigRightToe_End"
+      ]
+    },
+    "clothStats": {
+      "status": "running",
+      "backend": "WebGPUBackend",
+      "particleCount": 4346,
+      "frameCount": 345,
+      "checksum": 38.09868360107066,
+      "spanX": 1.0763015151023865,
+      "spanY": 0.7057496905326843,
+      "spanZ": 0.4471675008535385,
+      "centerX": 0.016058297668507096,
+      "centerY": 1.1944440767559872,
+      "centerZ": -0.018551808832164226,
+      "minY": 0.7594020962715149,
+      "maxY": 1.4651517868041992,
+      "maxStretch": 4.308907643650752,
+      "hasNaN": false,
+      "isHealthy": false
+    },
+    "clothSettings": {
+      "segmentsX": 4561,
+      "segmentsY": 0,
+      "constraintIterations": 7,
+      "bendStiffness": 0.01,
+      "minCompression": 0.92,
+      "clothThickness": 0.003,
+      "renderSubdivisions": 3,
+      "renderGeometrySmoothing": 1.5,
+      "flatShading": false,
+      "selfCollision": false,
+      "poleCollision": false,
+      "windStrength": 0,
+      "windTurbulence": 0,
+      "windDirectionX": -0.5,
+      "windDirectionY": 0.51,
+      "windDirectionZ": 0.85,
+      "zoneAStrength": 0,
+      "zoneARadius": 1.1,
+      "zoneASpeed": 0.65,
+      "zoneADirX": 1,
+      "zoneADirY": 0.05,
+      "zoneADirZ": 0.25,
+      "zoneBStrength": 0,
+      "zoneBRadius": 0.9,
+      "zoneBSpeed": 0.35,
+      "zoneBDirX": -0.8,
+      "zoneBDirY": 0.08,
+      "zoneBDirZ": 0.35,
+      "dampening": 0.9925,
+      "grabRadius": 0.11,
+      "gravity": 0.000025,
+      "shapePressure": 0,
+      "mannequinCollision": false,
+      "showMannequin": false,
+      "mannequinMargin": 0.018,
+      "mannequinFriction": 0.85,
+      "mannequinTorsoRadiusX": 0.255,
+      "mannequinTorsoRadiusY": 0.42,
+      "mannequinTorsoRadiusZ": 0.11,
+      "mannequinTorsoCenterY": 0.43,
+      "mannequinArmRadius": 0.078,
+      "mannequinArmHalfLength": 0.62,
+      "mannequinArmCenterY": 0.65,
+      "mannequinNeckRadius": 0.075,
+      "mannequinNeckCenterY": 0.93,
+      "mannequinNeckBaseRadius": 0.11,
+      "mannequinNeckBaseCenterY": 0.82,
+      "flagColor": "#ff4fa3",
+      "roughness": 0.78,
+      "sheen": 0.42,
+      "sheenRoughness": 0.55,
+      "emissiveIntensity": 0,
+      "fabricNormalStrength": 0,
+      "fabricNormalScale": 0.45,
+      "fabricTiling": 6,
+      "fabricTextureSource": "procedural",
+      "fabricColorTint": 1,
+      "exposure": 1.45,
+      "ambientIntensity": 0.75,
+      "hemiIntensity": 1.1,
+      "keyLightIntensity": 2,
+      "fillLightIntensity": 1.35,
+      "backLightIntensity": 1.25,
+      "rimLightIntensity": 0.95,
+      "showSimGridDebug": false,
+      "tearStretchThreshold": 999,
+      "tearFringeWidth": 0.075,
+      "tearMeshing": "sdf",
+      "tearSdfCornerRadius": 0.35,
+      "showBridgeSplinters": false,
+      "renderStrandThreads": false,
+      "strandThreadRadius": 0.008,
+      "bbSpeed": 30,
+      "bbVisualRadius": 0.022,
+      "bbHitRadius": 0.07,
+      "bbForceStrength": 1.2,
+      "bbRestitution": 0.38,
+      "bbFriction": 0.45,
+      "bbFabricSoftness": 0.58
+    },
+    "camera": {
+      "position": [
+        0,
+        0.9499999999999998,
+        2.6
+      ],
+      "quaternion": [
+        -0.009614051439254541,
+        0,
+        0,
+        0.9999537839394994
+      ],
+      "fov": 42,
+      "near": 0.01,
+      "far": 30
+    },
+    "controls": {
+      "target": [
+        0,
+        0.9,
+        0
+      ],
+      "enabled": true
+    },
+    "interaction": {
+      "grabMode": false,
+      "shootMode": false,
+      "slapMode": false,
+      "bonesVisible": false
+    },
+    "shirtAnchor": {
+      "hasRequiredAnchors": true,
+      "visible": true,
+      "bodyWidth": 0.66,
+      "torsoHeight": 0.74,
+      "sleeveLength": 0.24,
+      "sleeveOpening": 0.26,
+      "vertexCount": 4562,
+      "faceCount": 8960,
+      "stitchEdgeCount": 222,
+      "center": [
+        0.016058297668507096,
+        1.1944440767559872,
+        -0.018551808832164226
+      ],
+      "neckGap": 0.049216237866216206,
+      "anchorNames": [
+        "hips",
+        "chest",
+        "neck",
+        "leftShoulder",
+        "rightShoulder",
+        "leftArm",
+        "rightArm"
+      ]
+    },
+    "settledSurface": {
+      "vertex": {
+        "vertexCount": 4562,
+        "sdfCount": 68,
+        "requiredClearance": 0.008,
+        "penetrationCount": 0,
+        "minSignedDistance": 0.0209999097290907,
+        "maxPenetrationDepth": 0,
+        "averageClearance": 0.05435704551543233,
+        "worstVertexIndex": -1
+      },
+      "perCapsule": {
+        "vertexCount": 4562,
+        "capsuleCount": 68,
+        "totalChecks": 310216,
+        "failureCount": 0,
+        "minSignedDistance": 0.0209999097290907,
+        "worstCapsuleName": null,
+        "worstVertexIndex": -1
+      },
+      "edge": {
+        "edgeCount": 13100,
+        "capsuleCount": 68,
+        "totalChecks": 890800,
+        "failureCount": 0,
+        "minSignedDistance": 0.015889271492095472,
+        "worstEdgeId": 1607,
+        "worstCapsuleName": "mixamorigLeftShoulder"
+      },
+      "triangle": {
+        "triangleCount": 8544,
+        "capsuleCount": 68,
+        "totalChecks": 580992,
+        "failureCount": 0,
+        "minSignedDistance": 0.015889271492095472,
+        "worstFaceId": 1037,
+        "worstCapsuleName": "mixamorigLeftShoulder"
+      },
+      "strain": {
+        "edgeCount": 13100,
+        "maxStrain": 1.9246854851003963,
+        "averageStrain": 0.0283088068058443,
+        "overLimitCount": 295,
+        "worstEdgeId": 7339,
+        "worstSourceId": "tshirt-back"
+      },
+      "quality": {
+        "triangleCount": 8544,
+        "degenerateCount": 0,
+        "minArea": 0.000004088023054473149,
+        "averageArea": 0.00014941116011843786
+      }
+    },
+    "boneSdfs": [
+      {
+        "id": 0,
+        "name": "mixamorigHips-fit-1",
+        "parentName": "mixamorigHips",
+        "radius": 0.10911053830220618,
+        "length": 0.03490634544226948,
+        "start": [
+          5.34795985577749e-9,
+          1.039623226731571,
+          -0.025535141329614788
+        ],
+        "end": [
+          0.031783191595617884,
+          1.0251991308603756,
+          -0.025058190199736395
+        ]
+      },
+      {
+        "id": 1,
+        "name": "mixamorigHips-fit-2",
+        "parentName": "mixamorigHips",
+        "radius": 0.09877873898664419,
+        "length": 0.03734167186847438,
+        "start": [
+          0.027348328398270248,
+          1.0272117954005424,
+          -0.025124741520184544
+        ],
+        "end": [
+          0.0613489462446021,
+          1.0117813672592635,
+          -0.024614514730082075
+        ]
+      },
+      {
+        "id": 2,
+        "name": "mixamorigHips-fit-3",
+        "parentName": "mixamorigHips",
+        "radius": 0.08370258742687478,
+        "length": 0.03490634544226953,
+        "start": [
+          0.056914083047254455,
+          1.0137940317994303,
+          -0.024681066050530224
+        ],
+        "end": [
+          0.08869726929491249,
+          0.9993699359282348,
+          -0.02420411492065183
+        ]
+      },
+      {
+        "id": 3,
+        "name": "mixamorigLeftUpLeg",
+        "parentName": "mixamorigLeftUpLeg",
+        "radius": 0.07907253020513291,
+        "length": 0.4405045639112176,
+        "start": [
+          0.08869726929491249,
+          0.9993699359282348,
+          -0.02420411492065183
+        ],
+        "end": [
+          0.07531068390890966,
+          0.5590873663181894,
+          -0.028245037574067447
+        ]
+      },
+      {
+        "id": 4,
+        "name": "mixamorigLeftLeg-fit-1",
+        "parentName": "mixamorigLeftLeg",
+        "radius": 0.054282736489086894,
+        "length": 0.23289157108142272,
+        "start": [
+          0.07531068390890966,
+          0.5590873663181894,
+          -0.028245037574067447
+        ],
+        "end": [
+          0.08208544616160589,
+          0.32661516949217584,
+          -0.0404624096351942
+        ]
+      },
+      {
+        "id": 5,
+        "name": "mixamorigLeftLeg-fit-2",
+        "parentName": "mixamorigLeftLeg",
+        "radius": 0.04332340107358641,
+        "length": 0.23289157108142272,
+        "start": [
+          0.08192477986312297,
+          0.3321283441204608,
+          -0.04017266958631373
+        ],
+        "end": [
+          0.0886995421158192,
+          0.09965614729444716,
+          -0.05239004164744048
+        ]
+      },
+      {
+        "id": 6,
+        "name": "mixamorigLeftFoot",
+        "parentName": "mixamorigLeftFoot",
+        "radius": 0.04765419189083206,
+        "length": 0.1503269934233065,
+        "start": [
+          0.0886995421158192,
+          0.09965614729444716,
+          -0.05239004164744048
+        ],
+        "end": [
+          0.06867635726124081,
+          0.010145033683412893,
+          0.06671091368072946
+        ]
+      },
+      {
+        "id": 7,
+        "name": "mixamorigSpine-fit-1",
+        "parentName": "mixamorigSpine",
+        "radius": 0.08718504676772315,
+        "length": 0.03037741840811294,
+        "start": [
+          0.0000024196940082947596,
+          1.1122863007222268,
+          -0.025816237902036583
+        ],
+        "end": [
+          0.0000024196939783968107,
+          1.1426634918021217,
+          -0.02593375912187835
+        ]
+      },
+      {
+        "id": 8,
+        "name": "mixamorigSpine-fit-2",
+        "parentName": "mixamorigSpine",
+        "radius": 0.0841735406392359,
+        "length": 0.03249677318077207,
+        "start": [
+          0.0000024196939825686177,
+          1.1384248139770201,
+          -0.025917360812132986
+        ],
+        "end": [
+          0.000002419693950584765,
+          1.170921343969466,
+          -0.026043081186847436
+        ]
+      },
+      {
+        "id": 9,
+        "name": "mixamorigSpine-fit-3",
+        "parentName": "mixamorigSpine",
+        "radius": 0.0885546686655451,
+        "length": 0.03037741840811294,
+        "start": [
+          0.000002419693954756572,
+          1.1666826661443643,
+          -0.026026682877102074
+        ],
+        "end": [
+          0.000002419693924858623,
+          1.1970598572242592,
+          -0.02614420409694384
+        ]
+      },
+      {
+        "id": 10,
+        "name": "mixamorigSpine1-fit-1",
+        "parentName": "mixamorigSpine1",
+        "radius": 0.09441879106647727,
+        "length": 0.034717058556881786,
+        "start": [
+          0.000002419693924858623,
+          1.1970598572242592,
+          -0.02614420409694384
+        ],
+        "end": [
+          0.0000024196939380404184,
+          1.2317766559745014,
+          -0.02627851484537719
+        ]
+      },
+      {
+        "id": 11,
+        "name": "mixamorigSpine1-fit-2",
+        "parentName": "mixamorigSpine1",
+        "radius": 0.10775807781252267,
+        "length": 0.03713917892131565,
+        "start": [
+          0.0000024196939362010982,
+          1.2269324514977233,
+          -0.02625977381071207
+        ],
+        "end": [
+          0.000002419693950302554,
+          1.2640713524863547,
+          -0.026403455076477983
+        ]
+      },
+      {
+        "id": 12,
+        "name": "mixamorigSpine1-fit-3",
+        "parentName": "mixamorigSpine1",
+        "radius": 0.1162114279965342,
+        "length": 0.034717058556881786,
+        "start": [
+          0.000002419693948463234,
+          1.2592271480095767,
+          -0.026384714041812862
+        ],
+        "end": [
+          0.000002419693961645029,
+          1.2939439467598188,
+          -0.026519024790246214
+        ]
+      },
+      {
+        "id": 13,
+        "name": "mixamorigSpine2-fit-1",
+        "parentName": "mixamorigSpine2",
+        "radius": 0.1166475778677869,
+        "length": 0.03905668513821555,
+        "start": [
+          0.000002419693961645029,
+          1.2939439467598188,
+          -0.026519024790246214
+        ],
+        "end": [
+          0.0000024196939764743627,
+          1.333000339615916,
+          -0.026670124280344567
+        ]
+      },
+      {
+        "id": 14,
+        "name": "mixamorigSpine2-fit-2",
+        "parentName": "mixamorigSpine2",
+        "radius": 0.1040268893556003,
+        "length": 0.04178157014785872,
+        "start": [
+          0.000002419693974405153,
+          1.3275506103801815,
+          -0.026649040630563402
+        ],
+        "end": [
+          0.0000024196939902690917,
+          1.3693318678541462,
+          -0.026810681945552337
+        ]
+      },
+      {
+        "id": 15,
+        "name": "mixamorigSpine2-fit-3",
+        "parentName": "mixamorigSpine2",
+        "radius": 0.0727178146069082,
+        "length": 0.03905668513821555,
+        "start": [
+          0.000002419693988199882,
+          1.3638821386184117,
+          -0.026789598295771173
+        ],
+        "end": [
+          0.0000024196940030292157,
+          1.4029385314745089,
+          -0.026940697785869525
+        ]
+      },
+      {
+        "id": 16,
+        "name": "mixamorigNeck",
+        "parentName": "mixamorigNeck",
+        "radius": 0.07485848668079229,
+        "length": 0.06406586585006636,
+        "start": [
+          0.0000024196940030292157,
+          1.4029385314745089,
+          -0.026940697785869525
+        ],
+        "end": [
+          0.0000024196939850600305,
+          1.4669375538838583,
+          -0.024014899131434796
+        ]
+      },
+      {
+        "id": 17,
+        "name": "mixamorigHead",
+        "parentName": "mixamorigHead",
+        "radius": 0.09078433044614116,
+        "length": 0.25669410455488995,
+        "start": [
+          0.0000024196939850600305,
+          1.4669375538838583,
+          -0.024014899131434796
+        ],
+        "end": [
+          0.0000024196939130635132,
+          1.723363835350035,
+          -0.012292037421683971
+        ]
+      },
+      {
+        "id": 18,
+        "name": "mixamorigLeftShoulder",
+        "parentName": "mixamorigLeftShoulder",
+        "radius": 0.06083909458929923,
+        "length": 0.09250101329834719,
+        "start": [
+          0.04551798502426823,
+          1.391491709309163,
+          -0.02689037590149002
+        ],
+        "end": [
+          0.13560987514116743,
+          1.3705184246051052,
+          -0.02678975230534815
+        ]
+      },
+      {
+        "id": 19,
+        "name": "mixamorigLeftArm-fit-1",
+        "parentName": "mixamorigLeftArm",
+        "radius": 0.04709618239462378,
+        "length": 0.11708855968937888,
+        "start": [
+          0.13560987514116743,
+          1.3705184246051052,
+          -0.02678975230534815
+        ],
+        "end": [
+          0.2526984340330951,
+          1.3705320897230957,
+          -0.026789849125808892
+        ]
+      },
+      {
+        "id": 20,
+        "name": "mixamorigLeftArm-fit-2",
+        "parentName": "mixamorigLeftArm",
+        "radius": 0.039416315316568515,
+        "length": 0.11708855968937885,
+        "start": [
+          0.2499216302649071,
+          1.3705317656491514,
+          -0.026789846829671483
+        ],
+        "end": [
+          0.36701018915683475,
+          1.3705454307671419,
+          -0.026789943650132226
+        ]
+      },
+      {
+        "id": 21,
+        "name": "mixamorigLeftForeArm-fit-1",
+        "parentName": "mixamorigLeftForeArm",
+        "radius": 0.03939249638283589,
+        "length": 0.09641128784130042,
+        "start": [
+          0.36701018915683475,
+          1.3705454307671419,
+          -0.026789943650132226
+        ],
+        "end": [
+          0.4634214763502753,
+          1.370556607281777,
+          -0.026790030409068993
+        ]
+      },
+      {
+        "id": 22,
+        "name": "mixamorigLeftForeArm-fit-2",
+        "parentName": "mixamorigLeftForeArm",
+        "radius": 0.034,
+        "length": 0.09641128784130036,
+        "start": [
+          0.4611350426618933,
+          1.370556342226094,
+          -0.0267900283515448
+        ],
+        "end": [
+          0.5575463298553338,
+          1.3705675187407291,
+          -0.026790115110481568
+        ]
+      },
+      {
+        "id": 23,
+        "name": "mixamorigLeftHand",
+        "parentName": "mixamorigLeftHand",
+        "radius": 0.030330836032507674,
+        "length": 0.027903444968780146,
+        "start": [
+          0.5575463298553338,
+          1.3705675187407291,
+          -0.026790115110481568
+        ],
+        "end": [
+          0.5787068289888563,
+          1.3627170675006555,
+          -0.010382618870251534
+        ]
+      },
+      {
+        "id": 24,
+        "name": "mixamorigRightShoulder",
+        "parentName": "mixamorigRightShoulder",
+        "radius": 0.0614984059138948,
+        "length": 0.09250101207274657,
+        "start": [
+          -0.045513145636268876,
+          1.3914917093092187,
+          -0.026991024046634452
+        ],
+        "end": [
+          -0.13560306248962628,
+          1.370509955732473,
+          -0.027091685271884616
+        ]
+      },
+      {
+        "id": 25,
+        "name": "mixamorigRightArm-fit-1",
+        "parentName": "mixamorigRightArm",
+        "radius": 0.047712553401069654,
+        "length": 0.11710046119583487,
+        "start": [
+          -0.13560306248962628,
+          1.370509955732473,
+          -0.027091685271884616
+        ],
+        "end": [
+          -0.25270352363627974,
+          1.370513349279085,
+          -0.027091638651677998
+        ]
+      },
+      {
+        "id": 26,
+        "name": "mixamorigRightArm-fit-2",
+        "parentName": "mixamorigRightArm",
+        "radius": 0.0395889092573717,
+        "length": 0.11710046119583487,
+        "start": [
+          -0.24992643760118127,
+          1.3705132687997186,
+          -0.027091639757295546
+        ],
+        "end": [
+          -0.36702689874783473,
+          1.3705166623463307,
+          -0.027091593137088928
+        ]
+      },
+      {
+        "id": 27,
+        "name": "mixamorigRightForeArm-fit-1",
+        "parentName": "mixamorigRightForeArm",
+        "radius": 0.039367613780816824,
+        "length": 0.09640890813778738,
+        "start": [
+          -0.36702689874783473,
+          1.3705166623463307,
+          -0.027091593137088928
+        ],
+        "end": [
+          -0.4634358068433778,
+          1.3705195162496275,
+          -0.027091566878148853
+        ]
+      },
+      {
+        "id": 28,
+        "name": "mixamorigRightForeArm-fit-2",
+        "parentName": "mixamorigRightForeArm",
+        "radius": 0.034,
+        "length": 0.09640890813778738,
+        "start": [
+          -0.46114942957628985,
+          1.3705194485681262,
+          -0.027091567500890517
+        ],
+        "end": [
+          -0.5575583376718329,
+          1.370522302471423,
+          -0.027091541241950443
+        ]
+      },
+      {
+        "id": 29,
+        "name": "mixamorigRightHand",
+        "parentName": "mixamorigRightHand",
+        "radius": 0.03003005225048862,
+        "length": 0.03223360622761195,
+        "start": [
+          -0.5575583376718329,
+          1.370522302471423,
+          -0.027091541241950443
+        ],
+        "end": [
+          -0.5835447299264016,
+          1.3625061767159852,
+          -0.009786787100344065
+        ]
+      },
+      {
+        "id": 30,
+        "name": "mixamorigRightUpLeg",
+        "parentName": "mixamorigRightUpLeg",
+        "radius": 0.07986885778825968,
+        "length": 0.44055589464233524,
+        "start": [
+          -0.08869993245950294,
+          0.9993758312917592,
+          -0.025637030511650907
+        ],
+        "end": [
+          -0.07531373919853318,
+          0.559025790593422,
+          -0.027102564906008587
+        ]
+      },
+      {
+        "id": 31,
+        "name": "mixamorigRightLeg-fit-1",
+        "parentName": "mixamorigRightLeg",
+        "radius": 0.055192922286666904,
+        "length": 0.23289162896326565,
+        "start": [
+          -0.07531373919853318,
+          0.559025790593422,
+          -0.027102564906008587
+        ],
+        "end": [
+          -0.08208867808211799,
+          0.32658469433464415,
+          -0.03989896339561032
+        ]
+      },
+      {
+        "id": 32,
+        "name": "mixamorigRightLeg-fit-2",
+        "parentName": "mixamorigRightLeg",
+        "radius": 0.043755651167443024,
+        "length": 0.23289162896326565,
+        "start": [
+          -0.08192800759476025,
+          0.33209713140006974,
+          -0.03959549149467115
+        ],
+        "end": [
+          -0.08870294647834506,
+          0.09965603514129195,
+          -0.05239188998427288
+        ]
+      },
+      {
+        "id": 33,
+        "name": "mixamorigRightFoot",
+        "parentName": "mixamorigRightFoot",
+        "radius": 0.050318508481497534,
+        "length": 0.1480265537051766,
+        "start": [
+          -0.08870294647834506,
+          0.09965603514129195,
+          -0.05239188998427288
+        ],
+        "end": [
+          -0.06867975372997802,
+          0.010144671399094196,
+          0.06379179266955436
+        ]
+      },
+      {
+        "id": 34,
+        "name": "soft-chest-left-jiggle",
+        "parentName": "chest",
+        "radius": 0.072,
+        "length": 0.03600000000000003,
+        "start": [
+          0.0519084081140428,
+          1.262663513536994,
+          0.05850468293834501
+        ],
+        "end": [
+          0.0519084081140428,
+          1.298663513536994,
+          0.05850468293834501
+        ]
+      },
+      {
+        "id": 35,
+        "name": "soft-chest-left-lower",
+        "parentName": "chest",
+        "radius": 0.05499999999999999,
+        "length": 0.02,
+        "start": [
+          0.041888512622392085,
+          1.245663513536994,
+          0.07649361548967773
+        ],
+        "end": [
+          0.06188850039788718,
+          1.245663513536994,
+          0.07651572838290346
+        ]
+      },
+      {
+        "id": 36,
+        "name": "soft-chest-left-outer",
+        "parentName": "chest",
+        "radius": 0.044,
+        "length": 0.03200000000000003,
+        "start": [
+          0.0739083946670874,
+          1.252663513536994,
+          0.058529007120893324
+        ],
+        "end": [
+          0.0739083946670874,
+          1.284663513536994,
+          0.058529007120893324
+        ]
+      },
+      {
+        "id": 37,
+        "name": "soft-chest-left-tip",
+        "parentName": "chest",
+        "radius": 0.036000000000000004,
+        "length": 0.016000000000000007,
+        "start": [
+          0.04387524366400615,
+          1.270663513536994,
+          0.08849581944429735
+        ],
+        "end": [
+          0.05987523388440223,
+          1.270663513536994,
+          0.08851350975887795
+        ]
+      },
+      {
+        "id": 38,
+        "name": "soft-chest-right-jiggle",
+        "parentName": "chest",
+        "radius": 0.072,
+        "length": 0.03600000000000003,
+        "start": [
+          -0.05209152831853168,
+          1.262663513536994,
+          0.05838969589357116
+        ],
+        "end": [
+          -0.05209152831853168,
+          1.298663513536994,
+          0.05838969589357116
+        ]
+      },
+      {
+        "id": 39,
+        "name": "soft-chest-right-lower",
+        "parentName": "chest",
+        "radius": 0.05499999999999999,
+        "length": 0.02,
+        "start": [
+          -0.0421114360346873,
+          1.245663513536994,
+          0.0764007413381296
+        ],
+        "end": [
+          -0.06211142381018239,
+          1.245663513536994,
+          0.07637862844490387
+        ]
+      },
+      {
+        "id": 40,
+        "name": "soft-chest-right-outer",
+        "parentName": "chest",
+        "radius": 0.044,
+        "length": 0.03200000000000003,
+        "start": [
+          -0.07409151487157628,
+          1.252663513536994,
+          0.058365371711022844
+        ],
+        "end": [
+          -0.07409151487157628,
+          1.284663513536994,
+          0.058365371711022844
+        ]
+      },
+      {
+        "id": 41,
+        "name": "soft-chest-right-tip",
+        "parentName": "chest",
+        "radius": 0.036000000000000004,
+        "length": 0.016000000000000007,
+        "start": [
+          -0.044124702548172245,
+          1.270663513536994,
+          0.0883985227141041
+        ],
+        "end": [
+          -0.06012469276856833,
+          1.270663513536994,
+          0.0883808323995235
+        ]
+      },
+      {
+        "id": 42,
+        "name": "soft-butt-left",
+        "parentName": "hips",
+        "radius": 0.045,
+        "length": 0.03600000000000003,
+        "start": [
+          0.04507737296911391,
+          1.021623226731571,
+          -0.09548534453408972
+        ],
+        "end": [
+          0.04507737296911391,
+          1.057623226731571,
+          -0.09548534453408972
+        ]
+      },
+      {
+        "id": 43,
+        "name": "soft-butt-leg-left",
+        "parentName": "hips",
+        "radius": 0.045,
+        "length": 0.09000000000000008,
+        "start": [
+          0.04509395763903322,
+          0.909623226731571,
+          -0.11048533536571103
+        ],
+        "end": [
+          0.04509395763903322,
+          0.9996232267315711,
+          -0.11048533536571103
+        ]
+      },
+      {
+        "id": 44,
+        "name": "soft-butt-right",
+        "parentName": "hips",
+        "radius": 0.045,
+        "length": 0.03600000000000003,
+        "start": [
+          -0.04492257202061401,
+          1.021623226731571,
+          -0.09558485255360555
+        ],
+        "end": [
+          -0.04492257202061401,
+          1.057623226731571,
+          -0.09558485255360555
+        ]
+      },
+      {
+        "id": 45,
+        "name": "soft-butt-leg-right",
+        "parentName": "hips",
+        "radius": 0.045,
+        "length": 0.09000000000000008,
+        "start": [
+          -0.044905987350694704,
+          0.909623226731571,
+          -0.11058484338522687
+        ],
+        "end": [
+          -0.044905987350694704,
+          0.9996232267315711,
+          -0.11058484338522687
+        ]
+      },
+      {
+        "id": 46,
+        "name": "soft-thigh-left-outer",
+        "parentName": "thigh-rail",
+        "radius": 0.04,
+        "length": 0.34359355985074974,
+        "start": [
+          0.12262632107114868,
+          0.9641473303594311,
+          -0.024488691169780034
+        ],
+        "end": [
+          0.11218478447006647,
+          0.6207269260635958,
+          -0.027640610839444215
+        ]
+      },
+      {
+        "id": 47,
+        "name": "soft-thigh-left-back",
+        "parentName": "thigh-rail",
+        "radius": 0.04,
+        "length": 0.34359355985074974,
+        "start": [
+          0.0876573005145483,
+          0.9641473303594311,
+          -0.052527371618618215
+        ],
+        "end": [
+          0.07721576391346609,
+          0.6207269260635958,
+          -0.05567929128828239
+        ]
+      },
+      {
+        "id": 48,
+        "name": "soft-thigh-left-front",
+        "parentName": "thigh-rail",
+        "radius": 0.03496,
+        "length": 0.34359355985074974,
+        "start": [
+          0.08760312392614523,
+          0.9641473303594311,
+          -0.00352740156865523
+        ],
+        "end": [
+          0.07716158732506302,
+          0.6207269260635958,
+          -0.006679321238319411
+        ]
+      },
+      {
+        "id": 49,
+        "name": "soft-calf-left-back",
+        "parentName": "calf-rail",
+        "radius": 0.044,
+        "length": 0.33138721576803226,
+        "start": [
+          0.07668273906943923,
+          0.5131442444158152,
+          -0.060659519644647386
+        ],
+        "end": [
+          0.0863227169784141,
+          0.18235376671872078,
+          -0.07804392257747597
+        ]
+      },
+      {
+        "id": 50,
+        "name": "soft-calf-left-outer",
+        "parentName": "calf-rail",
+        "radius": 0.03952,
+        "length": 0.33138721576803226,
+        "start": [
+          0.10664955139284325,
+          0.5131442444158152,
+          -0.030626368641566138
+        ],
+        "end": [
+          0.11628952930181811,
+          0.18235376671872078,
+          -0.04801077157439473
+        ]
+      },
+      {
+        "id": 51,
+        "name": "soft-calf-left-front",
+        "parentName": "calf-rail",
+        "radius": 0.03696000000000001,
+        "length": 0.33138721576803226,
+        "start": [
+          0.07662900473890068,
+          0.5131442444158152,
+          -0.012059549350194314
+        ],
+        "end": [
+          0.08626898264787554,
+          0.18235376671872078,
+          -0.0294439522830229
+        ]
+      },
+      {
+        "id": 52,
+        "name": "soft-foot-left-length",
+        "parentName": "foot-rail",
+        "radius": 0.047,
+        "length": 0.15000000000000002,
+        "start": [
+          0.08874376790227068,
+          0.09965614729444716,
+          -0.09239001719843067
+        ],
+        "end": [
+          0.08857792120307763,
+          0.09965614729444716,
+          0.05760989111778254
+        ]
+      },
+      {
+        "id": 53,
+        "name": "soft-foot-left-width",
+        "parentName": "foot-rail",
+        "radius": 0.041999999999999996,
+        "length": 0.076,
+        "start": [
+          0.05067745244915278,
+          0.09965614729444716,
+          -0.03243206836907429
+        ],
+        "end": [
+          0.12667740599603414,
+          0.09965614729444716,
+          -0.03234803937481648
+        ]
+      },
+      {
+        "id": 54,
+        "name": "soft-thigh-right-outer",
+        "parentName": "thigh-rail",
+        "radius": 0.04,
+        "length": 0.3436335978210215,
+        "start": [
+          -0.1226290156057418,
+          0.9641478280358923,
+          -0.025792970826344568
+        ],
+        "end": [
+          -0.11218778486218536,
+          0.6206747962911892,
+          -0.026936087653943556
+        ]
+      },
+      {
+        "id": 55,
+        "name": "soft-thigh-right-back",
+        "parentName": "thigh-rail",
+        "radius": 0.04,
+        "length": 0.3436335978210215,
+        "start": [
+          -0.08759807894810934,
+          0.9641478280358923,
+          -0.053754256148892655
+        ],
+        "end": [
+          -0.07715684820455292,
+          0.6206747962911892,
+          -0.054897372976491644
+        ]
+      },
+      {
+        "id": 56,
+        "name": "soft-thigh-right-front",
+        "parentName": "thigh-rail",
+        "radius": 0.03496,
+        "length": 0.3436335978210215,
+        "start": [
+          -0.0876522555365124,
+          0.9641478280358923,
+          -0.004754286098929673
+        ],
+        "end": [
+          -0.07721102479295598,
+          0.6206747962911892,
+          -0.005897402926528662
+        ]
+      },
+      {
+        "id": 57,
+        "name": "soft-calf-right-back",
+        "parentName": "calf-rail",
+        "radius": 0.044,
+        "length": 0.33138729812954787,
+        "start": [
+          -0.07661949058667575,
+          0.5130888150482089,
+          -0.05963147907707765
+        ],
+        "end": [
+          -0.0862597198281403,
+          0.18234259112267537,
+          -0.07783979313342794
+        ]
+      },
+      {
+        "id": 58,
+        "name": "soft-calf-right-outer",
+        "parentName": "calf-rail",
+        "radius": 0.03952,
+        "length": 0.33138729812954787,
+        "start": [
+          -0.106652641589757,
+          0.5130888150482089,
+          -0.029664666753673626
+        ],
+        "end": [
+          -0.11629287083122156,
+          0.18234259112267537,
+          -0.04787298081002391
+        ]
+      },
+      {
+        "id": 59,
+        "name": "soft-calf-right-front",
+        "parentName": "calf-rail",
+        "radius": 0.03696000000000001,
+        "length": 0.33138729812954787,
+        "start": [
+          -0.0766732249172143,
+          0.5130888150482089,
+          -0.011031508782624579
+        ],
+        "end": [
+          -0.08631345415867886,
+          0.18234259112267537,
+          -0.029239822838974867
+        ]
+      },
+      {
+        "id": 60,
+        "name": "soft-foot-right-length",
+        "parentName": "foot-rail",
+        "radius": 0.047,
+        "length": 0.15000000000000002,
+        "start": [
+          -0.08865872069189358,
+          0.09965603514129195,
+          -0.09239186553526307
+        ],
+        "end": [
+          -0.08882456739108663,
+          0.09965603514129195,
+          0.057608042780950136
+        ]
+      },
+      {
+        "id": 61,
+        "name": "soft-foot-right-width",
+        "parentName": "foot-rail",
+        "radius": 0.041999999999999996,
+        "length": 0.07599999999999998,
+        "start": [
+          -0.05072508259813012,
+          0.09965603514129195,
+          -0.03234988771164888
+        ],
+        "end": [
+          -0.12672503614501146,
+          0.09965603514129195,
+          -0.032433916705906694
+        ]
+      },
+      {
+        "id": 62,
+        "name": "soft-hand-left-palm",
+        "parentName": "hand-rail",
+        "radius": 0.038,
+        "length": 0.08740402265439405,
+        "start": [
+          0.5640690180701664,
+          1.3705682672582482,
+          -0.026790126320546923
+        ],
+        "end": [
+          0.6514730401489224,
+          1.370578297393005,
+          -0.026790276535422704
+        ]
+      },
+      {
+        "id": 63,
+        "name": "soft-hand-left-width",
+        "parentName": "hand-rail",
+        "radius": 0.032,
+        "length": 0.052,
+        "start": [
+          0.6045384317633216,
+          1.3705729080668672,
+          -0.052790179931095756
+        ],
+        "end": [
+          0.6044809382409346,
+          1.3705729080668672,
+          -0.0007902117148085169
+        ]
+      },
+      {
+        "id": 64,
+        "name": "soft-hand-left-thumb",
+        "parentName": "hand-rail",
+        "radius": 0.03,
+        "length": 0.07053805731662394,
+        "start": [
+          0.5654335513887245,
+          1.3665387239830864,
+          -0.021733898289204294
+        ],
+        "end": [
+          0.619986833661344,
+          1.3386728935760583,
+          0.01323826805796353
+        ]
+      },
+      {
+        "id": 65,
+        "name": "soft-hand-right-palm",
+        "parentName": "hand-rail",
+        "radius": 0.038,
+        "length": 0.0869099048689305,
+        "start": [
+          -0.5640441514656503,
+          1.3705224778567895,
+          -0.027091542166510083
+        ],
+        "end": [
+          -0.6509540563028041,
+          1.3705248280207005,
+          -0.027091554555609257
+        ]
+      },
+      {
+        "id": 66,
+        "name": "soft-hand-right-width",
+        "parentName": "hand-rail",
+        "radius": 0.032,
+        "length": 0.052000000000000005,
+        "start": [
+          -0.6042274502261251,
+          1.370523565246062,
+          -0.05309153200692347
+        ],
+        "end": [
+          -0.604284943748512,
+          1.370523565246062,
+          -0.0010915637906362304
+        ]
+      },
+      {
+        "id": 67,
+        "name": "soft-hand-right-thumb",
+        "parentName": "hand-rail",
+        "radius": 0.03,
+        "length": 0.07987515017010992,
+        "start": [
+          -0.5666743645681342,
+          1.366097846416681,
+          -0.02155227233913755
+        ],
+        "end": [
+          -0.6297268839342184,
+          1.3354953587047151,
+          0.016761004238651636
+        ]
+      }
+    ]
+  },
+  "finalState": {
+    "capturedAt": "2026-06-01T22:22:40.893Z",
+    "appMode": "character",
+    "characterStats": {
+      "loaded": true,
+      "assetUrl": "/assets/characters/meshy/blue-haired-anime-girl.fbx",
+      "tposeAnimationUrl": "/assets/characters/mixamo/tpose.fbx",
+      "idleAnimationUrl": "/assets/characters/mixamo/idle.fbx",
+      "animationUrl": "/assets/characters/mixamo/dancing-twerk.fbx",
+      "meshCount": 1,
+      "skinnedMeshCount": 1,
+      "boneCount": 41,
+      "animationClipCount": 3,
+      "retargetedTrackCount": 34,
+      "activeClipName": "T-Pose",
+      "mixerTime": 7.957900000005959,
+      "frameCount": 874,
+      "sdfCapsuleCount": 68,
+      "renderProxyCount": 69,
+      "xrayVisible": false,
+      "boundsHeight": 1.75,
+      "boundsWidth": 1.3748083135709477,
+      "boneNames": [
+        "mixamorigHips",
+        "mixamorigLeftUpLeg",
+        "mixamorigLeftLeg",
+        "mixamorigLeftFoot",
+        "mixamorigLeftToeBase",
+        "mixamorigLeftToe_End",
+        "mixamorigSpine",
+        "mixamorigSpine1",
+        "mixamorigSpine2",
+        "mixamorigNeck",
+        "mixamorigHead",
+        "mixamorigHeadTop_End",
+        "mixamorigLeftShoulder",
+        "mixamorigLeftArm",
+        "mixamorigLeftForeArm",
+        "mixamorigLeftHand",
+        "mixamorigLeftHandThumb1",
+        "mixamorigLeftHandThumb2",
+        "mixamorigLeftHandThumb3",
+        "mixamorigLeftHandThumb4",
+        "mixamorigLeftHandIndex1",
+        "mixamorigLeftHandIndex2",
+        "mixamorigLeftHandIndex3",
+        "mixamorigLeftHandIndex4",
+        "mixamorigRightShoulder",
+        "mixamorigRightArm",
+        "mixamorigRightForeArm",
+        "mixamorigRightHand",
+        "mixamorigRightHandThumb1",
+        "mixamorigRightHandThumb2",
+        "mixamorigRightHandThumb3",
+        "mixamorigRightHandThumb4",
+        "mixamorigRightHandIndex1",
+        "mixamorigRightHandIndex2",
+        "mixamorigRightHandIndex3",
+        "mixamorigRightHandIndex4",
+        "mixamorigRightUpLeg",
+        "mixamorigRightLeg",
+        "mixamorigRightFoot",
+        "mixamorigRightToeBase",
+        "mixamorigRightToe_End"
+      ]
+    },
+    "clothStats": {
+      "status": "running",
+      "backend": "WebGPUBackend",
+      "particleCount": 4346,
+      "frameCount": 874,
+      "checksum": 36.380905306199566,
+      "spanX": 0.8863485455513,
+      "spanY": 0.7070925235748291,
+      "spanZ": 0.43462221324443817,
+      "centerX": -0.004404954747920901,
+      "centerY": 1.1676021756881183,
+      "centerZ": -0.02063386451816909,
+      "minY": 0.7587733268737793,
+      "maxY": 1.4658658504486084,
+      "maxStretch": 4.832382228981354,
+      "hasNaN": false,
+      "isHealthy": false
+    },
+    "clothSettings": {
+      "segmentsX": 4561,
+      "segmentsY": 0,
+      "constraintIterations": 7,
+      "bendStiffness": 0.01,
+      "minCompression": 0.92,
+      "clothThickness": 0.003,
+      "renderSubdivisions": 3,
+      "renderGeometrySmoothing": 1.5,
+      "flatShading": false,
+      "selfCollision": false,
+      "poleCollision": false,
+      "windStrength": 0,
+      "windTurbulence": 0,
+      "windDirectionX": -0.5,
+      "windDirectionY": 0.51,
+      "windDirectionZ": 0.85,
+      "zoneAStrength": 0,
+      "zoneARadius": 1.1,
+      "zoneASpeed": 0.65,
+      "zoneADirX": 1,
+      "zoneADirY": 0.05,
+      "zoneADirZ": 0.25,
+      "zoneBStrength": 0,
+      "zoneBRadius": 0.9,
+      "zoneBSpeed": 0.35,
+      "zoneBDirX": -0.8,
+      "zoneBDirY": 0.08,
+      "zoneBDirZ": 0.35,
+      "dampening": 0.9925,
+      "grabRadius": 0.11,
+      "gravity": 0.000025,
+      "shapePressure": 0,
+      "mannequinCollision": false,
+      "showMannequin": false,
+      "mannequinMargin": 0.018,
+      "mannequinFriction": 0.85,
+      "mannequinTorsoRadiusX": 0.255,
+      "mannequinTorsoRadiusY": 0.42,
+      "mannequinTorsoRadiusZ": 0.11,
+      "mannequinTorsoCenterY": 0.43,
+      "mannequinArmRadius": 0.078,
+      "mannequinArmHalfLength": 0.62,
+      "mannequinArmCenterY": 0.65,
+      "mannequinNeckRadius": 0.075,
+      "mannequinNeckCenterY": 0.93,
+      "mannequinNeckBaseRadius": 0.11,
+      "mannequinNeckBaseCenterY": 0.82,
+      "flagColor": "#ff4fa3",
+      "roughness": 0.78,
+      "sheen": 0.42,
+      "sheenRoughness": 0.55,
+      "emissiveIntensity": 0,
+      "fabricNormalStrength": 0,
+      "fabricNormalScale": 0.45,
+      "fabricTiling": 6,
+      "fabricTextureSource": "procedural",
+      "fabricColorTint": 1,
+      "exposure": 1.45,
+      "ambientIntensity": 0.75,
+      "hemiIntensity": 1.1,
+      "keyLightIntensity": 2,
+      "fillLightIntensity": 1.35,
+      "backLightIntensity": 1.25,
+      "rimLightIntensity": 0.95,
+      "showSimGridDebug": false,
+      "tearStretchThreshold": 999,
+      "tearFringeWidth": 0.075,
+      "tearMeshing": "sdf",
+      "tearSdfCornerRadius": 0.35,
+      "showBridgeSplinters": false,
+      "renderStrandThreads": false,
+      "strandThreadRadius": 0.008,
+      "bbSpeed": 30,
+      "bbVisualRadius": 0.022,
+      "bbHitRadius": 0.07,
+      "bbForceStrength": 1.2,
+      "bbRestitution": 0.38,
+      "bbFriction": 0.45,
+      "bbFabricSoftness": 0.58
+    },
+    "camera": {
+      "position": [
+        0,
+        0.9499999999999998,
+        2.6
+      ],
+      "quaternion": [
+        -0.009614051439254541,
+        0,
+        0,
+        0.9999537839394994
+      ],
+      "fov": 42,
+      "near": 0.01,
+      "far": 30
+    },
+    "controls": {
+      "target": [
+        0,
+        0.9,
+        0
+      ],
+      "enabled": true
+    },
+    "interaction": {
+      "grabMode": true,
+      "shootMode": false,
+      "slapMode": false,
+      "bonesVisible": false
+    },
+    "shirtAnchor": {
+      "hasRequiredAnchors": true,
+      "visible": true,
+      "bodyWidth": 0.66,
+      "torsoHeight": 0.74,
+      "sleeveLength": 0.24,
+      "sleeveOpening": 0.26,
+      "vertexCount": 4562,
+      "faceCount": 8960,
+      "stitchEdgeCount": 222,
+      "center": [
+        -0.004404954747920901,
+        1.1676021756881183,
+        -0.02063386451816909
+      ],
+      "neckGap": 0.049216237866216206,
+      "anchorNames": [
+        "hips",
+        "chest",
+        "neck",
+        "leftShoulder",
+        "rightShoulder",
+        "leftArm",
+        "rightArm"
+      ]
+    },
+    "settledSurface": {
+      "vertex": {
+        "vertexCount": 4562,
+        "sdfCount": 68,
+        "requiredClearance": 0.008,
+        "penetrationCount": 0,
+        "minSignedDistance": 0.020999914279870358,
+        "maxPenetrationDepth": 0,
+        "averageClearance": 0.06712763393902522,
+        "worstVertexIndex": -1
+      },
+      "perCapsule": {
+        "vertexCount": 4562,
+        "capsuleCount": 68,
+        "totalChecks": 310216,
+        "failureCount": 0,
+        "minSignedDistance": 0.020999914279870358,
+        "worstCapsuleName": null,
+        "worstVertexIndex": -1
+      },
+      "edge": {
+        "edgeCount": 13100,
+        "capsuleCount": 68,
+        "totalChecks": 890800,
+        "failureCount": 8,
+        "minSignedDistance": -0.02904757754931188,
+        "worstEdgeId": 276,
+        "worstCapsuleName": "mixamorigLeftArm-fit-2"
+      },
+      "triangle": {
+        "triangleCount": 8544,
+        "capsuleCount": 68,
+        "totalChecks": 580992,
+        "failureCount": 10,
+        "minSignedDistance": -0.039416315316568515,
+        "worstFaceId": 156,
+        "worstCapsuleName": "mixamorigLeftArm-fit-2"
+      },
+      "strain": {
+        "edgeCount": 13100,
+        "maxStrain": 3.8259083819384747,
+        "averageStrain": 0.030493769172370132,
+        "overLimitCount": 340,
+        "worstEdgeId": 155,
+        "worstSourceId": "tshirt-front"
+      },
+      "quality": {
+        "triangleCount": 8544,
+        "degenerateCount": 0,
+        "minArea": 7.796602859127317e-7,
+        "averageArea": 0.00015043992847457843
+      }
+    },
+    "boneSdfs": [
+      {
+        "id": 0,
+        "name": "mixamorigHips-fit-1",
+        "parentName": "mixamorigHips",
+        "radius": 0.10911053830220618,
+        "length": 0.03490634544226948,
+        "start": [
+          5.34795985577749e-9,
+          1.039623226731571,
+          -0.025535141329614788
+        ],
+        "end": [
+          0.031783191595617884,
+          1.0251991308603756,
+          -0.025058190199736395
+        ]
+      },
+      {
+        "id": 1,
+        "name": "mixamorigHips-fit-2",
+        "parentName": "mixamorigHips",
+        "radius": 0.09877873898664419,
+        "length": 0.03734167186847438,
+        "start": [
+          0.027348328398270248,
+          1.0272117954005424,
+          -0.025124741520184544
+        ],
+        "end": [
+          0.0613489462446021,
+          1.0117813672592635,
+          -0.024614514730082075
+        ]
+      },
+      {
+        "id": 2,
+        "name": "mixamorigHips-fit-3",
+        "parentName": "mixamorigHips",
+        "radius": 0.08370258742687478,
+        "length": 0.03490634544226953,
+        "start": [
+          0.056914083047254455,
+          1.0137940317994303,
+          -0.024681066050530224
+        ],
+        "end": [
+          0.08869726929491249,
+          0.9993699359282348,
+          -0.02420411492065183
+        ]
+      },
+      {
+        "id": 3,
+        "name": "mixamorigLeftUpLeg",
+        "parentName": "mixamorigLeftUpLeg",
+        "radius": 0.07907253020513291,
+        "length": 0.4405045639112176,
+        "start": [
+          0.08869726929491249,
+          0.9993699359282348,
+          -0.02420411492065183
+        ],
+        "end": [
+          0.07531068390890966,
+          0.5590873663181894,
+          -0.028245037574067447
+        ]
+      },
+      {
+        "id": 4,
+        "name": "mixamorigLeftLeg-fit-1",
+        "parentName": "mixamorigLeftLeg",
+        "radius": 0.054282736489086894,
+        "length": 0.23289157108142272,
+        "start": [
+          0.07531068390890966,
+          0.5590873663181894,
+          -0.028245037574067447
+        ],
+        "end": [
+          0.08208544616160589,
+          0.32661516949217584,
+          -0.0404624096351942
+        ]
+      },
+      {
+        "id": 5,
+        "name": "mixamorigLeftLeg-fit-2",
+        "parentName": "mixamorigLeftLeg",
+        "radius": 0.04332340107358641,
+        "length": 0.23289157108142272,
+        "start": [
+          0.08192477986312297,
+          0.3321283441204608,
+          -0.04017266958631373
+        ],
+        "end": [
+          0.0886995421158192,
+          0.09965614729444716,
+          -0.05239004164744048
+        ]
+      },
+      {
+        "id": 6,
+        "name": "mixamorigLeftFoot",
+        "parentName": "mixamorigLeftFoot",
+        "radius": 0.04765419189083206,
+        "length": 0.1503269934233065,
+        "start": [
+          0.0886995421158192,
+          0.09965614729444716,
+          -0.05239004164744048
+        ],
+        "end": [
+          0.06867635726124081,
+          0.010145033683412893,
+          0.06671091368072946
+        ]
+      },
+      {
+        "id": 7,
+        "name": "mixamorigSpine-fit-1",
+        "parentName": "mixamorigSpine",
+        "radius": 0.08718504676772315,
+        "length": 0.03037741840811294,
+        "start": [
+          0.0000024196940082947596,
+          1.1122863007222268,
+          -0.025816237902036583
+        ],
+        "end": [
+          0.0000024196939783968107,
+          1.1426634918021217,
+          -0.02593375912187835
+        ]
+      },
+      {
+        "id": 8,
+        "name": "mixamorigSpine-fit-2",
+        "parentName": "mixamorigSpine",
+        "radius": 0.0841735406392359,
+        "length": 0.03249677318077207,
+        "start": [
+          0.0000024196939825686177,
+          1.1384248139770201,
+          -0.025917360812132986
+        ],
+        "end": [
+          0.000002419693950584765,
+          1.170921343969466,
+          -0.026043081186847436
+        ]
+      },
+      {
+        "id": 9,
+        "name": "mixamorigSpine-fit-3",
+        "parentName": "mixamorigSpine",
+        "radius": 0.0885546686655451,
+        "length": 0.03037741840811294,
+        "start": [
+          0.000002419693954756572,
+          1.1666826661443643,
+          -0.026026682877102074
+        ],
+        "end": [
+          0.000002419693924858623,
+          1.1970598572242592,
+          -0.02614420409694384
+        ]
+      },
+      {
+        "id": 10,
+        "name": "mixamorigSpine1-fit-1",
+        "parentName": "mixamorigSpine1",
+        "radius": 0.09441879106647727,
+        "length": 0.034717058556881786,
+        "start": [
+          0.000002419693924858623,
+          1.1970598572242592,
+          -0.02614420409694384
+        ],
+        "end": [
+          0.0000024196939380404184,
+          1.2317766559745014,
+          -0.02627851484537719
+        ]
+      },
+      {
+        "id": 11,
+        "name": "mixamorigSpine1-fit-2",
+        "parentName": "mixamorigSpine1",
+        "radius": 0.10775807781252267,
+        "length": 0.03713917892131565,
+        "start": [
+          0.0000024196939362010982,
+          1.2269324514977233,
+          -0.02625977381071207
+        ],
+        "end": [
+          0.000002419693950302554,
+          1.2640713524863547,
+          -0.026403455076477983
+        ]
+      },
+      {
+        "id": 12,
+        "name": "mixamorigSpine1-fit-3",
+        "parentName": "mixamorigSpine1",
+        "radius": 0.1162114279965342,
+        "length": 0.034717058556881786,
+        "start": [
+          0.000002419693948463234,
+          1.2592271480095767,
+          -0.026384714041812862
+        ],
+        "end": [
+          0.000002419693961645029,
+          1.2939439467598188,
+          -0.026519024790246214
+        ]
+      },
+      {
+        "id": 13,
+        "name": "mixamorigSpine2-fit-1",
+        "parentName": "mixamorigSpine2",
+        "radius": 0.1166475778677869,
+        "length": 0.03905668513821555,
+        "start": [
+          0.000002419693961645029,
+          1.2939439467598188,
+          -0.026519024790246214
+        ],
+        "end": [
+          0.0000024196939764743627,
+          1.333000339615916,
+          -0.026670124280344567
+        ]
+      },
+      {
+        "id": 14,
+        "name": "mixamorigSpine2-fit-2",
+        "parentName": "mixamorigSpine2",
+        "radius": 0.1040268893556003,
+        "length": 0.04178157014785872,
+        "start": [
+          0.000002419693974405153,
+          1.3275506103801815,
+          -0.026649040630563402
+        ],
+        "end": [
+          0.0000024196939902690917,
+          1.3693318678541462,
+          -0.026810681945552337
+        ]
+      },
+      {
+        "id": 15,
+        "name": "mixamorigSpine2-fit-3",
+        "parentName": "mixamorigSpine2",
+        "radius": 0.0727178146069082,
+        "length": 0.03905668513821555,
+        "start": [
+          0.000002419693988199882,
+          1.3638821386184117,
+          -0.026789598295771173
+        ],
+        "end": [
+          0.0000024196940030292157,
+          1.4029385314745089,
+          -0.026940697785869525
+        ]
+      },
+      {
+        "id": 16,
+        "name": "mixamorigNeck",
+        "parentName": "mixamorigNeck",
+        "radius": 0.07485848668079229,
+        "length": 0.06406586585006636,
+        "start": [
+          0.0000024196940030292157,
+          1.4029385314745089,
+          -0.026940697785869525
+        ],
+        "end": [
+          0.0000024196939850600305,
+          1.4669375538838583,
+          -0.024014899131434796
+        ]
+      },
+      {
+        "id": 17,
+        "name": "mixamorigHead",
+        "parentName": "mixamorigHead",
+        "radius": 0.09078433044614116,
+        "length": 0.25669410455488995,
+        "start": [
+          0.0000024196939850600305,
+          1.4669375538838583,
+          -0.024014899131434796
+        ],
+        "end": [
+          0.0000024196939130635132,
+          1.723363835350035,
+          -0.012292037421683971
+        ]
+      },
+      {
+        "id": 18,
+        "name": "mixamorigLeftShoulder",
+        "parentName": "mixamorigLeftShoulder",
+        "radius": 0.06083909458929923,
+        "length": 0.09250101329834719,
+        "start": [
+          0.04551798502426823,
+          1.391491709309163,
+          -0.02689037590149002
+        ],
+        "end": [
+          0.13560987514116743,
+          1.3705184246051052,
+          -0.02678975230534815
+        ]
+      },
+      {
+        "id": 19,
+        "name": "mixamorigLeftArm-fit-1",
+        "parentName": "mixamorigLeftArm",
+        "radius": 0.04709618239462378,
+        "length": 0.11708855968937888,
+        "start": [
+          0.13560987514116743,
+          1.3705184246051052,
+          -0.02678975230534815
+        ],
+        "end": [
+          0.2526984340330951,
+          1.3705320897230957,
+          -0.026789849125808892
+        ]
+      },
+      {
+        "id": 20,
+        "name": "mixamorigLeftArm-fit-2",
+        "parentName": "mixamorigLeftArm",
+        "radius": 0.039416315316568515,
+        "length": 0.11708855968937885,
+        "start": [
+          0.2499216302649071,
+          1.3705317656491514,
+          -0.026789846829671483
+        ],
+        "end": [
+          0.36701018915683475,
+          1.3705454307671419,
+          -0.026789943650132226
+        ]
+      },
+      {
+        "id": 21,
+        "name": "mixamorigLeftForeArm-fit-1",
+        "parentName": "mixamorigLeftForeArm",
+        "radius": 0.03939249638283589,
+        "length": 0.09641128784130042,
+        "start": [
+          0.36701018915683475,
+          1.3705454307671419,
+          -0.026789943650132226
+        ],
+        "end": [
+          0.4634214763502753,
+          1.370556607281777,
+          -0.026790030409068993
+        ]
+      },
+      {
+        "id": 22,
+        "name": "mixamorigLeftForeArm-fit-2",
+        "parentName": "mixamorigLeftForeArm",
+        "radius": 0.034,
+        "length": 0.09641128784130036,
+        "start": [
+          0.4611350426618933,
+          1.370556342226094,
+          -0.0267900283515448
+        ],
+        "end": [
+          0.5575463298553338,
+          1.3705675187407291,
+          -0.026790115110481568
+        ]
+      },
+      {
+        "id": 23,
+        "name": "mixamorigLeftHand",
+        "parentName": "mixamorigLeftHand",
+        "radius": 0.030330836032507674,
+        "length": 0.027903444968780146,
+        "start": [
+          0.5575463298553338,
+          1.3705675187407291,
+          -0.026790115110481568
+        ],
+        "end": [
+          0.5787068289888563,
+          1.3627170675006555,
+          -0.010382618870251534
+        ]
+      },
+      {
+        "id": 24,
+        "name": "mixamorigRightShoulder",
+        "parentName": "mixamorigRightShoulder",
+        "radius": 0.0614984059138948,
+        "length": 0.09250101207274657,
+        "start": [
+          -0.045513145636268876,
+          1.3914917093092187,
+          -0.026991024046634452
+        ],
+        "end": [
+          -0.13560306248962628,
+          1.370509955732473,
+          -0.027091685271884616
+        ]
+      },
+      {
+        "id": 25,
+        "name": "mixamorigRightArm-fit-1",
+        "parentName": "mixamorigRightArm",
+        "radius": 0.047712553401069654,
+        "length": 0.11710046119583487,
+        "start": [
+          -0.13560306248962628,
+          1.370509955732473,
+          -0.027091685271884616
+        ],
+        "end": [
+          -0.25270352363627974,
+          1.370513349279085,
+          -0.027091638651677998
+        ]
+      },
+      {
+        "id": 26,
+        "name": "mixamorigRightArm-fit-2",
+        "parentName": "mixamorigRightArm",
+        "radius": 0.0395889092573717,
+        "length": 0.11710046119583487,
+        "start": [
+          -0.24992643760118127,
+          1.3705132687997186,
+          -0.027091639757295546
+        ],
+        "end": [
+          -0.36702689874783473,
+          1.3705166623463307,
+          -0.027091593137088928
+        ]
+      },
+      {
+        "id": 27,
+        "name": "mixamorigRightForeArm-fit-1",
+        "parentName": "mixamorigRightForeArm",
+        "radius": 0.039367613780816824,
+        "length": 0.09640890813778738,
+        "start": [
+          -0.36702689874783473,
+          1.3705166623463307,
+          -0.027091593137088928
+        ],
+        "end": [
+          -0.4634358068433778,
+          1.3705195162496275,
+          -0.027091566878148853
+        ]
+      },
+      {
+        "id": 28,
+        "name": "mixamorigRightForeArm-fit-2",
+        "parentName": "mixamorigRightForeArm",
+        "radius": 0.034,
+        "length": 0.09640890813778738,
+        "start": [
+          -0.46114942957628985,
+          1.3705194485681262,
+          -0.027091567500890517
+        ],
+        "end": [
+          -0.5575583376718329,
+          1.370522302471423,
+          -0.027091541241950443
+        ]
+      },
+      {
+        "id": 29,
+        "name": "mixamorigRightHand",
+        "parentName": "mixamorigRightHand",
+        "radius": 0.03003005225048862,
+        "length": 0.03223360622761195,
+        "start": [
+          -0.5575583376718329,
+          1.370522302471423,
+          -0.027091541241950443
+        ],
+        "end": [
+          -0.5835447299264016,
+          1.3625061767159852,
+          -0.009786787100344065
+        ]
+      },
+      {
+        "id": 30,
+        "name": "mixamorigRightUpLeg",
+        "parentName": "mixamorigRightUpLeg",
+        "radius": 0.07986885778825968,
+        "length": 0.44055589464233524,
+        "start": [
+          -0.08869993245950294,
+          0.9993758312917592,
+          -0.025637030511650907
+        ],
+        "end": [
+          -0.07531373919853318,
+          0.559025790593422,
+          -0.027102564906008587
+        ]
+      },
+      {
+        "id": 31,
+        "name": "mixamorigRightLeg-fit-1",
+        "parentName": "mixamorigRightLeg",
+        "radius": 0.055192922286666904,
+        "length": 0.23289162896326565,
+        "start": [
+          -0.07531373919853318,
+          0.559025790593422,
+          -0.027102564906008587
+        ],
+        "end": [
+          -0.08208867808211799,
+          0.32658469433464415,
+          -0.03989896339561032
+        ]
+      },
+      {
+        "id": 32,
+        "name": "mixamorigRightLeg-fit-2",
+        "parentName": "mixamorigRightLeg",
+        "radius": 0.043755651167443024,
+        "length": 0.23289162896326565,
+        "start": [
+          -0.08192800759476025,
+          0.33209713140006974,
+          -0.03959549149467115
+        ],
+        "end": [
+          -0.08870294647834506,
+          0.09965603514129195,
+          -0.05239188998427288
+        ]
+      },
+      {
+        "id": 33,
+        "name": "mixamorigRightFoot",
+        "parentName": "mixamorigRightFoot",
+        "radius": 0.050318508481497534,
+        "length": 0.1480265537051766,
+        "start": [
+          -0.08870294647834506,
+          0.09965603514129195,
+          -0.05239188998427288
+        ],
+        "end": [
+          -0.06867975372997802,
+          0.010144671399094196,
+          0.06379179266955436
+        ]
+      },
+      {
+        "id": 34,
+        "name": "soft-chest-left-jiggle",
+        "parentName": "chest",
+        "radius": 0.072,
+        "length": 0.03600000000000003,
+        "start": [
+          0.0519084081140428,
+          1.262663513536994,
+          0.05850468293834501
+        ],
+        "end": [
+          0.0519084081140428,
+          1.298663513536994,
+          0.05850468293834501
+        ]
+      },
+      {
+        "id": 35,
+        "name": "soft-chest-left-lower",
+        "parentName": "chest",
+        "radius": 0.05499999999999999,
+        "length": 0.02,
+        "start": [
+          0.041888512622392085,
+          1.245663513536994,
+          0.07649361548967773
+        ],
+        "end": [
+          0.06188850039788718,
+          1.245663513536994,
+          0.07651572838290346
+        ]
+      },
+      {
+        "id": 36,
+        "name": "soft-chest-left-outer",
+        "parentName": "chest",
+        "radius": 0.044,
+        "length": 0.03200000000000003,
+        "start": [
+          0.0739083946670874,
+          1.252663513536994,
+          0.058529007120893324
+        ],
+        "end": [
+          0.0739083946670874,
+          1.284663513536994,
+          0.058529007120893324
+        ]
+      },
+      {
+        "id": 37,
+        "name": "soft-chest-left-tip",
+        "parentName": "chest",
+        "radius": 0.036000000000000004,
+        "length": 0.016000000000000007,
+        "start": [
+          0.04387524366400615,
+          1.270663513536994,
+          0.08849581944429735
+        ],
+        "end": [
+          0.05987523388440223,
+          1.270663513536994,
+          0.08851350975887795
+        ]
+      },
+      {
+        "id": 38,
+        "name": "soft-chest-right-jiggle",
+        "parentName": "chest",
+        "radius": 0.072,
+        "length": 0.03600000000000003,
+        "start": [
+          -0.05209152831853168,
+          1.262663513536994,
+          0.05838969589357116
+        ],
+        "end": [
+          -0.05209152831853168,
+          1.298663513536994,
+          0.05838969589357116
+        ]
+      },
+      {
+        "id": 39,
+        "name": "soft-chest-right-lower",
+        "parentName": "chest",
+        "radius": 0.05499999999999999,
+        "length": 0.02,
+        "start": [
+          -0.0421114360346873,
+          1.245663513536994,
+          0.0764007413381296
+        ],
+        "end": [
+          -0.06211142381018239,
+          1.245663513536994,
+          0.07637862844490387
+        ]
+      },
+      {
+        "id": 40,
+        "name": "soft-chest-right-outer",
+        "parentName": "chest",
+        "radius": 0.044,
+        "length": 0.03200000000000003,
+        "start": [
+          -0.07409151487157628,
+          1.252663513536994,
+          0.058365371711022844
+        ],
+        "end": [
+          -0.07409151487157628,
+          1.284663513536994,
+          0.058365371711022844
+        ]
+      },
+      {
+        "id": 41,
+        "name": "soft-chest-right-tip",
+        "parentName": "chest",
+        "radius": 0.036000000000000004,
+        "length": 0.016000000000000007,
+        "start": [
+          -0.044124702548172245,
+          1.270663513536994,
+          0.0883985227141041
+        ],
+        "end": [
+          -0.06012469276856833,
+          1.270663513536994,
+          0.0883808323995235
+        ]
+      },
+      {
+        "id": 42,
+        "name": "soft-butt-left",
+        "parentName": "hips",
+        "radius": 0.045,
+        "length": 0.03600000000000003,
+        "start": [
+          0.04507737296911391,
+          1.021623226731571,
+          -0.09548534453408972
+        ],
+        "end": [
+          0.04507737296911391,
+          1.057623226731571,
+          -0.09548534453408972
+        ]
+      },
+      {
+        "id": 43,
+        "name": "soft-butt-leg-left",
+        "parentName": "hips",
+        "radius": 0.045,
+        "length": 0.09000000000000008,
+        "start": [
+          0.04509395763903322,
+          0.909623226731571,
+          -0.11048533536571103
+        ],
+        "end": [
+          0.04509395763903322,
+          0.9996232267315711,
+          -0.11048533536571103
+        ]
+      },
+      {
+        "id": 44,
+        "name": "soft-butt-right",
+        "parentName": "hips",
+        "radius": 0.045,
+        "length": 0.03600000000000003,
+        "start": [
+          -0.04492257202061401,
+          1.021623226731571,
+          -0.09558485255360555
+        ],
+        "end": [
+          -0.04492257202061401,
+          1.057623226731571,
+          -0.09558485255360555
+        ]
+      },
+      {
+        "id": 45,
+        "name": "soft-butt-leg-right",
+        "parentName": "hips",
+        "radius": 0.045,
+        "length": 0.09000000000000008,
+        "start": [
+          -0.044905987350694704,
+          0.909623226731571,
+          -0.11058484338522687
+        ],
+        "end": [
+          -0.044905987350694704,
+          0.9996232267315711,
+          -0.11058484338522687
+        ]
+      },
+      {
+        "id": 46,
+        "name": "soft-thigh-left-outer",
+        "parentName": "thigh-rail",
+        "radius": 0.04,
+        "length": 0.34359355985074974,
+        "start": [
+          0.12262632107114868,
+          0.9641473303594311,
+          -0.024488691169780034
+        ],
+        "end": [
+          0.11218478447006647,
+          0.6207269260635958,
+          -0.027640610839444215
+        ]
+      },
+      {
+        "id": 47,
+        "name": "soft-thigh-left-back",
+        "parentName": "thigh-rail",
+        "radius": 0.04,
+        "length": 0.34359355985074974,
+        "start": [
+          0.0876573005145483,
+          0.9641473303594311,
+          -0.052527371618618215
+        ],
+        "end": [
+          0.07721576391346609,
+          0.6207269260635958,
+          -0.05567929128828239
+        ]
+      },
+      {
+        "id": 48,
+        "name": "soft-thigh-left-front",
+        "parentName": "thigh-rail",
+        "radius": 0.03496,
+        "length": 0.34359355985074974,
+        "start": [
+          0.08760312392614523,
+          0.9641473303594311,
+          -0.00352740156865523
+        ],
+        "end": [
+          0.07716158732506302,
+          0.6207269260635958,
+          -0.006679321238319411
+        ]
+      },
+      {
+        "id": 49,
+        "name": "soft-calf-left-back",
+        "parentName": "calf-rail",
+        "radius": 0.044,
+        "length": 0.33138721576803226,
+        "start": [
+          0.07668273906943923,
+          0.5131442444158152,
+          -0.060659519644647386
+        ],
+        "end": [
+          0.0863227169784141,
+          0.18235376671872078,
+          -0.07804392257747597
+        ]
+      },
+      {
+        "id": 50,
+        "name": "soft-calf-left-outer",
+        "parentName": "calf-rail",
+        "radius": 0.03952,
+        "length": 0.33138721576803226,
+        "start": [
+          0.10664955139284325,
+          0.5131442444158152,
+          -0.030626368641566138
+        ],
+        "end": [
+          0.11628952930181811,
+          0.18235376671872078,
+          -0.04801077157439473
+        ]
+      },
+      {
+        "id": 51,
+        "name": "soft-calf-left-front",
+        "parentName": "calf-rail",
+        "radius": 0.03696000000000001,
+        "length": 0.33138721576803226,
+        "start": [
+          0.07662900473890068,
+          0.5131442444158152,
+          -0.012059549350194314
+        ],
+        "end": [
+          0.08626898264787554,
+          0.18235376671872078,
+          -0.0294439522830229
+        ]
+      },
+      {
+        "id": 52,
+        "name": "soft-foot-left-length",
+        "parentName": "foot-rail",
+        "radius": 0.047,
+        "length": 0.15000000000000002,
+        "start": [
+          0.08874376790227068,
+          0.09965614729444716,
+          -0.09239001719843067
+        ],
+        "end": [
+          0.08857792120307763,
+          0.09965614729444716,
+          0.05760989111778254
+        ]
+      },
+      {
+        "id": 53,
+        "name": "soft-foot-left-width",
+        "parentName": "foot-rail",
+        "radius": 0.041999999999999996,
+        "length": 0.076,
+        "start": [
+          0.05067745244915278,
+          0.09965614729444716,
+          -0.03243206836907429
+        ],
+        "end": [
+          0.12667740599603414,
+          0.09965614729444716,
+          -0.03234803937481648
+        ]
+      },
+      {
+        "id": 54,
+        "name": "soft-thigh-right-outer",
+        "parentName": "thigh-rail",
+        "radius": 0.04,
+        "length": 0.3436335978210215,
+        "start": [
+          -0.1226290156057418,
+          0.9641478280358923,
+          -0.025792970826344568
+        ],
+        "end": [
+          -0.11218778486218536,
+          0.6206747962911892,
+          -0.026936087653943556
+        ]
+      },
+      {
+        "id": 55,
+        "name": "soft-thigh-right-back",
+        "parentName": "thigh-rail",
+        "radius": 0.04,
+        "length": 0.3436335978210215,
+        "start": [
+          -0.08759807894810934,
+          0.9641478280358923,
+          -0.053754256148892655
+        ],
+        "end": [
+          -0.07715684820455292,
+          0.6206747962911892,
+          -0.054897372976491644
+        ]
+      },
+      {
+        "id": 56,
+        "name": "soft-thigh-right-front",
+        "parentName": "thigh-rail",
+        "radius": 0.03496,
+        "length": 0.3436335978210215,
+        "start": [
+          -0.0876522555365124,
+          0.9641478280358923,
+          -0.004754286098929673
+        ],
+        "end": [
+          -0.07721102479295598,
+          0.6206747962911892,
+          -0.005897402926528662
+        ]
+      },
+      {
+        "id": 57,
+        "name": "soft-calf-right-back",
+        "parentName": "calf-rail",
+        "radius": 0.044,
+        "length": 0.33138729812954787,
+        "start": [
+          -0.07661949058667575,
+          0.5130888150482089,
+          -0.05963147907707765
+        ],
+        "end": [
+          -0.0862597198281403,
+          0.18234259112267537,
+          -0.07783979313342794
+        ]
+      },
+      {
+        "id": 58,
+        "name": "soft-calf-right-outer",
+        "parentName": "calf-rail",
+        "radius": 0.03952,
+        "length": 0.33138729812954787,
+        "start": [
+          -0.106652641589757,
+          0.5130888150482089,
+          -0.029664666753673626
+        ],
+        "end": [
+          -0.11629287083122156,
+          0.18234259112267537,
+          -0.04787298081002391
+        ]
+      },
+      {
+        "id": 59,
+        "name": "soft-calf-right-front",
+        "parentName": "calf-rail",
+        "radius": 0.03696000000000001,
+        "length": 0.33138729812954787,
+        "start": [
+          -0.0766732249172143,
+          0.5130888150482089,
+          -0.011031508782624579
+        ],
+        "end": [
+          -0.08631345415867886,
+          0.18234259112267537,
+          -0.029239822838974867
+        ]
+      },
+      {
+        "id": 60,
+        "name": "soft-foot-right-length",
+        "parentName": "foot-rail",
+        "radius": 0.047,
+        "length": 0.15000000000000002,
+        "start": [
+          -0.08865872069189358,
+          0.09965603514129195,
+          -0.09239186553526307
+        ],
+        "end": [
+          -0.08882456739108663,
+          0.09965603514129195,
+          0.057608042780950136
+        ]
+      },
+      {
+        "id": 61,
+        "name": "soft-foot-right-width",
+        "parentName": "foot-rail",
+        "radius": 0.041999999999999996,
+        "length": 0.07599999999999998,
+        "start": [
+          -0.05072508259813012,
+          0.09965603514129195,
+          -0.03234988771164888
+        ],
+        "end": [
+          -0.12672503614501146,
+          0.09965603514129195,
+          -0.032433916705906694
+        ]
+      },
+      {
+        "id": 62,
+        "name": "soft-hand-left-palm",
+        "parentName": "hand-rail",
+        "radius": 0.038,
+        "length": 0.08740402265439405,
+        "start": [
+          0.5640690180701664,
+          1.3705682672582482,
+          -0.026790126320546923
+        ],
+        "end": [
+          0.6514730401489224,
+          1.370578297393005,
+          -0.026790276535422704
+        ]
+      },
+      {
+        "id": 63,
+        "name": "soft-hand-left-width",
+        "parentName": "hand-rail",
+        "radius": 0.032,
+        "length": 0.052,
+        "start": [
+          0.6045384317633216,
+          1.3705729080668672,
+          -0.052790179931095756
+        ],
+        "end": [
+          0.6044809382409346,
+          1.3705729080668672,
+          -0.0007902117148085169
+        ]
+      },
+      {
+        "id": 64,
+        "name": "soft-hand-left-thumb",
+        "parentName": "hand-rail",
+        "radius": 0.03,
+        "length": 0.07053805731662394,
+        "start": [
+          0.5654335513887245,
+          1.3665387239830864,
+          -0.021733898289204294
+        ],
+        "end": [
+          0.619986833661344,
+          1.3386728935760583,
+          0.01323826805796353
+        ]
+      },
+      {
+        "id": 65,
+        "name": "soft-hand-right-palm",
+        "parentName": "hand-rail",
+        "radius": 0.038,
+        "length": 0.0869099048689305,
+        "start": [
+          -0.5640441514656503,
+          1.3705224778567895,
+          -0.027091542166510083
+        ],
+        "end": [
+          -0.6509540563028041,
+          1.3705248280207005,
+          -0.027091554555609257
+        ]
+      },
+      {
+        "id": 66,
+        "name": "soft-hand-right-width",
+        "parentName": "hand-rail",
+        "radius": 0.032,
+        "length": 0.052000000000000005,
+        "start": [
+          -0.6042274502261251,
+          1.370523565246062,
+          -0.05309153200692347
+        ],
+        "end": [
+          -0.604284943748512,
+          1.370523565246062,
+          -0.0010915637906362304
+        ]
+      },
+      {
+        "id": 67,
+        "name": "soft-hand-right-thumb",
+        "parentName": "hand-rail",
+        "radius": 0.03,
+        "length": 0.07987515017010992,
+        "start": [
+          -0.5666743645681342,
+          1.366097846416681,
+          -0.02155227233913755
+        ],
+        "end": [
+          -0.6297268839342184,
+          1.3354953587047151,
+          0.016761004238651636
+        ]
+      }
+    ]
+  },
+  "events": [
+    {
+      "type": "action",
+      "name": "record-start",
+      "t": 0
+    },
+    {
+      "type": "action",
+      "name": "record-button-start",
+      "t": 272.6
+    },
+    {
+      "type": "action",
+      "name": "toggle-grab",
+      "t": 924.8,
+      "details": {
+        "enabled": true
+      }
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1130.3,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 398.71875,
+      "clientY": 687.421875,
+      "canvasX": 398.71875,
+      "canvasY": 687.421875,
+      "ndcX": -0.3842181467181467,
+      "ndcY": -0.7831955252918288,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1138.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 422.2578125,
+      "clientY": 672.4375,
+      "canvasX": 422.2578125,
+      "canvasY": 672.4375,
+      "ndcX": -0.3478643822393822,
+      "ndcY": -0.744325551232166,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1146.8,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 449.74609375,
+      "clientY": 654.109375,
+      "canvasX": 449.74609375,
+      "canvasY": 654.109375,
+      "ndcX": -0.30541143822393824,
+      "ndcY": -0.6967817769131,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1154.7,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 479.046875,
+      "clientY": 632.12890625,
+      "canvasX": 479.046875,
+      "canvasY": 632.12890625,
+      "ndcX": -0.26015926640926645,
+      "ndcY": -0.6397636997405967,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1163.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 510.7890625,
+      "clientY": 610.1484375,
+      "canvasX": 510.7890625,
+      "canvasY": 610.1484375,
+      "ndcX": -0.211136583011583,
+      "ndcY": -0.5827456225680934,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1172.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 540.08984375,
+      "clientY": 585.7265625,
+      "canvasX": 540.08984375,
+      "canvasY": 585.7265625,
+      "ndcX": -0.16588441119691122,
+      "ndcY": -0.5193944552529184,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1180.1,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 553.625,
+      "clientY": 573.87890625,
+      "canvasX": 553.625,
+      "canvasY": 573.87890625,
+      "ndcX": -0.144980694980695,
+      "ndcY": -0.4886612354085602,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1188.7,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 604.94140625,
+      "clientY": 532.1796875,
+      "canvasX": 604.94140625,
+      "canvasY": 532.1796875,
+      "ndcX": -0.06572755791505791,
+      "ndcY": -0.38049205577172507,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1196.8,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 618.4765625,
+      "clientY": 522.0234375,
+      "canvasX": 618.4765625,
+      "canvasY": 522.0234375,
+      "ndcX": -0.04482384169884168,
+      "ndcY": -0.35414640077821,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1204.8,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 639.875,
+      "clientY": 502.76171875,
+      "canvasX": 639.875,
+      "canvasY": 502.76171875,
+      "ndcX": -0.01177606177606183,
+      "ndcY": -0.3041808527885863,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1213.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 690.9140625,
+      "clientY": 461.2890625,
+      "canvasX": 690.9140625,
+      "canvasY": 461.2890625,
+      "ndcX": 0.06704874517374515,
+      "ndcY": -0.19659938391699083,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1221.7,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 700.17578125,
+      "clientY": 450.4765625,
+      "canvasX": 700.17578125,
+      "canvasY": 450.4765625,
+      "ndcX": 0.08135255791505802,
+      "ndcY": -0.16855139429312582,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1230.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 725.37109375,
+      "clientY": 429.859375,
+      "canvasX": 725.37109375,
+      "canvasY": 429.859375,
+      "ndcX": 0.12026423745173753,
+      "ndcY": -0.11506971465629046,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1238.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 743.28125,
+      "clientY": 411.9453125,
+      "canvasX": 743.28125,
+      "canvasY": 411.9453125,
+      "ndcX": 0.14792471042471034,
+      "ndcY": -0.06860003242542145,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1245.9,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 761.19140625,
+      "clientY": 396.01953125,
+      "canvasX": 761.19140625,
+      "canvasY": 396.01953125,
+      "ndcX": 0.17558518339768336,
+      "ndcY": -0.027288018806744585,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1254.4,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 779.08203125,
+      "clientY": 378.125,
+      "canvasX": 779.08203125,
+      "canvasY": 378.125,
+      "ndcX": 0.2032154922779923,
+      "ndcY": 0.019130998702983182,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1263.6,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 790.92578125,
+      "clientY": 364.5859375,
+      "canvasX": 790.92578125,
+      "canvasY": 364.5859375,
+      "ndcX": 0.22150699806949814,
+      "ndcY": 0.05425178339818415,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1271.7,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 801.734375,
+      "clientY": 353.7734375,
+      "canvasX": 801.734375,
+      "canvasY": 353.7734375,
+      "ndcX": 0.23819980694980702,
+      "ndcY": 0.08229977302204927,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1280.1,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 806.1484375,
+      "clientY": 348.25390625,
+      "canvasX": 806.1484375,
+      "canvasY": 348.25390625,
+      "ndcX": 0.2450168918918918,
+      "ndcY": 0.09661762321660183,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1289,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 813.12890625,
+      "clientY": 338.47265625,
+      "canvasX": 813.12890625,
+      "canvasY": 338.47265625,
+      "ndcX": 0.2557975386100386,
+      "ndcY": 0.12199051556420237,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1296.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 819.375,
+      "clientY": 330.97265625,
+      "canvasX": 819.375,
+      "canvasY": 330.97265625,
+      "ndcX": 0.2654440154440154,
+      "ndcY": 0.14144576848249024,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1305.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 824.37109375,
+      "clientY": 323.47265625,
+      "canvasX": 824.37109375,
+      "canvasY": 323.47265625,
+      "ndcX": 0.2731599903474904,
+      "ndcY": 0.16090102140077822,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1313.4,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 829.3671875,
+      "clientY": 315.97265625,
+      "canvasX": 829.3671875,
+      "canvasY": 315.97265625,
+      "ndcX": 0.28087596525096514,
+      "ndcY": 0.1803562743190662,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1322.4,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 831.28125,
+      "clientY": 311.1796875,
+      "canvasX": 831.28125,
+      "canvasY": 311.1796875,
+      "ndcX": 0.2838320463320463,
+      "ndcY": 0.19278939688715957,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1330.1,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 834.15234375,
+      "clientY": 306.38671875,
+      "canvasX": 834.15234375,
+      "canvasY": 306.38671875,
+      "ndcX": 0.288266167953668,
+      "ndcY": 0.20522251945525294,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1338.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 835.76953125,
+      "clientY": 303.14453125,
+      "canvasX": 835.76953125,
+      "canvasY": 303.14453125,
+      "ndcX": 0.2907637548262547,
+      "ndcY": 0.2136328631647212,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1347.3,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 836.4375,
+      "clientY": 301.13671875,
+      "canvasX": 836.4375,
+      "canvasY": 301.13671875,
+      "ndcX": 0.2917953667953668,
+      "ndcY": 0.21884119649805445,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1355.3,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 838.0625,
+      "clientY": 297.8828125,
+      "canvasX": 838.0625,
+      "canvasY": 297.8828125,
+      "ndcX": 0.2943050193050194,
+      "ndcY": 0.22728193904020755,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1363.3,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 838.73046875,
+      "clientY": 295.875,
+      "canvasX": 838.73046875,
+      "canvasY": 295.875,
+      "ndcX": 0.29533663127413123,
+      "ndcY": 0.2324902723735408,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1372,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 839.3984375,
+      "clientY": 293.8671875,
+      "canvasX": 839.3984375,
+      "canvasY": 293.8671875,
+      "ndcX": 0.2963682432432433,
+      "ndcY": 0.23769860570687418,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1379.7,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 840.0625,
+      "clientY": 291.86328125,
+      "canvasX": 840.0625,
+      "canvasY": 291.86328125,
+      "ndcX": 0.2973938223938224,
+      "ndcY": 0.2428968060959793,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1388.7,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 840.73046875,
+      "clientY": 289.85546875,
+      "canvasX": 840.73046875,
+      "canvasY": 289.85546875,
+      "ndcX": 0.29842543436293445,
+      "ndcY": 0.24810513942931256,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1396.9,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 841.54296875,
+      "clientY": 286.6015625,
+      "canvasX": 841.54296875,
+      "canvasY": 286.6015625,
+      "ndcX": 0.29968026061776065,
+      "ndcY": 0.25654588197146566,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1405.1,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 842.2109375,
+      "clientY": 284.59375,
+      "canvasX": 842.2109375,
+      "canvasY": 284.59375,
+      "ndcX": 0.3007118725868725,
+      "ndcY": 0.2617542153047989,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1413.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 843.8359375,
+      "clientY": 281.33984375,
+      "canvasX": 843.8359375,
+      "canvasY": 281.33984375,
+      "ndcX": 0.3032215250965251,
+      "ndcY": 0.270194957846952,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1422,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 844.6484375,
+      "clientY": 278.0859375,
+      "canvasX": 844.6484375,
+      "canvasY": 278.0859375,
+      "ndcX": 0.3044763513513513,
+      "ndcY": 0.278635700389105,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1430.1,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 846.5625,
+      "clientY": 273.29296875,
+      "canvasX": 846.5625,
+      "canvasY": 273.29296875,
+      "ndcX": 0.30743243243243246,
+      "ndcY": 0.2910688229571985,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1438.1,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 848.1875,
+      "clientY": 270.0390625,
+      "canvasX": 848.1875,
+      "canvasY": 270.0390625,
+      "ndcX": 0.30994208494208486,
+      "ndcY": 0.2995095654993515,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1446.8,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 849.14453125,
+      "clientY": 265.24609375,
+      "canvasX": 849.14453125,
+      "canvasY": 265.24609375,
+      "ndcX": 0.31142012548262543,
+      "ndcY": 0.31194268806744485,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1455.1,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 850.1015625,
+      "clientY": 260.453125,
+      "canvasX": 850.1015625,
+      "canvasY": 260.453125,
+      "ndcX": 0.312898166023166,
+      "ndcY": 0.3243758106355382,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1463.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 850.91015625,
+      "clientY": 257.21484375,
+      "canvasX": 850.91015625,
+      "canvasY": 257.21484375,
+      "ndcX": 0.3141469594594595,
+      "ndcY": 0.3327760214007782,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1472,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 851.72265625,
+      "clientY": 253.9609375,
+      "canvasX": 851.72265625,
+      "canvasY": 253.9609375,
+      "ndcX": 0.3154017857142857,
+      "ndcY": 0.3412167639429312,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1480.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 852.53515625,
+      "clientY": 250.70703125,
+      "canvasX": 852.53515625,
+      "canvasY": 250.70703125,
+      "ndcX": 0.3166566119691119,
+      "ndcY": 0.3496575064850843,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1487.8,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 852.53515625,
+      "clientY": 248.69921875,
+      "canvasX": 852.53515625,
+      "canvasY": 248.69921875,
+      "ndcX": 0.3166566119691119,
+      "ndcY": 0.3548658398184177,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1496.9,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 852.53515625,
+      "clientY": 247.64453125,
+      "canvasX": 852.53515625,
+      "canvasY": 247.64453125,
+      "ndcX": 0.3166566119691119,
+      "ndcY": 0.35760173476005186,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1504.3,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 852.53515625,
+      "clientY": 246.58984375,
+      "canvasX": 852.53515625,
+      "canvasY": 246.58984375,
+      "ndcX": 0.3166566119691119,
+      "ndcY": 0.36033762970168615,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1513.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 852.53515625,
+      "clientY": 245.53515625,
+      "canvasX": 852.53515625,
+      "canvasY": 245.53515625,
+      "ndcX": 0.3166566119691119,
+      "ndcY": 0.3630735246433203,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1522.3,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 852.53515625,
+      "clientY": 244.76953125,
+      "canvasX": 852.53515625,
+      "canvasY": 244.76953125,
+      "ndcX": 0.3166566119691119,
+      "ndcY": 0.3650595817120622,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1530.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 852.53515625,
+      "clientY": 244.38671875,
+      "canvasX": 852.53515625,
+      "canvasY": 244.38671875,
+      "ndcX": 0.3166566119691119,
+      "ndcY": 0.3660526102464332,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1538.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 852.15234375,
+      "clientY": 244.00390625,
+      "canvasX": 852.15234375,
+      "canvasY": 244.00390625,
+      "ndcX": 0.31606539575289583,
+      "ndcY": 0.3670456387808041,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1546.9,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 851.76953125,
+      "clientY": 243.62109375,
+      "canvasX": 851.76953125,
+      "canvasY": 243.62109375,
+      "ndcX": 0.31547417953667956,
+      "ndcY": 0.3680386673151751,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1554.3,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 851.38671875,
+      "clientY": 243.23828125,
+      "canvasX": 851.38671875,
+      "canvasY": 243.23828125,
+      "ndcX": 0.3148829633204633,
+      "ndcY": 0.3690316958495461,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1563.6,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 850.33203125,
+      "clientY": 243.23828125,
+      "canvasX": 850.33203125,
+      "canvasY": 243.23828125,
+      "ndcX": 0.3132541023166022,
+      "ndcY": 0.3690316958495461,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1572.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 849.94921875,
+      "clientY": 242.85546875,
+      "canvasX": 849.94921875,
+      "canvasY": 242.85546875,
+      "ndcX": 0.3126628861003862,
+      "ndcY": 0.370024724383917,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1580.1,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 849.56640625,
+      "clientY": 242.85546875,
+      "canvasX": 849.56640625,
+      "canvasY": 242.85546875,
+      "ndcX": 0.3120716698841699,
+      "ndcY": 0.370024724383917,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1590.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 849.18359375,
+      "clientY": 242.85546875,
+      "canvasX": 849.18359375,
+      "canvasY": 242.85546875,
+      "ndcX": 0.3114804536679536,
+      "ndcY": 0.370024724383917,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1596.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 848.12890625,
+      "clientY": 242.328125,
+      "canvasX": 848.12890625,
+      "canvasY": 242.328125,
+      "ndcX": 0.30985159266409257,
+      "ndcY": 0.3713926718547341,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1605.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 847.74609375,
+      "clientY": 242.328125,
+      "canvasX": 847.74609375,
+      "canvasY": 242.328125,
+      "ndcX": 0.3092603764478765,
+      "ndcY": 0.3713926718547341,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1622.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 847.43359375,
+      "clientY": 242.328125,
+      "canvasX": 847.43359375,
+      "canvasY": 242.328125,
+      "ndcX": 0.30877775096525095,
+      "ndcY": 0.3713926718547341,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1638.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 847.1171875,
+      "clientY": 242.328125,
+      "canvasX": 847.1171875,
+      "canvasY": 242.328125,
+      "ndcX": 0.30828909266409266,
+      "ndcY": 0.3713926718547341,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1655.1,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 846.8046875,
+      "clientY": 242.328125,
+      "canvasX": 846.8046875,
+      "canvasY": 242.328125,
+      "ndcX": 0.3078064671814671,
+      "ndcY": 0.3713926718547341,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1680.1,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 846.515625,
+      "clientY": 242.328125,
+      "canvasX": 846.515625,
+      "canvasY": 242.328125,
+      "ndcX": 0.3073600386100386,
+      "ndcY": 0.3713926718547341,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1689.6,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 846.1328125,
+      "clientY": 242.328125,
+      "canvasX": 846.1328125,
+      "canvasY": 242.328125,
+      "ndcX": 0.3067688223938223,
+      "ndcY": 0.3713926718547341,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1705.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 845.8203125,
+      "clientY": 242.328125,
+      "canvasX": 845.8203125,
+      "canvasY": 242.328125,
+      "ndcX": 0.30628619691119696,
+      "ndcY": 0.3713926718547341,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1721.8,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 845.50390625,
+      "clientY": 242.328125,
+      "canvasX": 845.50390625,
+      "canvasY": 242.328125,
+      "ndcX": 0.30579753861003867,
+      "ndcY": 0.3713926718547341,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1730.3,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 845.12109375,
+      "clientY": 242.328125,
+      "canvasX": 845.12109375,
+      "canvasY": 242.328125,
+      "ndcX": 0.3052063223938224,
+      "ndcY": 0.3713926718547341,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "down",
+      "t": 1750.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": 0,
+      "buttons": 1,
+      "clientX": 845.12109375,
+      "clientY": 242.328125,
+      "canvasX": 845.12109375,
+      "canvasY": 242.328125,
+      "ndcX": 0.3052063223938224,
+      "ndcY": 0.3713926718547341,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "action",
+      "name": "grab-begin",
+      "t": 1750.9
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 1997.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 845.12109375,
+      "clientY": 242.57421875,
+      "canvasX": 845.12109375,
+      "canvasY": 242.57421875,
+      "ndcX": 0.3052063223938224,
+      "ndcY": 0.3707542963683528,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2007.7,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 845.12109375,
+      "clientY": 243.70703125,
+      "canvasX": 845.12109375,
+      "canvasY": 243.70703125,
+      "ndcX": 0.3052063223938224,
+      "ndcY": 0.3678157425421531,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2022.1,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 845.12109375,
+      "clientY": 247.609375,
+      "canvasX": 845.12109375,
+      "canvasY": 247.609375,
+      "ndcX": 0.3052063223938224,
+      "ndcY": 0.3576929312581063,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2035.3,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 845.12109375,
+      "clientY": 250.7734375,
+      "canvasX": 845.12109375,
+      "canvasY": 250.7734375,
+      "ndcX": 0.3052063223938224,
+      "ndcY": 0.34948524643320367,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2051.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 845.12109375,
+      "clientY": 254.8515625,
+      "canvasX": 845.12109375,
+      "canvasY": 254.8515625,
+      "ndcX": 0.3052063223938224,
+      "ndcY": 0.3389064526588845,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2060.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 845.12109375,
+      "clientY": 256.37890625,
+      "canvasX": 845.12109375,
+      "canvasY": 256.37890625,
+      "ndcX": 0.3052063223938224,
+      "ndcY": 0.334944471465629,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2080.1,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 845.12109375,
+      "clientY": 259.4609375,
+      "canvasX": 845.12109375,
+      "canvasY": 259.4609375,
+      "ndcX": 0.3052063223938224,
+      "ndcY": 0.3269495784695201,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2089.7,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 845.12109375,
+      "clientY": 260.984375,
+      "canvasX": 845.12109375,
+      "canvasY": 260.984375,
+      "ndcX": 0.3052063223938224,
+      "ndcY": 0.32299773022049283,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2108.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 845.80078125,
+      "clientY": 265.453125,
+      "canvasX": 845.80078125,
+      "canvasY": 265.453125,
+      "ndcX": 0.30625603281853286,
+      "ndcY": 0.3114056420233463,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2136.4,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 846.1640625,
+      "clientY": 266.6875,
+      "canvasX": 846.1640625,
+      "canvasY": 266.6875,
+      "ndcX": 0.30681708494208504,
+      "ndcY": 0.30820363164721143,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2149.3,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 846.6875,
+      "clientY": 268.12109375,
+      "canvasX": 846.6875,
+      "canvasY": 268.12109375,
+      "ndcX": 0.3076254826254827,
+      "ndcY": 0.3044848411154345,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2166.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 846.82421875,
+      "clientY": 269.2734375,
+      "canvasX": 846.82421875,
+      "canvasY": 269.2734375,
+      "ndcX": 0.3078366312741312,
+      "ndcY": 0.30149562256809337,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2177.1,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 846.99609375,
+      "clientY": 269.609375,
+      "canvasX": 846.99609375,
+      "canvasY": 269.609375,
+      "ndcX": 0.30810207528957534,
+      "ndcY": 0.3006241893644618,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2196.8,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 847.05859375,
+      "clientY": 270.37890625,
+      "canvasX": 847.05859375,
+      "canvasY": 270.37890625,
+      "ndcX": 0.30819860038610036,
+      "ndcY": 0.29862799935149154,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2210.4,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 847.0625,
+      "clientY": 271.48046875,
+      "canvasX": 847.0625,
+      "canvasY": 271.48046875,
+      "ndcX": 0.3082046332046331,
+      "ndcY": 0.29577050907911806,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2228.9,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 847.421875,
+      "clientY": 272.609375,
+      "canvasX": 847.421875,
+      "canvasY": 272.609375,
+      "ndcX": 0.30875965250965254,
+      "ndcY": 0.2928420881971465,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2238.9,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 847.43359375,
+      "clientY": 273.01171875,
+      "canvasX": 847.43359375,
+      "canvasY": 273.01171875,
+      "ndcX": 0.30877775096525095,
+      "ndcY": 0.2917983949416343,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2257.4,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 847.4375,
+      "clientY": 274.45703125,
+      "canvasX": 847.4375,
+      "canvasY": 274.45703125,
+      "ndcX": 0.3087837837837837,
+      "ndcY": 0.2880492055771725,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2274.1,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 847.8125,
+      "clientY": 275.2265625,
+      "canvasX": 847.8125,
+      "canvasY": 275.2265625,
+      "ndcX": 0.30936293436293427,
+      "ndcY": 0.2860530155642024,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2293.1,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 847.8125,
+      "clientY": 277.03515625,
+      "canvasX": 847.8125,
+      "canvasY": 277.03515625,
+      "ndcX": 0.30936293436293427,
+      "ndcY": 0.28136146238651105,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2302.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 847.8125,
+      "clientY": 277.3359375,
+      "canvasX": 847.8125,
+      "canvasY": 277.3359375,
+      "ndcX": 0.30936293436293427,
+      "ndcY": 0.2805812256809338,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2319.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 848.10546875,
+      "clientY": 277.9921875,
+      "canvasX": 848.10546875,
+      "canvasY": 277.9921875,
+      "ndcX": 0.30981539575289574,
+      "ndcY": 0.2788788910505836,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2338.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 848.16796875,
+      "clientY": 278.76171875,
+      "canvasX": 848.16796875,
+      "canvasY": 278.76171875,
+      "ndcX": 0.30991192084942076,
+      "ndcY": 0.2768827010376135,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2356.9,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 848.1796875,
+      "clientY": 280.3671875,
+      "canvasX": 848.1796875,
+      "canvasY": 280.3671875,
+      "ndcX": 0.3099300193050194,
+      "ndcY": 0.27271806095979245,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2370.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 848.1796875,
+      "clientY": 282.4375,
+      "canvasX": 848.1796875,
+      "canvasY": 282.4375,
+      "ndcX": 0.3099300193050194,
+      "ndcY": 0.2673476005188068,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2388.9,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 848.40234375,
+      "clientY": 284.59765625,
+      "canvasX": 848.40234375,
+      "canvasY": 284.59765625,
+      "ndcX": 0.31027388996138994,
+      "ndcY": 0.2617440823605707,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2405.7,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 848.67578125,
+      "clientY": 286.73828125,
+      "canvasX": 848.67578125,
+      "canvasY": 286.73828125,
+      "ndcX": 0.3106961872586873,
+      "ndcY": 0.256191228923476,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2425.4,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 848.6953125,
+      "clientY": 290.90234375,
+      "canvasX": 848.6953125,
+      "canvasY": 290.90234375,
+      "ndcX": 0.3107263513513514,
+      "ndcY": 0.24538951037613488,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2437.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 848.6953125,
+      "clientY": 292.484375,
+      "canvasX": 848.6953125,
+      "canvasY": 292.484375,
+      "ndcX": 0.3107263513513514,
+      "ndcY": 0.24128566796368356,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2455.3,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 848.6953125,
+      "clientY": 296.515625,
+      "canvasX": 848.6953125,
+      "canvasY": 296.515625,
+      "ndcX": 0.3107263513513514,
+      "ndcY": 0.23082846952010372,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2472.7,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 848.6953125,
+      "clientY": 301.87109375,
+      "canvasX": 848.6953125,
+      "canvasY": 301.87109375,
+      "ndcX": 0.3107263513513514,
+      "ndcY": 0.21693620298313876,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2490.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 849.6484375,
+      "clientY": 308.66796875,
+      "canvasX": 849.6484375,
+      "canvasY": 308.66796875,
+      "ndcX": 0.312198359073359,
+      "ndcY": 0.19930488002594038,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2506.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 849.6484375,
+      "clientY": 315.31640625,
+      "canvasX": 849.6484375,
+      "canvasY": 315.31640625,
+      "ndcX": 0.312198359073359,
+      "ndcY": 0.1820586089494164,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2524.6,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 849.92578125,
+      "clientY": 322.35546875,
+      "canvasX": 849.92578125,
+      "canvasY": 322.35546875,
+      "ndcX": 0.3126266891891891,
+      "ndcY": 0.1637990434500648,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2543.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 851.5546875,
+      "clientY": 339.6328125,
+      "canvasX": 851.5546875,
+      "canvasY": 339.6328125,
+      "ndcX": 0.3151423745173745,
+      "ndcY": 0.11898103112840464,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2561.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 851.5546875,
+      "clientY": 342.9375,
+      "canvasX": 851.5546875,
+      "canvasY": 342.9375,
+      "ndcX": 0.3151423745173745,
+      "ndcY": 0.1104085603112841,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2578,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 852.31640625,
+      "clientY": 355.06640625,
+      "canvasX": 852.31640625,
+      "canvasY": 355.06640625,
+      "ndcX": 0.31631877413127407,
+      "ndcY": 0.07894576848249024,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2597.1,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 852.484375,
+      "clientY": 361.93359375,
+      "canvasX": 852.484375,
+      "canvasY": 361.93359375,
+      "ndcX": 0.31657818532818527,
+      "ndcY": 0.061132052529182856,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2614.4,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 852.5,
+      "clientY": 368.078125,
+      "canvasX": 852.5,
+      "canvasY": 368.078125,
+      "ndcX": 0.31660231660231664,
+      "ndcY": 0.045192931258106306,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2633.7,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 852.5,
+      "clientY": 375.68359375,
+      "canvasX": 852.5,
+      "canvasY": 375.68359375,
+      "ndcX": 0.31660231660231664,
+      "ndcY": 0.025464088845654986,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2650.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 852.5,
+      "clientY": 379.86328125,
+      "canvasX": 852.5,
+      "canvasY": 379.86328125,
+      "ndcX": 0.31660231660231664,
+      "ndcY": 0.014621838521400754,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2667.6,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 852.234375,
+      "clientY": 383.45703125,
+      "canvasX": 852.234375,
+      "canvasY": 383.45703125,
+      "ndcX": 0.31619208494208495,
+      "ndcY": 0.005299529831387817,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2686,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 850.96484375,
+      "clientY": 387.00390625,
+      "canvasX": 850.96484375,
+      "canvasY": 387.00390625,
+      "ndcX": 0.3142314189189188,
+      "ndcY": -0.003901183527885932,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2704.9,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 849.76953125,
+      "clientY": 390.05859375,
+      "canvasX": 849.76953125,
+      "canvasY": 390.05859375,
+      "ndcX": 0.31238537644787634,
+      "ndcY": -0.011825145914396984,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2723,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 849.28125,
+      "clientY": 391.7421875,
+      "canvasX": 849.28125,
+      "canvasY": 391.7421875,
+      "ndcX": 0.3116312741312741,
+      "ndcY": -0.016192444876783396,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2740.7,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 848.3046875,
+      "clientY": 393.9375,
+      "canvasX": 848.3046875,
+      "canvasY": 393.9375,
+      "ndcX": 0.31012306949806945,
+      "ndcY": -0.021887159533073852,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2757.8,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 847.6484375,
+      "clientY": 395.76171875,
+      "canvasX": 847.6484375,
+      "canvasY": 395.76171875,
+      "ndcX": 0.30910955598455603,
+      "ndcY": -0.026619244487678273,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2775.9,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 846.6875,
+      "clientY": 397.73046875,
+      "canvasX": 846.6875,
+      "canvasY": 397.73046875,
+      "ndcX": 0.3076254826254827,
+      "ndcY": -0.03172624837872884,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2794.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 846.26953125,
+      "clientY": 398.57421875,
+      "canvasX": 846.26953125,
+      "canvasY": 398.57421875,
+      "ndcX": 0.306979971042471,
+      "ndcY": -0.033914964332036224,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2813.4,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 846.0390625,
+      "clientY": 399.359375,
+      "canvasX": 846.0390625,
+      "canvasY": 399.359375,
+      "ndcX": 0.30662403474903477,
+      "ndcY": -0.03595168612191957,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2830,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 845.66796875,
+      "clientY": 400.140625,
+      "canvasX": 845.66796875,
+      "canvasY": 400.140625,
+      "ndcX": 0.3060509169884169,
+      "ndcY": -0.037978274967574555,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2846.8,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 845.64453125,
+      "clientY": 400.51171875,
+      "canvasX": 845.64453125,
+      "canvasY": 400.51171875,
+      "ndcX": 0.3060147200772201,
+      "ndcY": -0.03894090466926059,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2864.7,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 845.6328125,
+      "clientY": 400.85546875,
+      "canvasX": 845.6328125,
+      "canvasY": 400.85546875,
+      "ndcX": 0.30599662162162167,
+      "ndcY": -0.039832603761349006,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2882.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 845.47265625,
+      "clientY": 401.01953125,
+      "canvasX": 845.47265625,
+      "canvasY": 401.01953125,
+      "ndcX": 0.30574927606177615,
+      "ndcY": -0.0402581874189365,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 2900.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 1,
+      "clientX": 845.3125,
+      "clientY": 401.2109375,
+      "canvasX": 845.3125,
+      "canvasY": 401.2109375,
+      "ndcX": 0.3055019305019304,
+      "ndcY": -0.04075470168612183,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "up",
+      "t": 3055.6,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": 0,
+      "buttons": 0,
+      "clientX": 845.3125,
+      "clientY": 401.2109375,
+      "canvasX": 845.3125,
+      "canvasY": 401.2109375,
+      "ndcX": 0.3055019305019304,
+      "ndcY": -0.04075470168612183,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "action",
+      "name": "grab-end",
+      "t": 3055.7
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4379.3,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 845.3125,
+      "clientY": 401.44921875,
+      "canvasX": 845.3125,
+      "canvasY": 401.44921875,
+      "ndcX": 0.3055019305019304,
+      "ndcY": -0.041372811284046795,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4388.4,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 845.3125,
+      "clientY": 406.23828125,
+      "canvasX": 845.3125,
+      "canvasY": 406.23828125,
+      "ndcX": 0.3055019305019304,
+      "ndcY": -0.053795800907911806,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4397,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 845.3125,
+      "clientY": 408.2421875,
+      "canvasX": 845.3125,
+      "canvasY": 408.2421875,
+      "ndcX": 0.3055019305019304,
+      "ndcY": -0.05899400129701693,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4405.1,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 845.3125,
+      "clientY": 413.03125,
+      "canvasX": 845.3125,
+      "canvasY": 413.03125,
+      "ndcX": 0.3055019305019304,
+      "ndcY": -0.07141699092088194,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4413,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 845.3125,
+      "clientY": 424.203125,
+      "canvasX": 845.3125,
+      "canvasY": 424.203125,
+      "ndcX": 0.3055019305019304,
+      "ndcY": -0.10039721141374836,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4421.9,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 845.3125,
+      "clientY": 427.453125,
+      "canvasX": 845.3125,
+      "canvasY": 427.453125,
+      "ndcX": 0.3055019305019304,
+      "ndcY": -0.1088278210116731,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4430.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 843.9140625,
+      "clientY": 438.625,
+      "canvasX": 843.9140625,
+      "canvasY": 438.625,
+      "ndcX": 0.3033421814671815,
+      "ndcY": -0.1378080415045395,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4438.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 843.9140625,
+      "clientY": 445.24609375,
+      "canvasX": 843.9140625,
+      "canvasY": 445.24609375,
+      "ndcX": 0.3033421814671815,
+      "ndcY": -0.15498338197146566,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4446.9,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 843.9140625,
+      "clientY": 448.49609375,
+      "canvasX": 843.9140625,
+      "canvasY": 448.49609375,
+      "ndcX": 0.3033421814671815,
+      "ndcY": -0.1634139915693904,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4455,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 843.9140625,
+      "clientY": 462.390625,
+      "canvasX": 843.9140625,
+      "canvasY": 462.390625,
+      "ndcX": 0.3033421814671815,
+      "ndcY": -0.19945687418936453,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4462.9,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 843.9140625,
+      "clientY": 465.640625,
+      "canvasX": 843.9140625,
+      "canvasY": 465.640625,
+      "ndcX": 0.3033421814671815,
+      "ndcY": -0.20788748378728927,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4471.9,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 842.3671875,
+      "clientY": 479.53515625,
+      "canvasX": 842.3671875,
+      "canvasY": 479.53515625,
+      "ndcX": 0.30095318532818527,
+      "ndcY": -0.2439303664072634,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4480.1,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 842.3671875,
+      "clientY": 484.32421875,
+      "canvasX": 842.3671875,
+      "canvasY": 484.32421875,
+      "ndcX": 0.30095318532818527,
+      "ndcY": -0.2563533560311284,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4489,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 842.3671875,
+      "clientY": 498.21875,
+      "canvasX": 842.3671875,
+      "canvasY": 498.21875,
+      "ndcX": 0.30095318532818527,
+      "ndcY": -0.29239623865110254,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4497,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 842.3671875,
+      "clientY": 501.46875,
+      "canvasX": 842.3671875,
+      "canvasY": 501.46875,
+      "ndcX": 0.30095318532818527,
+      "ndcY": -0.3008268482490273,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4505.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 840.671875,
+      "clientY": 518.390625,
+      "canvasX": 840.671875,
+      "canvasY": 518.390625,
+      "ndcX": 0.29833494208494216,
+      "ndcY": -0.3447227626459144,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4513.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 840.671875,
+      "clientY": 527.13671875,
+      "canvasX": 840.671875,
+      "canvasY": 527.13671875,
+      "ndcX": 0.29833494208494216,
+      "ndcY": -0.3674104247730221,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4521.3,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 840.671875,
+      "clientY": 535.8828125,
+      "canvasX": 840.671875,
+      "canvasY": 535.8828125,
+      "ndcX": 0.29833494208494216,
+      "ndcY": -0.3900980869001296,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4530.3,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 840.671875,
+      "clientY": 547.03125,
+      "canvasX": 840.671875,
+      "canvasY": 547.03125,
+      "ndcX": 0.29833494208494216,
+      "ndcY": -0.4190175097276265,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4538.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 840.671875,
+      "clientY": 555.77734375,
+      "canvasX": 840.671875,
+      "canvasY": 555.77734375,
+      "ndcX": 0.29833494208494216,
+      "ndcY": -0.441705171854734,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4546.7,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 840.671875,
+      "clientY": 566.94921875,
+      "canvasX": 840.671875,
+      "canvasY": 566.94921875,
+      "ndcX": 0.29833494208494216,
+      "ndcY": -0.47068539234760043,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4555.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 840.671875,
+      "clientY": 570.19921875,
+      "canvasX": 840.671875,
+      "canvasY": 570.19921875,
+      "ndcX": 0.29833494208494216,
+      "ndcY": -0.4791160019455254,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4562.7,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 840.671875,
+      "clientY": 578.9453125,
+      "canvasX": 840.671875,
+      "canvasY": 578.9453125,
+      "ndcX": 0.29833494208494216,
+      "ndcY": -0.5018036640726329,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4571.9,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 840.671875,
+      "clientY": 587.69140625,
+      "canvasX": 840.671875,
+      "canvasY": 587.69140625,
+      "ndcX": 0.29833494208494216,
+      "ndcY": -0.5244913261997406,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4580.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 840.671875,
+      "clientY": 594.3125,
+      "canvasX": 840.671875,
+      "canvasY": 594.3125,
+      "ndcX": 0.29833494208494216,
+      "ndcY": -0.5416666666666667,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4588.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 840.671875,
+      "clientY": 600.93359375,
+      "canvasX": 840.671875,
+      "canvasY": 600.93359375,
+      "ndcX": 0.29833494208494216,
+      "ndcY": -0.5588420071335927,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4596,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 840.671875,
+      "clientY": 605.72265625,
+      "canvasX": 840.671875,
+      "canvasY": 605.72265625,
+      "ndcX": 0.29833494208494216,
+      "ndcY": -0.5712649967574579,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4605.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 840.671875,
+      "clientY": 610.51171875,
+      "canvasX": 840.671875,
+      "canvasY": 610.51171875,
+      "ndcX": 0.29833494208494216,
+      "ndcY": -0.5836879863813229,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4613.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 840.671875,
+      "clientY": 617.1328125,
+      "canvasX": 840.671875,
+      "canvasY": 617.1328125,
+      "ndcX": 0.29833494208494216,
+      "ndcY": -0.6008633268482491,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4622.3,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 840.671875,
+      "clientY": 621.921875,
+      "canvasX": 840.671875,
+      "canvasY": 621.921875,
+      "ndcX": 0.29833494208494216,
+      "ndcY": -0.6132863164721141,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4630.1,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 840.671875,
+      "clientY": 625.171875,
+      "canvasX": 840.671875,
+      "canvasY": 625.171875,
+      "ndcX": 0.29833494208494216,
+      "ndcY": -0.6217169260700388,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4638.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 840.671875,
+      "clientY": 633.91796875,
+      "canvasX": 840.671875,
+      "canvasY": 633.91796875,
+      "ndcX": 0.29833494208494216,
+      "ndcY": -0.6444045881971465,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4645.9,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 840.671875,
+      "clientY": 637.16796875,
+      "canvasX": 840.671875,
+      "canvasY": 637.16796875,
+      "ndcX": 0.29833494208494216,
+      "ndcY": -0.6528351977950713,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4654.7,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 840.671875,
+      "clientY": 641.94921875,
+      "canvasX": 840.671875,
+      "canvasY": 641.94921875,
+      "ndcX": 0.29833494208494216,
+      "ndcY": -0.66523792153048,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4663.5,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 840.671875,
+      "clientY": 648.5703125,
+      "canvasX": 840.671875,
+      "canvasY": 648.5703125,
+      "ndcX": 0.29833494208494216,
+      "ndcY": -0.6824132619974059,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4671.9,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 840.671875,
+      "clientY": 653.359375,
+      "canvasX": 840.671875,
+      "canvasY": 653.359375,
+      "ndcX": 0.29833494208494216,
+      "ndcY": -0.6948362516212712,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4680.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 841.62890625,
+      "clientY": 658.1484375,
+      "canvasX": 841.62890625,
+      "canvasY": 658.1484375,
+      "ndcX": 0.2998129826254827,
+      "ndcY": -0.7072592412451362,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4687.6,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 842.5859375,
+      "clientY": 662.9375,
+      "canvasX": 842.5859375,
+      "canvasY": 662.9375,
+      "ndcX": 0.3012910231660231,
+      "ndcY": -0.7196822308690014,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4697.1,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 842.5859375,
+      "clientY": 667.7265625,
+      "canvasX": 842.5859375,
+      "canvasY": 667.7265625,
+      "ndcX": 0.3012910231660231,
+      "ndcY": -0.7321052204928664,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4705.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 843.3984375,
+      "clientY": 670.9765625,
+      "canvasX": 843.3984375,
+      "canvasY": 670.9765625,
+      "ndcX": 0.3025458494208495,
+      "ndcY": -0.7405358300907912,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4712.6,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 843.3984375,
+      "clientY": 674.2265625,
+      "canvasX": 843.3984375,
+      "canvasY": 674.2265625,
+      "ndcX": 0.3025458494208495,
+      "ndcY": -0.7489664396887159,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4721.9,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 844.06640625,
+      "clientY": 676.23046875,
+      "canvasX": 844.06640625,
+      "canvasY": 676.23046875,
+      "ndcX": 0.30357746138996133,
+      "ndcY": -0.754164640077821,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4730.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 844.06640625,
+      "clientY": 678.234375,
+      "canvasX": 844.06640625,
+      "canvasY": 678.234375,
+      "ndcX": 0.30357746138996133,
+      "ndcY": -0.7593628404669261,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4738.3,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 844.58984375,
+      "clientY": 679.28515625,
+      "canvasX": 844.58984375,
+      "canvasY": 679.28515625,
+      "ndcX": 0.304385859073359,
+      "ndcY": -0.7620886024643321,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4746.9,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 844.58984375,
+      "clientY": 681.2890625,
+      "canvasX": 844.58984375,
+      "canvasY": 681.2890625,
+      "ndcX": 0.304385859073359,
+      "ndcY": -0.7672868028534372,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4755.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 844.58984375,
+      "clientY": 682.33984375,
+      "canvasX": 844.58984375,
+      "canvasY": 682.33984375,
+      "ndcX": 0.304385859073359,
+      "ndcY": -0.7700125648508431,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4763.4,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 845.11328125,
+      "clientY": 683.390625,
+      "canvasX": 845.11328125,
+      "canvasY": 683.390625,
+      "ndcX": 0.3051942567567567,
+      "ndcY": -0.7727383268482491,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4771.8,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 845.11328125,
+      "clientY": 684.44140625,
+      "canvasX": 845.11328125,
+      "canvasY": 684.44140625,
+      "ndcX": 0.3051942567567567,
+      "ndcY": -0.775464088845655,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4779.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 845.11328125,
+      "clientY": 685.48828125,
+      "canvasX": 845.11328125,
+      "canvasY": 685.48828125,
+      "ndcX": 0.3051942567567567,
+      "ndcY": -0.7781797178988328,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4790.8,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 845.63671875,
+      "clientY": 686.5390625,
+      "canvasX": 845.63671875,
+      "canvasY": 686.5390625,
+      "ndcX": 0.3060026544401544,
+      "ndcY": -0.7809054798962387,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4796.8,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 845.63671875,
+      "clientY": 687.58984375,
+      "canvasX": 845.63671875,
+      "canvasY": 687.58984375,
+      "ndcX": 0.3060026544401544,
+      "ndcY": -0.7836312418936446,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "move",
+      "t": 4805.2,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 845.63671875,
+      "clientY": 688.640625,
+      "canvasX": 845.63671875,
+      "canvasY": 688.640625,
+      "ndcX": 0.3060026544401544,
+      "ndcY": -0.7863570038910506,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "pointer",
+      "phase": "leave",
+      "t": 4813.6,
+      "pointerId": 1,
+      "pointerType": "mouse",
+      "button": -1,
+      "buttons": 0,
+      "clientX": 846.16015625,
+      "clientY": 690.7421875,
+      "canvasX": 846.16015625,
+      "canvasY": 690.7421875,
+      "ndcX": 0.3068110521235521,
+      "ndcY": -0.7918085278858624,
+      "altKey": false,
+      "ctrlKey": false,
+      "metaKey": false,
+      "shiftKey": false
+    },
+    {
+      "type": "action",
+      "name": "record-button-stop",
+      "t": 5258.1
+    },
+    {
+      "type": "action",
+      "name": "record-stop",
+      "t": 5258.3
+    }
+  ]
+}

@@ -13,7 +13,7 @@
     "generate:cloth": "node --experimental-strip-types tools/generate-cloth.ts",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
-    "test:unit": "node --experimental-strip-types --test src/sim/clothMeshCuts.test.ts src/sim/garmentPatternGeometry.test.ts src/cloth/patternAssembly.test.ts src/character/shirtDressing.test.ts src/sim/boneSdfSweptCollision.test.ts src/character/breastPhysics.test.ts",
+    "test:unit": "node --experimental-strip-types --test src/sim/clothMeshCuts.test.ts src/cloth/patternAssembly.test.ts src/character/shirtDressing.test.ts src/sim/boneSdfSweptCollision.test.ts src/character/breastPhysics.test.ts src/garments/garmentSchema.test.ts",
     "test:strands": "playwright test --config playwright.strand-threads.config.ts",
     "test:bb": "playwright test tests/bb-motion.spec.ts",
     "test:bb:bg": "playwright test tests/bb-motion.spec.ts > /tmp/lavery-bb-motion.log 2>&1 & echo \"BB motion tests running in background — tail -f /tmp/lavery-bb-motion.log\"",
@@ -21,8 +21,8 @@
     "test:smoke:bg": "playwright test --config playwright.smoke.config.ts > /tmp/lavery-smoke.log 2>&1 & echo \"smoke tests running in background — tail -f /tmp/lavery-smoke.log\"",
     "test:self-collision": "playwright test --config playwright.self-collision.config.ts",
     "test:random-tear": "playwright test --config playwright.random-tear.config.ts",
-    "test:garments": "playwright test --config playwright.garments.config.ts",
-    "test:tube": "playwright test --config playwright.tube.config.ts"
+    "test:tube": "playwright test --config playwright.tube.config.ts",
+    "test:garment-studio": "playwright test tests/garment-studio.spec.ts --headed"
   },
   "type": "module",
   "keywords": [],

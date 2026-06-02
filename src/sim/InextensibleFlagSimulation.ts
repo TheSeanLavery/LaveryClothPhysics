@@ -489,6 +489,9 @@ export class InextensibleFlagSimulation {
   private grabTryLatchUniform!: ReturnType<typeof uniform>;
   private grabPickRadiusUniform!: ReturnType<typeof uniform>;
   private grabInfluenceRadiusUniform!: ReturnType<typeof uniform>;
+  private grabStiffnessUniform!: ReturnType<typeof uniform>;
+  private grabMaxStepUniform!: ReturnType<typeof uniform>;
+  private grabVelocityCarryUniform!: ReturnType<typeof uniform>;
   private grabCameraProjectionUniform!: ReturnType<typeof uniform>;
   private grabCameraViewUniform!: ReturnType<typeof uniform>;
   private grabCameraProjectionInverseUniform!: ReturnType<typeof uniform>;
@@ -710,7 +713,23 @@ export class InextensibleFlagSimulation {
   }
 
   setMousePointerNdc(x: number, y: number): void {
-    this.mouseNdcUniform.value.set(x, y);
+    const mouse = this.mouseNdcUniform.value as THREE.Vector2;
+    if (!this.isGrabActive || mouse.x < -1.5) {
+      mouse.set(x, y);
+      return;
+    }
+
+    const maxStep = Math.max(0.0001, this.settings.grabPointerMaxStep);
+    const dx = x - mouse.x;
+    const dy = y - mouse.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist <= maxStep) {
+      mouse.set(x, y);
+      return;
+    }
+
+    const scale = maxStep / dist;
+    mouse.set(mouse.x + dx * scale, mouse.y + dy * scale);
   }
 
   clearMousePointer(): void {
@@ -1431,6 +1450,9 @@ export class InextensibleFlagSimulation {
     this.zoneBSpeedUniform.value = s.zoneBSpeed;
     this.zoneBDirectionUniform.value.set(s.zoneBDirX, s.zoneBDirY, s.zoneBDirZ);
     this.grabInfluenceRadiusUniform.value = s.grabRadius;
+    this.grabStiffnessUniform.value = s.grabStiffness;
+    this.grabMaxStepUniform.value = s.grabMaxStep;
+    this.grabVelocityCarryUniform.value = s.grabVelocityCarry;
     this.tearStretchUniform.value = s.tearStretchThreshold;
     this.bbHitRadiusUniform.value = s.bbHitRadius;
     this.bbVisualRadiusUniform.value = s.bbVisualRadius;
@@ -1573,6 +1595,26 @@ export class InextensibleFlagSimulation {
         this.renderer.compute(this.measureGrabScreenDist);
         this.renderer.compute(this.selectGrabTarget);
         this.renderer.compute(this.applyGrabConstraint);
+
+        // Grabbing is an explicit screen-space override, so resolve body
+        // contacts again after it runs. Otherwise the user can drag vertices
+        // through character arm capsules after the main collision pass.
+        for (let grabContactPass = 0; grabContactPass < 4; grabContactPass++) {
+          if (this.settings.poleCollision) {
+            this.renderer.compute(this.resolvePoleCollision);
+          }
+          if (this.settings.mannequinCollision) {
+            this.renderer.compute(this.resolveMannequinCollision);
+          }
+          for (let boneSdfPass = 0; boneSdfPass < 3; boneSdfPass++) {
+            this.renderer.compute(this.resolveBoneSdfCollision);
+          }
+          if (this.settings.selfCollision) {
+            this.renderer.compute(this.resolveSelfCollision);
+          }
+        }
+        this.renderer.compute(this.clampSubstepTravel);
+        this.renderer.compute(this.enforcePins);
       }
     }
 
@@ -2480,6 +2522,9 @@ export class InextensibleFlagSimulation {
     this.grabTryLatchUniform = uniform(0);
     this.grabPickRadiusUniform = uniform(0.018);
     this.grabInfluenceRadiusUniform = uniform(this.settings.grabRadius);
+    this.grabStiffnessUniform = uniform(this.settings.grabStiffness);
+    this.grabMaxStepUniform = uniform(this.settings.grabMaxStep);
+    this.grabVelocityCarryUniform = uniform(this.settings.grabVelocityCarry);
     this.grabCameraProjectionUniform = uniform(new THREE.Matrix4());
     this.grabCameraViewUniform = uniform(new THREE.Matrix4());
     this.grabCameraProjectionInverseUniform = uniform(new THREE.Matrix4());
@@ -3999,6 +4044,9 @@ export class InextensibleFlagSimulation {
     const grabTryLatchUniform = this.grabTryLatchUniform;
     const grabPickRadiusUniform = this.grabPickRadiusUniform;
     const grabInfluenceRadiusUniform = this.grabInfluenceRadiusUniform;
+    const grabStiffnessUniform = this.grabStiffnessUniform;
+    const grabMaxStepUniform = this.grabMaxStepUniform;
+    const grabVelocityCarryUniform = this.grabVelocityCarryUniform;
     const grabCameraProjectionUniform = this.grabCameraProjectionUniform;
     const grabCameraViewUniform = this.grabCameraViewUniform;
     const grabCameraProjectionInverseUniform = this.grabCameraProjectionInverseUniform;
@@ -4148,9 +4196,15 @@ export class InextensibleFlagSimulation {
       const newView = grabCameraProjectionInverseUniform.mul(newClip);
       const newWorld = grabCameraWorldUniform.mul(newView);
       const newPosition = newWorld.xyz.div(newWorld.w);
+      const desiredDelta = newPosition.sub(position).mul(grabStiffnessUniform.clamp(0, 1)).toVar('grabDesiredDelta');
+      const desiredLen = desiredDelta.length().max(float(0.000001));
+      const maxGrabStep = grabMaxStepUniform.max(float(0.0001));
+      const cappedDelta = desiredDelta.mul(maxGrabStep.div(desiredLen).min(float(1))).toVar('grabCappedDelta');
+      const finalPosition = position.add(cappedDelta);
+      const carriedVelocity = cappedDelta.mul(grabVelocityCarryUniform.clamp(0, 1));
 
-      vertexPositionBuffer.element(instanceIndex).assign(newPosition);
-      vertexPreviousBuffer.element(instanceIndex).assign(newPosition);
+      vertexPositionBuffer.element(instanceIndex).assign(finalPosition);
+      vertexPreviousBuffer.element(instanceIndex).assign(finalPosition.sub(carriedVelocity));
     })()
       .compute(vertexCount)
       .setName('Apply Grab Constraint');

@@ -245,6 +245,10 @@ export function createInextensibleFlagControls(
   physicsFolder.add(settings, 'poleCollision').name('Pole collision').onChange(sync);
   physicsFolder.add(settings, 'dampening', 0.8, 0.9999, 0.0001).name('Dampening').onChange(sync);
   physicsFolder.add(settings, 'grabRadius', 0.015, 0.18, 0.005).name('Grab radius').onChange(sync);
+  physicsFolder.add(settings, 'grabStiffness', 0.05, 1, 0.01).name('Grab stiffness').onChange(sync);
+  physicsFolder.add(settings, 'grabMaxStep', 0.002, 0.08, 0.001).name('Grab max step').onChange(sync);
+  physicsFolder.add(settings, 'grabVelocityCarry', 0, 1, 0.01).name('Grab velocity carry').onChange(sync);
+  physicsFolder.add(settings, 'grabPointerMaxStep', 0.005, 0.3, 0.005).name('Grab pointer max step').onChange(sync);
   physicsFolder.add(settings, 'gravity', 0, 0.001, 0.00001).name('Gravity').onChange(sync);
   if (options.collisionUi === 'boneSdf') {
     const sdfFolder = gui.addFolder('Bone SDF collision');

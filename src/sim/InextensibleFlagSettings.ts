@@ -32,6 +32,14 @@ export interface InextensibleFlagSettings {
   dampening: number;
   /** Screen-space radius around the picked particle that follows grab dragging. */
   grabRadius: number;
+  /** Fraction of the requested grab correction applied each solver tick. */
+  grabStiffness: number;
+  /** Maximum world-space grab correction per solver tick. */
+  grabMaxStep: number;
+  /** How much grab movement becomes Verlet velocity after the correction. */
+  grabVelocityCarry: number;
+  /** Max screen-space pointer travel consumed by grab each animation frame. */
+  grabPointerMaxStep: number;
   gravity: number;
   /** Outward force for inflated garment/assembly previews (0 = off). */
   shapePressure: number;
@@ -139,6 +147,10 @@ export const defaultInextensibleFlagSettings = (): InextensibleFlagSettings => (
   zoneBDirZ: 0.35,
   dampening: 0.9925,
   grabRadius: 0.11,
+  grabStiffness: 0.55,
+  grabMaxStep: 0.018,
+  grabVelocityCarry: 0,
+  grabPointerMaxStep: 0.045,
   gravity: 0.00006,
   shapePressure: 0,
   mannequinCollision: false,
