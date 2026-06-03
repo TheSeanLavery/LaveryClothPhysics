@@ -34,6 +34,7 @@ import {
 } from '../storage/flagSettingsDb';
 import type { StrandThreadAuditResult } from '../testing/strandThreadAudit';
 import { ZeroGravityTubeScene, type ZeroGravityTubeStats } from './ZeroGravityTubeScene';
+export { mergeClothAssemblies } from './mergeClothAssemblies.ts';
 export {
   buildClothAssembly,
   createOctagonalTubeAssembly,

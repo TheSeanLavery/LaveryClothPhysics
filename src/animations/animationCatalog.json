@@ -9,6 +9,11 @@
     "freepack": "/assets/characters/freepack"
   },
   "categories": {
+    "locomotion": [
+      { "name": "Zombie Walk 01", "file": "rokoko-mixamo/ZombieWalk_01_mixamo.fbx", "loop": true, "source": "rokoko" },
+      { "name": "Zombie Walk 02 Slow", "file": "rokoko-mixamo/ZombieWalk_02_Slow_mixamo.fbx", "loop": true, "source": "rokoko" },
+      { "name": "Step Forward", "file": "rokoko-mixamo/StepForward_mixamo.fbx", "loop": true, "source": "rokoko" }
+    ],
     "idle": [
       { "name": "Idle", "file": "mixamo/idle.fbx", "loop": true, "source": "mixamo" },
       { "name": "Happy Idle", "file": "mixamo/happy-idle.fbx", "loop": true, "source": "mixamo" },

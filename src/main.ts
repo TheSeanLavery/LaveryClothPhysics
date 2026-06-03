@@ -21,6 +21,9 @@ import {
 } from './app/tubeAssemblies';
 import { setupDeveloperDashboard } from './app/devDashboard';
 import { getAppMode } from './app/routes';
+import { bootstrapCharacterDuel } from './scenes/characterDuel/bootstrapCharacterDuel.ts';
+import type { CharacterDuelStats } from './scenes/characterDuel/bootstrapCharacterDuel.ts';
+import type { DuelControlMode } from './scenes/characterDuel/characterDuelConfig.ts';
 import {
   createCharacterReproRecorder,
   type CharacterReproSaveResult,
@@ -132,6 +135,20 @@ declare global {
       isRecording: () => boolean;
     };
     __characterClothReadbackStats?: () => ReturnType<ClothSimulation['getReadbackStats']>;
+    __duelStats?: () => CharacterDuelStats;
+    __duelSetControlMode?: (mode: DuelControlMode) => void;
+    __duelGetControlMode?: () => DuelControlMode;
+    __duelFighterAPosition?: () => [number, number, number];
+    __duelFighterBPosition?: () => [number, number, number];
+    __duelClothStats?: () => ReturnType<ClothSimulation['getStats']>;
+    __duelClothSettings?: () => Pick<
+      ClothSimulationSettings,
+      'selfCollision' | 'mannequinCollision' | 'gravity'
+    >;
+    __duelSettledShirtSurfaceReport?: () => Promise<{ vertex: ShirtSdfClearanceReport }>;
+    __duelSimulateKey?: (code: string, phase: 'down' | 'up') => void;
+    __duelAnimationFsmSnapshot?: (fighter?: 'A' | 'B') => import('./animations/CharacterAnimationStateMachine.ts').FsmSnapshot;
+    __duelAnimationFsmForceState?: (state: string, fighter?: 'A' | 'B') => Promise<void>;
     __zeroGravityTubeReset?: () => Promise<void>;
     __zeroGravityTubeSpawnShape?: (kind: TubeAssemblySpawnKind) => Promise<number>;
     __zeroGravityTubeClearSpawnedShapes?: () => Promise<void>;
@@ -2045,6 +2062,11 @@ async function bootstrap(): Promise<void> {
 
   if (mode === 'character') {
     await bootstrapCharacterPreview(statusEl, backendEl, particlesEl);
+    return;
+  }
+
+  if (mode === 'character-duel') {
+    await bootstrapCharacterDuel(statusEl, backendEl, particlesEl);
     return;
   }
 

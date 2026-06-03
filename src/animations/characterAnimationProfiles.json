@@ -1,0 +1,102 @@
+{
+  "defaultProfileId": "duel-fighter",
+  "profiles": {
+    "duel-fighter": {
+      "id": "duel-fighter",
+      "label": "Duel Fighter",
+      "description": "In-place locomotion and melee combat for character duel.",
+      "parameters": {
+        "walkSpeed": 1.35,
+        "turnSpeed": 8,
+        "attackRange": 1.35,
+        "attackCooldownSeconds": 1.1,
+        "moveThreshold": 0.08
+      },
+      "states": {
+        "tpose": {
+          "label": "T-Pose",
+          "graph": { "x": 0.12, "y": 0.5 },
+          "clips": [{ "name": "T-Pose", "file": "mixamo/tpose.fbx", "loop": false, "fadeIn": 0.05 }]
+        },
+        "idle": {
+          "label": "Idle",
+          "graph": { "x": 0.38, "y": 0.5 },
+          "clips": [{ "name": "Fighting Idle", "file": "rokoko-mixamo/FightingIdle_mixamo.fbx", "loop": true, "fadeIn": 0.35 }]
+        },
+        "walk": {
+          "label": "Walk",
+          "graph": { "x": 0.62, "y": 0.28 },
+          "clips": [{ "name": "Zombie Walk 01", "file": "rokoko-mixamo/ZombieWalk_01_mixamo.fbx", "loop": true, "fadeIn": 0.25 }]
+        },
+        "attack": {
+          "label": "Attack",
+          "graph": { "x": 0.78, "y": 0.72 },
+          "pick": "random",
+          "clips": [
+            { "name": "Fight 01", "file": "rokoko-mixamo/Fight_01_mixamo.fbx", "loop": false, "fadeIn": 0.12 },
+            { "name": "Fight 02", "file": "rokoko-mixamo/Fight_02_mixamo.fbx", "loop": false, "fadeIn": 0.12 },
+            { "name": "Roundhouse Kick", "file": "rokoko-mixamo/RoundHouseKick_mixamo.fbx", "loop": false, "fadeIn": 0.12 },
+            { "name": "Big Front Kick", "file": "rokoko-mixamo/BigFrontKick_mixamo.fbx", "loop": false, "fadeIn": 0.12 },
+            { "name": "Boxing", "file": "rokoko-mixamo/Boxing_mixamo.fbx", "loop": false, "fadeIn": 0.12 }
+          ]
+        }
+      },
+      "transitions": [
+        { "from": "tpose", "to": "idle", "trigger": "start", "label": "Start" },
+        { "from": "idle", "to": "walk", "trigger": "moveStart", "label": "Move" },
+        { "from": "walk", "to": "idle", "trigger": "moveStop", "label": "Stop" },
+        { "from": "idle", "to": "attack", "trigger": "attack", "label": "Attack" },
+        { "from": "walk", "to": "attack", "trigger": "attack", "label": "Attack" },
+        { "from": "attack", "to": "idle", "trigger": "attackDone", "label": "Done" }
+      ]
+    },
+    "duel-brawler": {
+      "id": "duel-brawler",
+      "label": "Duel Brawler",
+      "description": "Heavier idle and wider attack variety.",
+      "parameters": {
+        "walkSpeed": 1.2,
+        "turnSpeed": 7,
+        "attackRange": 1.5,
+        "attackCooldownSeconds": 0.95,
+        "moveThreshold": 0.08
+      },
+      "states": {
+        "tpose": {
+          "label": "T-Pose",
+          "graph": { "x": 0.12, "y": 0.5 },
+          "clips": [{ "name": "T-Pose", "file": "mixamo/tpose.fbx", "loop": false, "fadeIn": 0.05 }]
+        },
+        "idle": {
+          "label": "Idle",
+          "graph": { "x": 0.38, "y": 0.5 },
+          "clips": [{ "name": "Regular Medium Idle", "file": "rokoko-mixamo/Regular_Medium_mixamo.fbx", "loop": true, "fadeIn": 0.35 }]
+        },
+        "walk": {
+          "label": "Walk",
+          "graph": { "x": 0.62, "y": 0.28 },
+          "clips": [{ "name": "Step Forward", "file": "rokoko-mixamo/StepForward_mixamo.fbx", "loop": true, "fadeIn": 0.25 }]
+        },
+        "attack": {
+          "label": "Attack",
+          "graph": { "x": 0.78, "y": 0.72 },
+          "pick": "random",
+          "clips": [
+            { "name": "Knife Fight", "file": "rokoko-mixamo/KnifeFight_mixamo.fbx", "loop": false, "fadeIn": 0.12 },
+            { "name": "Sword Fight", "file": "rokoko-mixamo/SwordFight_mixamo.fbx", "loop": false, "fadeIn": 0.12 },
+            { "name": "Shadow Boxing", "file": "rokoko-mixamo/ShadowBoxing_mixamo.fbx", "loop": false, "fadeIn": 0.12 },
+            { "name": "GunFu", "file": "rokoko-mixamo/GunFu_JohnWick_mixamo.fbx", "loop": false, "fadeIn": 0.12 }
+          ]
+        }
+      },
+      "transitions": [
+        { "from": "tpose", "to": "idle", "trigger": "start", "label": "Start" },
+        { "from": "idle", "to": "walk", "trigger": "moveStart", "label": "Move" },
+        { "from": "walk", "to": "idle", "trigger": "moveStop", "label": "Stop" },
+        { "from": "idle", "to": "attack", "trigger": "attack", "label": "Attack" },
+        { "from": "walk", "to": "attack", "trigger": "attack", "label": "Attack" },
+        { "from": "attack", "to": "idle", "trigger": "attackDone", "label": "Done" }
+      ]
+    }
+  }
+}

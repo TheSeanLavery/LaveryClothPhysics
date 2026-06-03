@@ -1,4 +1,12 @@
-export type AppMode = 'flag' | 'plane' | 'tube' | 'character' | 'character-sdf' | 'garment' | 'animations';
+export type AppMode =
+  | 'flag'
+  | 'plane'
+  | 'tube'
+  | 'character'
+  | 'character-duel'
+  | 'character-sdf'
+  | 'garment'
+  | 'animations';
 
 export interface AppModeLink {
   mode: AppMode;
@@ -33,6 +41,12 @@ export const APP_MODE_LINKS: readonly AppModeLink[] = [
     description: 'Animated character cloth simulation',
   },
   {
+    mode: 'character-duel',
+    label: 'Character Duel',
+    href: '/?mode=character-duel',
+    description: 'Two characters with GPU cloth shirts fighting',
+  },
+  {
     mode: 'character-sdf',
     label: 'SDF Tool',
     href: '/?mode=character-sdf',
@@ -58,6 +72,7 @@ export function getAppMode(search = window.location.search): AppMode {
     mode === 'plane' ||
     mode === 'tube' ||
     mode === 'character' ||
+    mode === 'character-duel' ||
     mode === 'character-sdf' ||
     mode === 'garment' ||
     mode === 'animations'

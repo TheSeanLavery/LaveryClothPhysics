@@ -1,0 +1,217 @@
+.animation-fsm-panel {
+  --fsm-bg: rgb(10 14 22 / 94%);
+  --fsm-border: #2a3448;
+  --fsm-text: #c8d6e5;
+  --fsm-muted: #7f8fa6;
+  --fsm-accent: #5cc8ff;
+  --fsm-active: #7ee787;
+  --fsm-attack: #ff7b72;
+  --fsm-walk: #d2a8ff;
+
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 120;
+  width: min(380px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--fsm-border);
+  border-radius: 10px;
+  background: var(--fsm-bg);
+  backdrop-filter: blur(10px);
+  color: var(--fsm-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 45%);
+  pointer-events: auto;
+}
+
+.animation-fsm-panel[data-collapsed='true'] .animation-fsm-panel__body {
+  display: none;
+}
+
+.animation-fsm-panel__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--fsm-border);
+}
+
+.animation-fsm-panel__title {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #fff;
+}
+
+.animation-fsm-panel__collapse,
+.animation-fsm-panel__tab {
+  cursor: pointer;
+  border: 1px solid var(--fsm-border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  color: var(--fsm-text);
+  background: rgb(26 32 48 / 90%);
+  font: inherit;
+}
+
+.animation-fsm-panel__tab[aria-selected='true'] {
+  border-color: var(--fsm-accent);
+  color: var(--fsm-accent);
+}
+
+.animation-fsm-panel__body {
+  overflow: auto;
+  padding: 10px 12px 12px;
+}
+
+.animation-fsm-panel__row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+
+.animation-fsm-panel__row label {
+  color: var(--fsm-muted);
+  min-width: 52px;
+}
+
+.animation-fsm-panel__row select {
+  flex: 1;
+  border: 1px solid var(--fsm-border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: #1a2030;
+  color: var(--fsm-text);
+  font: inherit;
+}
+
+.animation-fsm-panel__graph {
+  width: 100%;
+  height: 200px;
+  border: 1px solid var(--fsm-border);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgb(16 22 34) 0%, rgb(8 12 20) 100%);
+  margin-bottom: 10px;
+}
+
+.animation-fsm-panel__graph-edge {
+  fill: none;
+  stroke: rgb(127 143 166 / 55%);
+  stroke-width: 1.5;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease;
+}
+
+.animation-fsm-panel__graph-edge.is-active {
+  stroke: var(--fsm-accent);
+  stroke-width: 2.5;
+  stroke-dasharray: 6 8;
+  animation: fsm-edge-flow 0.8s linear infinite;
+}
+
+@keyframes fsm-edge-flow {
+  to {
+    stroke-dashoffset: -28;
+  }
+}
+
+.animation-fsm-panel__graph-node {
+  cursor: pointer;
+}
+
+.animation-fsm-panel__graph-node circle {
+  fill: rgb(26 32 48);
+  stroke: var(--fsm-border);
+  stroke-width: 1.5;
+  transition: stroke 0.15s ease, fill 0.15s ease;
+}
+
+.animation-fsm-panel__graph-node.is-active circle {
+  stroke: var(--fsm-active);
+  fill: rgb(36 58 42);
+  filter: drop-shadow(0 0 6px rgb(126 231 135 / 45%));
+}
+
+.animation-fsm-panel__graph-node[data-state='attack'] circle {
+  stroke: rgb(255 123 114 / 70%);
+}
+
+.animation-fsm-panel__graph-node[data-state='walk'] circle {
+  stroke: rgb(210 168 255 / 70%);
+}
+
+.animation-fsm-panel__graph-node text {
+  fill: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+.animation-fsm-panel__graph-node .sub {
+  fill: var(--fsm-muted);
+  font-size: 8px;
+  font-weight: 400;
+}
+
+.animation-fsm-panel__detail {
+  border: 1px solid var(--fsm-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: rgb(18 24 36 / 80%);
+}
+
+.animation-fsm-panel__detail h3 {
+  font-size: 11px;
+  color: #fff;
+  margin-bottom: 6px;
+}
+
+.animation-fsm-panel__meta {
+  color: var(--fsm-muted);
+  line-height: 1.5;
+  margin-bottom: 6px;
+}
+
+.animation-fsm-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.animation-fsm-panel__actions button {
+  cursor: pointer;
+  border: 1px solid var(--fsm-border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: rgb(30 45 75 / 85%);
+  color: var(--fsm-text);
+  font: inherit;
+}
+
+.animation-fsm-panel__actions button:hover {
+  border-color: var(--fsm-accent);
+  color: var(--fsm-accent);
+}
+
+.animation-fsm-panel__pulse {
+  height: 3px;
+  border-radius: 999px;
+  background: rgb(42 52 72);
+  overflow: hidden;
+  margin-top: 6px;
+}
+
+.animation-fsm-panel__pulse span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--fsm-accent), var(--fsm-active));
+  transform-origin: left center;
+  transition: transform 0.08s linear;
+}

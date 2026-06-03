@@ -619,6 +619,18 @@ export class AnimatedCharacterSceneRig {
     };
   }
 
+  getMixer(): THREE.AnimationMixer | null {
+    return this.mixer;
+  }
+
+  getLoadedRoot(): THREE.Object3D | null {
+    return this.loadedRoot;
+  }
+
+  getBones(): readonly THREE.Bone[] {
+    return this.bones;
+  }
+
   getBreastPhysics(): BreastPhysicsSimulator {
     return this.breastSim;
   }
