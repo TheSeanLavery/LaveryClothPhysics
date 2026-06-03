@@ -23,7 +23,8 @@
       "start": 0,
       "end": 1.33,
       "loop": true,
-      "fps": 30
+      "fps": 30,
+      "loopBlendSec": 0.15
     },
     "fighting-idle-loop": {
       "label": "Fighting Idle — Loop",
@@ -31,7 +32,17 @@
       "start": 0,
       "end": 2.5,
       "loop": true,
-      "fps": 30
+      "fps": 30,
+      "loopBlendSec": 0.2
+    },
+    "walk-1": {
+      "label": "walk_1",
+      "sourceFile": "rokoko-mixamo/StepForward_mixamo.fbx",
+      "start": 6,
+      "end": 7.766666666666664,
+      "loop": true,
+      "fps": 30,
+      "loopBlendSec": 0.15
     }
   }
 }

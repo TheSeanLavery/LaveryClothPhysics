@@ -10,28 +10,57 @@
   border-radius: 8px;
   background: var(--ace-bg);
   color: var(--ace-text);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .animation-clip-editor__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 10px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--ace-border);
 }
 
 .animation-clip-editor__title {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  letter-spacing: 0.03em;
   color: #fff;
 }
 
 .animation-clip-editor__body {
-  padding: 8px 10px 10px;
+  padding: 10px 12px 12px;
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+}
+
+.animation-clip-editor__section {
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgb(42 52 72 / 80%);
+}
+
+.animation-clip-editor__section:last-of-type {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.animation-clip-editor__section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ace-accent);
+  margin-bottom: 4px;
+}
+
+.animation-clip-editor__help {
+  color: var(--ace-muted);
+  font-size: 11px;
+  margin-bottom: 8px;
 }
 
 .animation-clip-editor__row {
@@ -42,8 +71,9 @@
 }
 
 .animation-clip-editor__row label {
-  min-width: 36px;
+  min-width: 72px;
   color: var(--ace-muted);
+  font-size: 11px;
 }
 
 .animation-clip-editor__row input[type='text'],
@@ -51,25 +81,26 @@
   flex: 1;
   border: 1px solid var(--ace-border);
   border-radius: 6px;
-  padding: 5px 8px;
+  padding: 6px 8px;
   background: #1a2030;
   color: var(--ace-text);
   font: inherit;
+  font-size: 11px;
 }
 
 .animation-clip-editor__range {
   width: 100%;
-  margin: 4px 0 8px;
+  margin: 4px 0 6px;
   accent-color: var(--ace-accent);
 }
 
 .animation-clip-editor__timeline {
   position: relative;
-  height: 28px;
+  height: 32px;
   border-radius: 6px;
   background: linear-gradient(90deg, #1a2030, #243048);
   border: 1px solid var(--ace-border);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   overflow: hidden;
 }
 
@@ -82,10 +113,29 @@
   border-right: 2px solid var(--ace-accent);
 }
 
+.animation-clip-editor__loop-end-hint {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--ace-ok);
+  pointer-events: none;
+}
+
 .animation-clip-editor__meta {
   color: var(--ace-muted);
+  font-size: 11px;
   line-height: 1.5;
   margin-bottom: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.animation-clip-editor__score {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--ace-ok);
+  margin-bottom: 8px;
+  min-height: 16px;
 }
 
 .animation-clip-editor__actions {
@@ -98,10 +148,11 @@
   cursor: pointer;
   border: 1px solid var(--ace-border);
   border-radius: 6px;
-  padding: 4px 8px;
+  padding: 6px 10px;
   background: rgb(30 45 75 / 85%);
   color: var(--ace-text);
   font: inherit;
+  font-size: 11px;
 }
 
 .animation-clip-editor__actions button:hover {
@@ -116,20 +167,20 @@
 
 .animation-clip-editor__list {
   margin-top: 8px;
-  max-height: 120px;
+  max-height: 100px;
   overflow-y: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
 }
 
 .animation-clip-editor__list button {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 4px 0;
+  display: inline;
   border: none;
   background: none;
   color: var(--ace-text);
   cursor: pointer;
   font: inherit;
+  padding: 0;
 }
 
 .animation-clip-editor__list button:hover {
@@ -137,9 +188,10 @@
 }
 
 .animation-clip-editor__status {
-  margin-top: 6px;
+  margin-top: 8px;
   color: var(--ace-muted);
-  min-height: 14px;
+  min-height: 16px;
+  font-size: 11px;
 }
 
 .animation-clip-editor__status.ok {

@@ -3,6 +3,7 @@ import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { getSubclip, resolveBindingCacheKey } from './animationSubclip.ts';
 import type { StateClipBinding } from './characterAnimationProfile.ts';
 import { retargetClipTracks } from './animationRetarget.ts';
+import { applyLoopEndBlend } from './loopMatch.ts';
 import { subclipCacheKey, trimAnimationClip } from './trimAnimationClip.ts';
 
 const ANIMATION_BASE_PATH = '/assets/characters';
@@ -62,6 +63,10 @@ export class CharacterAnimationPlayer {
     return this.clips.get(cacheKey)?.duration ?? null;
   }
 
+  getCachedClip(cacheKey: string): THREE.AnimationClip | undefined {
+    return this.clips.get(cacheKey);
+  }
+
   onFinished(listener: (clipName: string) => void): () => void {
     this.finishedListeners.add(listener);
     return () => this.finishedListeners.delete(listener);
@@ -103,12 +108,15 @@ export class CharacterAnimationPlayer {
     if (!sourceClip) {
       throw new Error(`Failed to load source clip for subclip ${subclipId}`);
     }
-    const trimmed = trimAnimationClip(sourceClip, {
+    let trimmed = trimAnimationClip(sourceClip, {
       name: subclip.label,
       startSec: subclip.start,
       endSec: subclip.end,
       fps: subclip.fps,
     });
+    if (subclip.loop && (subclip.loopBlendSec ?? 0) > 0) {
+      trimmed = applyLoopEndBlend(trimmed, { blendSec: subclip.loopBlendSec!, fps: subclip.fps });
+    }
     this.clips.set(cacheKey, trimmed);
     return trimmed.name;
   }
@@ -127,6 +135,7 @@ export class CharacterAnimationPlayer {
     endSec: number,
     loop: boolean,
     fps = 30,
+    loopBlendSec = 0,
   ): Promise<string> {
     const sourceUrl = `${ANIMATION_BASE_PATH}/${sourceFile}`;
     await this.loadClip(sourceUrl, 'Preview source');
@@ -135,12 +144,15 @@ export class CharacterAnimationPlayer {
       throw new Error('Preview source clip missing');
     }
     const previewKey = `preview:${sourceFile}:${startSec}:${endSec}`;
-    const trimmed = trimAnimationClip(sourceClip, {
+    let trimmed = trimAnimationClip(sourceClip, {
       name: 'Trim preview',
       startSec,
       endSec,
       fps,
     });
+    if (loop && loopBlendSec > 0) {
+      trimmed = applyLoopEndBlend(trimmed, { blendSec: loopBlendSec, fps });
+    }
     this.clips.set(previewKey, trimmed);
     this.playCached(previewKey, { loop, fadeDuration: 0.08 });
     return trimmed.name;

@@ -8,6 +8,8 @@ export interface AnimationSubclipDefinition {
   readonly end: number;
   readonly loop: boolean;
   readonly fps: number;
+  /** Crossfade last N seconds of the trim toward the start pose (smoother loop seam). */
+  readonly loopBlendSec?: number;
 }
 
 export interface AnimationSubclipLibrary {

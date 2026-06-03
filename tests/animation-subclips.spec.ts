@@ -15,6 +15,13 @@ test.describe('Animation subclips', () => {
     expect(library?.subclips['fight-01-jab']?.sourceFile).toBe('rokoko-mixamo/Fight_01_mixamo.fbx');
     expect(library?.subclips['zombie-walk-cycle']?.loop).toBe(true);
 
+    const findLoop = page.locator('[data-testid="clip-editor-find-loop"]');
+    await expect(findLoop).toBeVisible();
+    await findLoop.click();
+    await expect(page.locator('[data-testid="clip-editor-loop-score"]')).toContainText(/Match score/i, {
+      timeout: 15_000,
+    });
+
     expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
   });
 
