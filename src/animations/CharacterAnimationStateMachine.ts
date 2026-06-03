@@ -1,7 +1,6 @@
 import type { CharacterAnimationPlayer } from './CharacterAnimationPlayer.ts';
 import type { AnimatedCharacterSceneRig } from '../character/AnimatedCharacter.ts';
 import {
-  resolveClipUrl,
   type CharacterAnimationProfile,
   type FsmStateId,
   type FsmTriggerId,
@@ -89,13 +88,8 @@ export class CharacterAnimationStateMachine {
   }
 
   async preload(): Promise<void> {
-    const urls = new Set<string>();
-    for (const state of Object.values(this.profile.states)) {
-      for (const clip of state.clips) {
-        urls.add(resolveClipUrl(clip));
-      }
-    }
-    await Promise.all([...urls].map((url) => this.options.player.loadClip(url)));
+    const bindings = Object.values(this.profile.states).flatMap((state) => state.clips);
+    await Promise.all(bindings.map((binding) => this.options.player.loadBinding(binding)));
   }
 
   async holdTpose(): Promise<void> {
@@ -160,14 +154,12 @@ export class CharacterAnimationStateMachine {
       this.activeClipFile = this.profile.states.tpose.clips[0]?.file ?? null;
     } else {
       const clip = this.pickClipForState(next);
-      const url = resolveClipUrl(clip);
-      await this.options.player.playUrl(url, {
+      await this.options.player.playBinding(clip, {
         loop: clip.loop,
         fadeDuration: clip.fadeIn ?? 0.25,
-        displayName: clip.name,
       });
       this.activeClipName = clip.name;
-      this.activeClipFile = clip.file;
+      this.activeClipFile = clip.subclipId ?? clip.file ?? null;
     }
 
     if (transition) {

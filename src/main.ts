@@ -149,6 +149,8 @@ declare global {
     __duelSimulateKey?: (code: string, phase: 'down' | 'up') => void;
     __duelAnimationFsmSnapshot?: (fighter?: 'A' | 'B') => import('./animations/CharacterAnimationStateMachine.ts').FsmSnapshot;
     __duelAnimationFsmForceState?: (state: string, fighter?: 'A' | 'B') => Promise<void>;
+    __duelAnimationSubclipLibrary?: () => import('./animations/animationSubclip.ts').AnimationSubclipLibrary;
+    __animationSubclipLibrary?: () => Promise<import('./animations/animationSubclip.ts').AnimationSubclipLibrary>;
     __zeroGravityTubeReset?: () => Promise<void>;
     __zeroGravityTubeSpawnShape?: (kind: TubeAssemblySpawnKind) => Promise<number>;
     __zeroGravityTubeClearSpawnedShapes?: () => Promise<void>;
@@ -1956,6 +1958,8 @@ async function bootstrapAnimationBrowser(
       });
       btn.addEventListener('click', async () => {
         const file = btn.dataset.file!;
+        selectedSourceFile = file;
+        clipEditor.refresh();
         const loop = btn.dataset.loop === 'true';
         const url = `/assets/characters/${file}`;
         nowPlaying.textContent = `Loading: ${anim.name}...`;
@@ -2005,6 +2009,39 @@ async function bootstrapAnimationBrowser(
   });
 
   document.body.appendChild(panel);
+
+  let selectedSourceFile: string | null = 'mixamo/idle.fbx';
+
+  const { createAnimationClipEditorPanel } = await import('./animations/clipEditor/index.ts');
+  const { refreshSubclipLibraryFromServer } = await import('./animations/animationSubclip.ts');
+  await refreshSubclipLibraryFromServer();
+
+  let clipEditor!: ReturnType<typeof createAnimationClipEditorPanel>;
+  clipEditor = createAnimationClipEditorPanel({
+    testId: 'animation-clip-editor',
+    target: {
+      label: 'Animation Browser',
+      getMixer: () => rig.getMixer(),
+      getLoadedRoot: () => rig.getLoadedRoot(),
+      getBones: () => rig.getBones(),
+      getSourceFile: () => selectedSourceFile,
+      setSourceFile: (file) => {
+        selectedSourceFile = file;
+        clipEditor.refresh();
+      },
+    },
+    onLibraryChanged: () => refreshSubclipLibraryFromServer(),
+  });
+  clipEditor.element.style.cssText = `
+    position: fixed; right: 12px; top: 12px; bottom: 12px; width: min(360px, calc(100vw - 320px));
+    z-index: 100; overflow: auto;
+  `;
+
+  window.__animationSubclipLibrary = async () => {
+    await refreshSubclipLibraryFromServer();
+    const { getSubclipLibrary } = await import('./animations/animationSubclip.ts');
+    return getSubclipLibrary();
+  };
 
   // Shift the canvas to make room for the panel
   const canvas = cloth.renderer.domElement;

@@ -33,7 +33,7 @@
           "graph": { "x": 0.78, "y": 0.72 },
           "pick": "random",
           "clips": [
-            { "name": "Fight 01", "file": "rokoko-mixamo/Fight_01_mixamo.fbx", "loop": false, "fadeIn": 0.12 },
+            { "name": "Fight 01 — Jab", "subclipId": "fight-01-jab", "loop": false, "fadeIn": 0.12 },
             { "name": "Fight 02", "file": "rokoko-mixamo/Fight_02_mixamo.fbx", "loop": false, "fadeIn": 0.12 },
             { "name": "Roundhouse Kick", "file": "rokoko-mixamo/RoundHouseKick_mixamo.fbx", "loop": false, "fadeIn": 0.12 },
             { "name": "Big Front Kick", "file": "rokoko-mixamo/BigFrontKick_mixamo.fbx", "loop": false, "fadeIn": 0.12 },

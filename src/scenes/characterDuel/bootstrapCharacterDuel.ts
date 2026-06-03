@@ -8,7 +8,9 @@ import {
   CharacterDuelScene,
   type CharacterDuelStats,
 } from './CharacterDuelScene.ts';
+import { createAnimationClipEditorPanel } from '../../animations/clipEditor/index.ts';
 import { createAnimationFsmPanel } from '../../animations/fsm/index.ts';
+import { getSubclipLibrary, refreshSubclipLibraryFromServer } from '../../animations/animationSubclip.ts';
 import { CHARACTER_DUEL_CONFIG, type DuelControlMode } from './characterDuelConfig.ts';
 
 export async function bootstrapCharacterDuel(
@@ -105,13 +107,32 @@ export async function bootstrapCharacterDuel(
     collisionUi: 'boneSdf',
   });
 
+  await refreshSubclipLibraryFromServer();
+
+  let clipEditor!: ReturnType<typeof createAnimationClipEditorPanel>;
+
   const fsmPanel = createAnimationFsmPanel({
     testId: 'duel-animation-fsm-panel',
     targets: [
       { label: 'Fighter A', controller: duel.controllerA },
       { label: 'Fighter B', controller: duel.controllerB },
     ],
+    onTargetChange: () => clipEditor.refresh(),
   });
+
+  clipEditor = createAnimationClipEditorPanel({
+    testId: 'duel-animation-clip-editor',
+    target: fsmPanel.getActiveClipEditorTarget(),
+    onLibraryChanged: () => {
+      void refreshSubclipLibraryFromServer();
+      clipEditor.refresh();
+    },
+  });
+  clipEditor.element.style.position = 'fixed';
+  clipEditor.element.style.top = '12px';
+  clipEditor.element.style.right = '400px';
+  clipEditor.element.style.width = 'min(340px, calc(100vw - 420px))';
+  clipEditor.element.style.zIndex = '119';
 
   const onKeyDown = (event: KeyboardEvent): void => {
     duel.handleKeyDown(event.code);
@@ -145,6 +166,7 @@ export async function bootstrapCharacterDuel(
     const controller = fighter === 'B' ? duel.controllerB : duel.controllerA;
     return controller.fsm.getSnapshot();
   };
+  window.__duelAnimationSubclipLibrary = () => getSubclipLibrary();
   window.__duelAnimationFsmForceState = (state: string, fighter: 'A' | 'B' = 'A') => {
     const controller = fighter === 'B' ? duel.controllerB : duel.controllerA;
     return controller.fsm.forceState(state as 'tpose' | 'idle' | 'walk' | 'attack');

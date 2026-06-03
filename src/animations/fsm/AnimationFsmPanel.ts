@@ -1,6 +1,8 @@
 import './animationFsmPanel.css';
 import type { CharacterController } from '../../character/CharacterController.ts';
 import { getAllAnimations } from '../animationLoader.ts';
+import { bindingFromSubclip, listSubclips, refreshSubclipLibraryFromServer } from '../animationSubclip.ts';
+import type { AnimationClipEditorTarget } from '../clipEditor/AnimationClipEditorPanel.ts';
 import type { CharacterAnimationStateMachine } from '../CharacterAnimationStateMachine.ts';
 import {
   clearProfileOverrides,
@@ -24,10 +26,12 @@ export interface AnimationFsmPanelOptions {
   readonly initialTargetIndex?: number;
   readonly testId?: string;
   readonly collapsed?: boolean;
+  readonly onTargetChange?: () => void;
 }
 
 export interface AnimationFsmPanel {
   readonly element: HTMLElement;
+  getActiveClipEditorTarget(): AnimationClipEditorTarget;
   setCollapsed(collapsed: boolean): void;
   dispose(): void;
 }
@@ -42,6 +46,7 @@ export function createAnimationFsmPanel(options: AnimationFsmPanelOptions): Anim
 
   let activeTargetIndex = options.initialTargetIndex ?? 0;
   let selectedState: FsmStateId = 'idle';
+  let editorSourceFile: string | null = null;
   const catalogByFile = new Map(getAllAnimations().map((entry) => [entry.file, entry]));
 
   const header = document.createElement('div');
@@ -122,6 +127,7 @@ export function createAnimationFsmPanel(options: AnimationFsmPanelOptions): Anim
         syncProfileSelect();
         render();
         bindFsmListener();
+        options.onTargetChange?.();
         render();
       });
       targetTabs.append(tab);
@@ -187,6 +193,10 @@ export function createAnimationFsmPanel(options: AnimationFsmPanelOptions): Anim
       }
       group.addEventListener('click', () => {
         selectedState = stateId;
+        const clip = getFsm().getProfile().states[stateId].clips[0];
+        editorSourceFile = clip?.subclipId
+          ? bindingFromSubclip(clip.subclipId).file ?? clip.file ?? null
+          : clip?.file ?? null;
         void getFsm().forceState(stateId);
         render();
       });
@@ -234,37 +244,60 @@ export function createAnimationFsmPanel(options: AnimationFsmPanelOptions): Anim
     clipLabel.textContent = 'Clip';
     const clipSelect = document.createElement('select');
     clipSelect.dataset.testid = 'animation-fsm-clip-select';
-    const optgroupMap = new Map<string, HTMLOptGroupElement>();
 
+    const catalogGroup = document.createElement('optgroup');
+    catalogGroup.label = 'Catalog';
     for (const entry of getAllAnimations()) {
-      let group = optgroupMap.get(entry.category);
-      if (!group) {
-        group = document.createElement('optgroup');
-        group.label = entry.category;
-        optgroupMap.set(entry.category, group);
-        clipSelect.append(group);
-      }
       const option = document.createElement('option');
-      option.value = entry.file;
+      option.value = `file:${entry.file}`;
       option.textContent = entry.name;
-      if (primary?.file === entry.file) {
+      if (primary?.subclipId === undefined && primary?.file === entry.file) {
         option.selected = true;
       }
-      group.append(option);
+      catalogGroup.append(option);
+    }
+    clipSelect.append(catalogGroup);
+
+    const subclipGroup = document.createElement('optgroup');
+    subclipGroup.label = 'Sub-clips';
+    for (const { id, definition } of listSubclips()) {
+      const option = document.createElement('option');
+      option.value = `subclip:${id}`;
+      option.textContent = definition.label;
+      if (primary?.subclipId === id) {
+        option.selected = true;
+      }
+      subclipGroup.append(option);
+    }
+    clipSelect.append(subclipGroup);
+
+    if (primary?.subclipId) {
+      editorSourceFile = bindingFromSubclip(primary.subclipId).file ?? editorSourceFile;
+    } else if (primary?.file) {
+      editorSourceFile = primary.file;
     }
 
     clipSelect.addEventListener('change', () => {
-      const file = clipSelect.value;
-      const entry = catalogByFile.get(file);
-      if (!entry) {
-        return;
+      const value = clipSelect.value;
+      let binding: StateClipBinding;
+      if (value.startsWith('subclip:')) {
+        const subclipId = value.slice('subclip:'.length);
+        binding = bindingFromSubclip(subclipId);
+        editorSourceFile = binding.file ?? null;
+      } else {
+        const file = value.slice('file:'.length);
+        const entry = catalogByFile.get(file);
+        if (!entry) {
+          return;
+        }
+        binding = {
+          name: entry.name,
+          file: entry.file,
+          loop: entry.loop,
+          fadeIn: selectedState === 'attack' ? 0.12 : 0.25,
+        };
+        editorSourceFile = file;
       }
-      const binding: StateClipBinding = {
-        name: entry.name,
-        file: entry.file,
-        loop: entry.loop,
-        fadeIn: selectedState === 'attack' ? 0.12 : 0.25,
-      };
       const next = updateStatePrimaryClip(getFsm().getProfile(), selectedState, binding);
       applyProfileToTarget(next);
       saveProfileOverrides(next);
@@ -328,13 +361,22 @@ export function createAnimationFsmPanel(options: AnimationFsmPanelOptions): Anim
   rebuildTargetTabs();
   syncProfileSelect();
   bindFsmListener();
-  unsubscribes.push(
-    getFsm().onChange(() => render()),
-  );
   render();
+
+  const getActiveClipEditorTarget = (): AnimationClipEditorTarget => ({
+    label: getTarget().label,
+    getMixer: () => getTarget().controller.rig.getMixer(),
+    getLoadedRoot: () => getTarget().controller.rig.getLoadedRoot(),
+    getBones: () => getTarget().controller.rig.getBones(),
+    getSourceFile: () => editorSourceFile,
+    setSourceFile: (file: string) => {
+      editorSourceFile = file;
+    },
+  });
 
   return {
     element: panel,
+    getActiveClipEditorTarget,
     setCollapsed(collapsed: boolean) {
       panel.dataset.collapsed = String(collapsed);
       collapseBtn.textContent = collapsed ? '+' : '−';

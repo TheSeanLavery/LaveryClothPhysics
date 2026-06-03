@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import { getSubclip, resolveBindingCacheKey } from './animationSubclip.ts';
+import type { StateClipBinding } from './characterAnimationProfile.ts';
 import { retargetClipTracks } from './animationRetarget.ts';
+import { subclipCacheKey, trimAnimationClip } from './trimAnimationClip.ts';
+
+const ANIMATION_BASE_PATH = '/assets/characters';
 
 async function loadFbxQuietly(loader: FBXLoader, url: string): Promise<THREE.Group> {
   const originalWarn = console.warn;
@@ -28,6 +33,7 @@ export class CharacterAnimationPlayer {
   private readonly actions = new Map<string, THREE.AnimationAction>();
   private activeAction: THREE.AnimationAction | null = null;
   private activeClipName: string | null = null;
+  private activeCacheKey: string | null = null;
   private readonly finishedListeners = new Set<(clipName: string) => void>();
 
   constructor(
@@ -50,6 +56,10 @@ export class CharacterAnimationPlayer {
 
   getActiveAction(): THREE.AnimationAction | null {
     return this.activeAction;
+  }
+
+  getClipDuration(cacheKey: string): number | null {
+    return this.clips.get(cacheKey)?.duration ?? null;
   }
 
   onFinished(listener: (clipName: string) => void): () => void {
@@ -80,6 +90,62 @@ export class CharacterAnimationPlayer {
     return retargeted.name;
   }
 
+  async loadSubclip(subclipId: string): Promise<string> {
+    const cacheKey = subclipCacheKey(subclipId);
+    const cached = this.clips.get(cacheKey);
+    if (cached) {
+      return cached.name;
+    }
+    const subclip = getSubclip(subclipId);
+    const sourceUrl = `${ANIMATION_BASE_PATH}/${subclip.sourceFile}`;
+    await this.loadClip(sourceUrl, subclip.label);
+    const sourceClip = this.clips.get(sourceUrl);
+    if (!sourceClip) {
+      throw new Error(`Failed to load source clip for subclip ${subclipId}`);
+    }
+    const trimmed = trimAnimationClip(sourceClip, {
+      name: subclip.label,
+      startSec: subclip.start,
+      endSec: subclip.end,
+      fps: subclip.fps,
+    });
+    this.clips.set(cacheKey, trimmed);
+    return trimmed.name;
+  }
+
+  async loadBinding(binding: StateClipBinding): Promise<string> {
+    if (binding.subclipId) {
+      return this.loadSubclip(binding.subclipId);
+    }
+    const url = resolveBindingCacheKey(binding);
+    return this.loadClip(url, binding.name);
+  }
+
+  async playTrimPreview(
+    sourceFile: string,
+    startSec: number,
+    endSec: number,
+    loop: boolean,
+    fps = 30,
+  ): Promise<string> {
+    const sourceUrl = `${ANIMATION_BASE_PATH}/${sourceFile}`;
+    await this.loadClip(sourceUrl, 'Preview source');
+    const sourceClip = this.clips.get(sourceUrl);
+    if (!sourceClip) {
+      throw new Error('Preview source clip missing');
+    }
+    const previewKey = `preview:${sourceFile}:${startSec}:${endSec}`;
+    const trimmed = trimAnimationClip(sourceClip, {
+      name: 'Trim preview',
+      startSec,
+      endSec,
+      fps,
+    });
+    this.clips.set(previewKey, trimmed);
+    this.playCached(previewKey, { loop, fadeDuration: 0.08 });
+    return trimmed.name;
+  }
+
   playUrl(
     url: string,
     options: { fadeDuration?: number; loop?: boolean; displayName?: string } = {},
@@ -90,18 +156,31 @@ export class CharacterAnimationPlayer {
     });
   }
 
+  async playBinding(
+    binding: StateClipBinding,
+    options: { fadeDuration?: number; loop?: boolean } = {},
+  ): Promise<string> {
+    const cacheKey = binding.subclipId ? subclipCacheKey(binding.subclipId) : resolveBindingCacheKey(binding);
+    const clipName = await this.loadBinding(binding);
+    this.playCached(cacheKey, {
+      loop: options.loop ?? binding.loop,
+      fadeDuration: options.fadeDuration ?? binding.fadeIn,
+    });
+    return clipName;
+  }
+
   playCached(
-    url: string,
+    cacheKey: string,
     options: { fadeDuration?: number; loop?: boolean } = {},
   ): void {
-    const clip = this.clips.get(url);
+    const clip = this.clips.get(cacheKey);
     if (!clip) {
-      throw new Error(`Clip not loaded: ${url}`);
+      throw new Error(`Clip not loaded: ${cacheKey}`);
     }
-    let action = this.actions.get(url);
+    let action = this.actions.get(cacheKey);
     if (!action) {
       action = this.mixer.clipAction(clip, this.targetRoot);
-      this.actions.set(url, action);
+      this.actions.set(cacheKey, action);
     }
     const loop = options.loop ?? true;
     action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1);
@@ -115,6 +194,7 @@ export class CharacterAnimationPlayer {
     }
     this.activeAction = action;
     this.activeClipName = clip.name;
+    this.activeCacheKey = cacheKey;
   }
 
   crossfadeToAction(

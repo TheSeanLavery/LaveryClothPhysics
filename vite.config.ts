@@ -163,8 +163,66 @@ function animationRatingsPlugin(): Plugin {
   };
 }
 
+function animationSubclipsPlugin(): Plugin {
+  return {
+    name: 'animation-subclips',
+    configureServer(server) {
+      const subclipsPath = path.resolve(server.config.root, 'data/animationSubclips.json');
+
+      server.middlewares.use('/__animations/subclips', async (req, res) => {
+        if (req.method === 'GET') {
+          try {
+            const data = await readFile(subclipsPath, 'utf8');
+            res.statusCode = 200;
+            res.setHeader('content-type', 'application/json');
+            res.end(data);
+          } catch {
+            res.statusCode = 200;
+            res.setHeader('content-type', 'application/json');
+            res.end('{"version":1,"subclips":{}}');
+          }
+          return;
+        }
+
+        if (req.method === 'POST') {
+          try {
+            const chunks: Buffer[] = [];
+            for await (const chunk of req) {
+              chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+            }
+            const raw = Buffer.concat(chunks).toString('utf8');
+            const parsed = JSON.parse(raw);
+            await mkdir(path.dirname(subclipsPath), { recursive: true });
+            await writeFile(subclipsPath, `${JSON.stringify(parsed, null, 2)}\n`, 'utf8');
+            res.statusCode = 200;
+            res.setHeader('content-type', 'application/json');
+            res.end(JSON.stringify({ ok: true }));
+          } catch (error) {
+            res.statusCode = 500;
+            res.setHeader('content-type', 'application/json');
+            res.end(JSON.stringify({
+              ok: false,
+              error: error instanceof Error ? error.message : String(error),
+            }));
+          }
+          return;
+        }
+
+        res.statusCode = 405;
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ ok: false, error: 'Method not allowed' }));
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [characterReproRecorderPlugin(), garmentPresetFixturePlugin(), animationRatingsPlugin()],
+  plugins: [
+    characterReproRecorderPlugin(),
+    garmentPresetFixturePlugin(),
+    animationRatingsPlugin(),
+    animationSubclipsPlugin(),
+  ],
   server: {
     host: 'localhost',
     port: 5173,

@@ -12,6 +12,7 @@ test.describe('Character duel scene', () => {
     await expect(page.locator('#overlay h1')).toHaveText('Character Duel');
     await expect(page.locator('[data-testid="duel-controls"]')).toBeVisible();
     await expect(page.locator('[data-testid="duel-animation-fsm-panel"]')).toBeVisible();
+    await expect(page.locator('[data-testid="duel-animation-clip-editor"]')).toBeVisible();
 
     const fsmSnapshot = await page.evaluate(() => window.__duelAnimationFsmSnapshot?.('A'));
     expect(fsmSnapshot?.state).toBe('idle');

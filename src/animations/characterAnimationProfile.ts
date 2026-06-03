@@ -8,7 +8,8 @@ export type FsmTriggerId = 'start' | 'moveStart' | 'moveStop' | 'attack' | 'atta
 
 export interface StateClipBinding {
   readonly name: string;
-  readonly file: string;
+  readonly file?: string;
+  readonly subclipId?: string;
   readonly loop: boolean;
   readonly fadeIn?: number;
 }
@@ -76,6 +77,12 @@ export function getDefaultProfileId(): string {
 }
 
 export function resolveClipUrl(binding: StateClipBinding): string {
+  if (binding.subclipId) {
+    return `subclip:${binding.subclipId}`;
+  }
+  if (!binding.file) {
+    throw new Error('Clip binding requires file or subclipId');
+  }
   return `${ANIMATION_BASE_PATH}/${binding.file}`;
 }
 
