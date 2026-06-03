@@ -1,0 +1,24 @@
+---
+description: Ship production-quality features—no prototypes, stubs, or deferred sim
+alwaysApply: true
+---
+
+# Production quality by default
+
+Implement features as if they ship to users today: complete wiring, tests, and integration with existing systems.
+
+## Do
+
+- Follow patterns already in `main.ts` bootstraps, `src/character/*`, `src/garments/*`, and `tests/*.spec.ts`
+- Add routes to `APP_MODE_LINKS` when adding modes; add headed Playwright tests for new behavior
+- Prefer extending shared modules over one-off copies in `main.ts`
+- Run build and relevant tests before considering work done
+
+## Do not
+
+- Label work “v1”, “placeholder”, “for now”, or “good enough for demo” when the user asked for the real feature
+- Suggest or implement stand-ins for systems that already exist in this repo (especially cloth—see `cloth-physics-required`)
+- Leave dead UI, half-wired `window.__*` hooks, or modes that redirect to unrelated pages
+- Skip error handling, types, or tests for “speed” on user-facing features
+
+When tradeoffs exist, state them and still default to the **full** production path unless the user explicitly chooses a narrower scope.

@@ -1,0 +1,43 @@
+---
+description: Always use full GPU cloth simulation—never stand-ins or fake cloth
+alwaysApply: true
+---
+
+# Cloth physics is mandatory
+
+This project has a real cloth physics system. When the user asks for cloth, garments, shirts, flags, fabric, or dressing a character, **always wire the full production pipeline**. Never ship a shortcut, placeholder, or “we’ll add sim later” version.
+
+## Always use
+
+- `createClothSimulation()` from `src/cloth` (backed by `InextensibleFlagSimulation` / WebGPU)
+- Garment assembly from `src/cloth/patternAssembly` and `src/garments/garmentGenerator`
+- Character dressing via `CharacterGarmentFlow` in `src/character/characterGarmentFlow.ts`
+- SDF collision: `rig.getBoneSdfSummary()` → `cloth.setBoneSdfCapsules()` each frame when a character wears cloth
+- The same loop pattern as `?mode=character`: load sim → load rig → dress with garment flow → `update()` + `render()` every frame
+
+## Never use as substitutes
+
+- Parenting a static `Mesh` to bones and calling it a shirt
+- Pre-baked posed garment geometry with no sim
+- “Visual only” or “static fitted mesh for v1” when cloth was requested
+- Skipping `CharacterGarmentFlow` / `loadPreset` / `load()` because a scene has two characters or a new mode
+- Fake fabric motion (vertex animation, morph targets, or shader wobble) instead of the solver
+
+If performance or scope is hard, **extend the real system** (second assembly, second sim instance, shared renderer)—do not replace cloth with a stand-in.
+
+## New scenes and modes
+
+Any new endpoint (`src/app/routes.ts`, `src/scenes/*`, bootstrap in `src/main.ts`) that involves worn fabric must:
+
+1. Bootstrap `ClothSimulation` (or the mode’s established sim entry point)
+2. Dress through `CharacterGarmentFlow` (or `garmentFlow` patterns in garment studio)
+3. Run the sim in the animation loop until settled and during interaction
+4. Add Playwright coverage that asserts sim/garment stats (vertex counts, clearance, or `getStats()`), not only that a mesh is visible
+
+## Production quality bar
+
+- Match existing conventions in `src/main.ts` character/garment bootstraps
+- Reuse modules; do not duplicate a half-featured parallel cloth path
+- If unsure how to integrate, read `?mode=character` and `CharacterGarmentFlow` first, then implement the same depth
+
+When proposing plans, **do not recommend** static shirts, optional sim phases, or simplified duel/garment paths unless the user explicitly asks for a non-cloth prototype (they have not).
