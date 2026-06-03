@@ -5,6 +5,7 @@ export const CURRENT_GARMENT_SCHEMA_VERSION = 5;
 
 export type GarmentType = 'tshirt' | 'skirt' | 'pleatedSkirt' | 'elasticShorts' | 'trousers' | 'jeans';
 export type PleatType = 'knife' | 'box' | 'invertedBox';
+export type PleatedWaistFinish = 'plainBand' | 'wideBand' | 'elasticBand' | 'yoke';
 
 export interface GarmentGeneratorParamsByType {
   tshirt: TShirtGarmentParams;
@@ -38,6 +39,12 @@ export interface PleatedSkirtGarmentParams extends SkirtGarmentParams {
   readonly pleatDepth: number;
   readonly pleatCount: number;
   readonly hemPleatRelease: number;
+  readonly waistFinish: PleatedWaistFinish;
+  readonly waistbandHeight: number;
+  readonly waistbandStiffness: number;
+  readonly yokeHeight: number;
+  readonly pleatTackDepth: number;
+  readonly waistCompression: number;
 }
 
 export interface LowerBodyBlockParams {
@@ -141,6 +148,12 @@ export const DEFAULT_PLEATED_SKIRT_PARAMS: PleatedSkirtGarmentParams = {
   pleatDepth: 0.045,
   pleatCount: 12,
   hemPleatRelease: 0.55,
+  waistFinish: 'yoke',
+  waistbandHeight: 0.055,
+  waistbandStiffness: 0.65,
+  yokeHeight: 0.12,
+  pleatTackDepth: 0.22,
+  waistCompression: 0.92,
 };
 
 export const DEFAULT_ELASTIC_SHORTS_PARAMS: ElasticShortsGarmentParams = {
@@ -296,12 +309,12 @@ function clampGarmentParams<T extends GarmentGeneratorParams>(params: T): T {
   if (params.garmentType === 'tshirt') {
     return {
       ...params,
-      bodyWidth: clamp(params.bodyWidth, 0.2, 1.2),
+      bodyWidth: clamp(params.bodyWidth, 0.12, 1.2),
       torsoHeight: clamp(params.torsoHeight, 0.2, 1.2),
       sleeveLength: clamp(params.sleeveLength, 0, 0.7),
-      sleeveOpening: clamp(params.sleeveOpening, 0.035, 0.55),
-      sleeveTubeRadius: clamp(params.sleeveTubeRadius ?? DEFAULT_TSHIRT_PARAMS.sleeveTubeRadius!, 0.01, 0.22),
-      depth: clamp(params.depth ?? DEFAULT_TSHIRT_PARAMS.depth!, 0.035, 0.45),
+      sleeveOpening: clamp(params.sleeveOpening, 0.02, 0.55),
+      sleeveTubeRadius: clamp(params.sleeveTubeRadius ?? DEFAULT_TSHIRT_PARAMS.sleeveTubeRadius!, 0.006, 0.22),
+      depth: clamp(params.depth ?? DEFAULT_TSHIRT_PARAMS.depth!, 0.02, 0.45),
       gridSpacing: clamp(params.gridSpacing ?? DEFAULT_TSHIRT_PARAMS.gridSpacing, 0.018, 0.08),
       bodySegmentsX: Math.round(clamp(params.bodySegmentsX ?? 12, 4, 36)),
       bodySegmentsY: Math.round(clamp(params.bodySegmentsY ?? 18, 4, 48)),
@@ -316,8 +329,8 @@ function clampGarmentParams<T extends GarmentGeneratorParams>(params: T): T {
   if (params.garmentType === 'pleatedSkirt') {
     return {
       ...params,
-      waistRadius: clamp(params.waistRadius, 0.12, 0.8),
-      hemRadius: clamp(params.hemRadius, 0.12, 1.1),
+      waistRadius: clamp(params.waistRadius, 0.045, 0.8),
+      hemRadius: clamp(params.hemRadius, 0.065, 1.1),
       length: clamp(params.length, 0.15, 1.4),
       gridSpacing: clamp(params.gridSpacing ?? DEFAULT_PLEATED_SKIRT_PARAMS.gridSpacing, 0.018, 0.08),
       panelCount: Math.round(clamp(params.panelCount, 4, 48)),
@@ -326,6 +339,12 @@ function clampGarmentParams<T extends GarmentGeneratorParams>(params: T): T {
       pleatDepth: clamp(params.pleatDepth, 0, 0.18),
       pleatCount: Math.round(clamp(params.pleatCount, 4, 48)),
       hemPleatRelease: clamp(params.hemPleatRelease, 0, 1),
+      waistFinish: parsePleatedWaistFinish(params.waistFinish),
+      waistbandHeight: clamp(params.waistbandHeight ?? DEFAULT_PLEATED_SKIRT_PARAMS.waistbandHeight, 0.015, 0.18),
+      waistbandStiffness: clamp(params.waistbandStiffness ?? DEFAULT_PLEATED_SKIRT_PARAMS.waistbandStiffness, 0, 1),
+      yokeHeight: clamp(params.yokeHeight ?? DEFAULT_PLEATED_SKIRT_PARAMS.yokeHeight, 0, 0.35),
+      pleatTackDepth: clamp(params.pleatTackDepth ?? DEFAULT_PLEATED_SKIRT_PARAMS.pleatTackDepth, 0, 0.8),
+      waistCompression: clamp(params.waistCompression ?? DEFAULT_PLEATED_SKIRT_PARAMS.waistCompression, 0.55, 1.15),
     } as T;
   }
 
@@ -360,8 +379,8 @@ function clampGarmentParams<T extends GarmentGeneratorParams>(params: T): T {
 
   return {
     ...params,
-    waistRadius: clamp(params.waistRadius, 0.12, 0.8),
-    hemRadius: clamp(params.hemRadius, 0.12, 1.1),
+    waistRadius: clamp(params.waistRadius, 0.045, 0.8),
+    hemRadius: clamp(params.hemRadius, 0.065, 1.1),
     length: clamp(params.length, 0.15, 1.4),
     gridSpacing: clamp(params.gridSpacing ?? DEFAULT_SKIRT_PARAMS.gridSpacing, 0.018, 0.08),
     panelCount: Math.round(clamp(params.panelCount, 4, 36)),
@@ -391,15 +410,15 @@ function clampLowerBodyParams<T extends LowerBodyBlockParams>(
   return {
     ...params,
     gridSpacing: clamp(params.gridSpacing ?? defaults.gridSpacing, 0.018, 0.08),
-    waistCircumference: clamp(params.waistCircumference ?? defaults.waistCircumference, 0.45, 1.4),
-    hipCircumference: clamp(params.hipCircumference ?? defaults.hipCircumference, 0.5, 1.7),
+    waistCircumference: clamp(params.waistCircumference ?? defaults.waistCircumference, 0.24, 1.4),
+    hipCircumference: clamp(params.hipCircumference ?? defaults.hipCircumference, 0.32, 1.7),
     rise: clamp(params.rise ?? defaults.rise, 0.16, 0.5),
     inseam: clamp(params.inseam ?? defaults.inseam, 0.06, 1.1),
-    thighCircumference: clamp(params.thighCircumference ?? defaults.thighCircumference, 0.28, 1),
-    kneeCircumference: clamp(params.kneeCircumference ?? defaults.kneeCircumference, 0.24, 0.9),
-    hemCircumference: clamp(params.hemCircumference ?? defaults.hemCircumference, 0.18, 0.9),
-    hipEase: clamp(params.hipEase ?? defaults.hipEase, 0, 0.22),
-    seatEase: clamp(params.seatEase ?? defaults.seatEase, 0, 0.22),
+    thighCircumference: clamp(params.thighCircumference ?? defaults.thighCircumference, 0.18, 1),
+    kneeCircumference: clamp(params.kneeCircumference ?? defaults.kneeCircumference, 0.14, 0.9),
+    hemCircumference: clamp(params.hemCircumference ?? defaults.hemCircumference, 0.1, 0.9),
+    hipEase: clamp(params.hipEase ?? defaults.hipEase, -0.12, 0.22),
+    seatEase: clamp(params.seatEase ?? defaults.seatEase, -0.12, 0.22),
     ...garmentSpecific,
   };
 }
@@ -409,6 +428,13 @@ function parsePleatType(value: unknown): PleatType {
     return value;
   }
   return 'knife';
+}
+
+function parsePleatedWaistFinish(value: unknown): PleatedWaistFinish {
+  if (value === 'wideBand' || value === 'elasticBand' || value === 'yoke' || value === 'plainBand') {
+    return value;
+  }
+  return DEFAULT_PLEATED_SKIRT_PARAMS.waistFinish;
 }
 
 function requirePresetName(name: string): string {

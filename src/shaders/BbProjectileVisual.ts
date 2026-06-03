@@ -1,32 +1,31 @@
 import * as THREE from 'three/webgpu';
-import { Fn, float, uniform, vec3 } from 'three/tsl';
+import { Fn, attribute, instanceIndex, vec3 } from 'three/tsl';
+import type { ShaderNodeObject } from 'three/tsl';
+import type { UniformNode } from 'three/webgpu';
 
-export function createBbProjectileMesh(): THREE.Mesh {
+type InstancedVec3Buffer = {
+  element: (index: ShaderNodeObject<unknown>) => ShaderNodeObject<THREE.Vector3>;
+};
+
+export function createGpuBbProjectileMesh(
+  positionBuffer: InstancedVec3Buffer,
+  maxCount: number,
+  radius: UniformNode<number>,
+): THREE.InstancedMesh {
   const material = new THREE.MeshBasicNodeMaterial({
     color: new THREE.Color(0.25, 0.25, 0.28),
     toneMapped: false,
   });
 
   material.colorNode = Fn(() => vec3(0.82, 0.84, 0.88))();
+  material.positionNode = Fn(() => {
+    const center = positionBuffer.element(instanceIndex);
+    const localPosition = attribute('position');
+    return center.add(localPosition.mul(radius));
+  })();
 
-  const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 10), material);
-  mesh.name = 'bb-projectile';
-  mesh.visible = false;
+  const mesh = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 10, 10), material, maxCount);
+  mesh.name = 'bb-projectiles-gpu';
   mesh.frustumCulled = false;
   return mesh;
-}
-
-export function syncBbProjectileMesh(
-  mesh: THREE.Mesh,
-  position: THREE.Vector3,
-  radius: number,
-  visible: boolean,
-): void {
-  mesh.visible = visible;
-  if (!visible) {
-    return;
-  }
-
-  mesh.position.copy(position);
-  mesh.scale.setScalar(radius);
 }

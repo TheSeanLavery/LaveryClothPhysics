@@ -19,6 +19,7 @@ import {
   measureTShirtSleeves,
   type TubeAssemblySpawnKind,
 } from './app/tubeAssemblies';
+import { setupDeveloperDashboard } from './app/devDashboard';
 import { getAppMode } from './app/routes';
 import {
   createCharacterReproRecorder,
@@ -54,9 +55,17 @@ import {
 } from './character/AnimatedCharacter';
 import {
   CharacterGarmentFlow,
-  createCharacterGarmentControls,
+  type CharacterGarmentFitReport,
   type CharacterShirtSurfaceReport,
 } from './character/characterGarmentFlow';
+import {
+  CharacterSdfTool,
+  type CharacterSdfToolStats,
+} from './character/sdf/CharacterSdfTool';
+import type {
+  CharacterSdfFitQualityReport,
+  CharacterSdfPresetEnvelope,
+} from './character/sdf';
 import type {
   AssemblyStrainReport,
   BodyArmDrapeReport,
@@ -78,6 +87,17 @@ declare global {
     __characterBlendTo?: (kind: 'tpose' | 'idle' | 'dance') => void;
     __characterSetTearThreshold?: (threshold: number) => void;
     __characterReloadShirtForTest?: () => Promise<void>;
+    __characterGarmentStats?: () => GarmentAssemblyStats;
+    __characterGarmentFitReport?: () => CharacterGarmentFitReport;
+    __characterGarmentSettledFitReport?: () => Promise<CharacterGarmentFitReport>;
+    __characterGarmentSetFitDebugVisible?: (visible: boolean) => void;
+    __characterGarmentGetPreset?: () => GarmentPresetEnvelope;
+    __characterGarmentGenerate?: <T extends GarmentType>(
+      garmentType: T,
+      params?: Partial<GarmentGeneratorParamsByType[T]>,
+      name?: string,
+    ) => Promise<GarmentAssemblyStats>;
+    __characterClothStats?: () => ReturnType<ClothSimulation['getStats']>;
     __characterTearProtectionReport?: () => {
       active: boolean;
       restoreThreshold: number;
@@ -93,14 +113,21 @@ declare global {
     __characterSettledShirtSurfaceReport?: () => Promise<CharacterShirtSurfaceReport>;
     __characterProbeBoneSdfCollision?: () => BoneSdfCollisionProbe;
     __characterShirtAnchorReport?: () => ShirtAnchorReport;
+    __characterSdfToolStats?: () => CharacterSdfToolStats;
+    __characterSdfToolCapsules?: () => ReturnType<CharacterSdfTool['getCapsules']>;
+    __characterSdfToolReport?: () => CharacterSdfFitQualityReport;
+    __characterSdfToolPreset?: () => CharacterSdfPresetEnvelope;
+    __characterSdfToolSetGlobalRadiusScale?: (scale: number) => CharacterSdfFitQualityReport;
     __characterReproRecorder?: {
       start: () => Promise<void>;
       stopAndSave: () => Promise<CharacterReproSaveResult>;
       isRecording: () => boolean;
     };
+    __characterClothReadbackStats?: () => ReturnType<ClothSimulation['getReadbackStats']>;
     __zeroGravityTubeReset?: () => Promise<void>;
     __zeroGravityTubeSpawnShape?: (kind: TubeAssemblySpawnKind) => Promise<number>;
     __zeroGravityTubeClearSpawnedShapes?: () => Promise<void>;
+    __zeroGravityTubeReadbackStats?: () => ReturnType<ClothSimulation['getReadbackStats']>;
     __zeroGravityTubeSetTearThreshold?: (threshold: number) => void;
     __zeroGravityTubeSetShapePressure?: (pressure: number) => void;
     __zeroGravityTubeGetSettings?: () => ClothSimulationSettings;
@@ -127,6 +154,7 @@ declare global {
     };
     __garmentStudioStats?: () => GarmentAssemblyStats | null;
     __garmentStudioPhysicsStats?: () => ReturnType<ClothSimulation['getStats']>;
+    __garmentStudioReadbackStats?: () => ReturnType<ClothSimulation['getReadbackStats']>;
     __garmentStudioGetPreset?: () => GarmentPresetEnvelope;
     __garmentStudioGenerate?: <T extends GarmentType>(
       garmentType: T,
@@ -159,6 +187,7 @@ async function bootstrapFlag(
   });
   window.__flagSimRefreshHealth = () => sim.refreshHealthFromGpu();
   window.__flagSimSetFabric = (settings) => sim.setFabricSettings(settings);
+  window.__flagSimReadbackStats = () => sim.getReadbackStats();
   window.__flagSimSetFabricTextureSource = (source) => sim.setFabricTextureSource(source);
   window.__flagSimSetWind = (strength) => sim.setWindStrength(strength);
   window.__flagSimCaptureFlagCanvas = () => sim.captureFlagCanvas();
@@ -292,22 +321,9 @@ async function bootstrapFlag(
 
   window.addEventListener('resize', () => sim.resize());
 
-  let bbVisualSyncBusy = false;
-  sim.renderer.setAnimationLoop(async () => {
-    if (bbVisualSyncBusy) {
-      sim.update();
-      sim.render();
-      return;
-    }
-
-    bbVisualSyncBusy = true;
-    try {
-      sim.update();
-      await sim.refreshBbVisualsFromGpu();
-      sim.render();
-    } finally {
-      bbVisualSyncBusy = false;
-    }
+  sim.renderer.setAnimationLoop(() => {
+    sim.update();
+    sim.render();
   });
 }
 
@@ -461,12 +477,39 @@ async function bootstrapCharacterPreview(
     testId: 'character-controls',
     collisionUi: 'boneSdf',
   });
-  let shirtRebuildQueue = Promise.resolve();
-  createCharacterGarmentControls(characterGui, garmentFlow, () => {
-    shirtRebuildQueue = shirtRebuildQueue.then(() => garmentFlow.load()).catch((error: unknown) => {
-      console.error(error);
-    });
+  let garmentGenerateQueue = Promise.resolve<GarmentAssemblyStats>(garmentFlow.getStats());
+  const characterGeneratorControls = createGarmentStudioControls({
+    title: 'Character Clothing Generator',
+    testId: 'character-garment-generator-controls',
+    position: 'left',
+    initialPreset: garmentFlow.getActivePreset(),
+    showServerFixture: false,
+    showExport: true,
+    onGenerate: (preset) => {
+      garmentGenerateQueue = garmentGenerateQueue.then(() => garmentFlow.loadPreset(preset)).catch((error: unknown) => {
+        console.error(error);
+        throw error;
+      });
+      return garmentGenerateQueue;
+    },
   });
+  characterGeneratorControls.gui.open();
+  const garmentDebugState = { fitDebugVisible: false };
+  characterGeneratorControls.gui
+    .add(garmentDebugState, 'fitDebugVisible')
+    .name('Show fit debug')
+    .onChange((visible: boolean) => {
+      garmentFlow.setFitDebugVisible(visible);
+    });
+  const reloadCurrentCharacterGarment = (): Promise<GarmentAssemblyStats> => {
+    garmentGenerateQueue = garmentGenerateQueue.then(() =>
+      garmentFlow.loadPreset(characterGeneratorControls.getCurrentPreset()),
+    ).catch((error: unknown) => {
+      console.error(error);
+      throw error;
+    });
+    return garmentGenerateQueue;
+  };
 
   // --- Breast physics GUI ---
   const breastGui = characterGui.addFolder('Breast physics');
@@ -506,7 +549,21 @@ async function bootstrapCharacterPreview(
   window.__characterBreastVisualAlignmentReport = () => rig.getBreastVisualAlignmentReport();
   window.__characterBlendTo = (kind: 'tpose' | 'idle' | 'dance') => rig.blendToAnimation(kind);
   window.__characterSetTearThreshold = (threshold: number) => garmentFlow.setTearThreshold(threshold);
-  window.__characterReloadShirtForTest = () => garmentFlow.load();
+  window.__characterReloadShirtForTest = () => reloadCurrentCharacterGarment().then(() => undefined);
+  window.__characterGarmentStats = () => garmentFlow.getStats();
+  window.__characterGarmentFitReport = () => garmentFlow.getFitReport();
+  window.__characterGarmentSettledFitReport = () => garmentFlow.settledFitReport();
+  window.__characterGarmentSetFitDebugVisible = (visible: boolean) => {
+    garmentDebugState.fitDebugVisible = visible;
+    garmentFlow.setFitDebugVisible(visible);
+  };
+  window.__characterGarmentGetPreset = () => characterGeneratorControls.getCurrentPreset();
+  window.__characterGarmentGenerate = async (garmentType, params, name) => {
+    const preset = createGarmentPresetEnvelope(name ?? `Character ${garmentType}`, garmentType, params);
+    await characterGeneratorControls.applyPreset(preset);
+    return garmentFlow.getStats();
+  };
+  window.__characterClothStats = () => cloth.getStats();
   window.__characterTearProtectionReport = () => garmentFlow.tearProtectionReport();
   window.__characterShirtSdfClearanceReport = () => garmentFlow.sdfClearanceReport();
   window.__characterShirtPerCapsuleClearanceReport = () => garmentFlow.perCapsuleClearanceReport();
@@ -713,6 +770,7 @@ async function bootstrapCharacterPreview(
     stopAndSave: () => characterReproRecorder.stopAndSave(),
     isRecording: () => characterReproRecorder.isRecording(),
   };
+  window.__characterClothReadbackStats = () => cloth.getReadbackStats();
 
   const setRecordButtonState = (state: 'idle' | 'recording' | 'saving' | 'saved' | 'downloaded' | 'error'): void => {
     recordReproBtn.classList.toggle('active', state === 'recording');
@@ -864,30 +922,56 @@ async function bootstrapCharacterPreview(
 
   window.addEventListener('resize', () => cloth.resize());
   const timer = new THREE.Timer();
-  let bbVisualSyncBusy = false;
-  cloth.renderer.setAnimationLoop(async () => {
-    if (bbVisualSyncBusy) {
-      timer.update();
-      const delta = Math.min(timer.getDelta(), 1 / 30);
-      rig.update(delta);
-      syncCharacterBoneSdfsToGpu(cloth, rig);
-      cloth.update();
-      cloth.render();
-      return;
-    }
+  cloth.renderer.setAnimationLoop(() => {
+    timer.update();
+    const delta = Math.min(timer.getDelta(), 1 / 30);
+    rig.update(delta);
+    syncCharacterBoneSdfsToGpu(cloth, rig);
+    cloth.update();
+    cloth.render();
+  });
+}
 
-    bbVisualSyncBusy = true;
-    try {
-      timer.update();
-      const delta = Math.min(timer.getDelta(), 1 / 30);
-      rig.update(delta);
-      syncCharacterBoneSdfsToGpu(cloth, rig);
-      cloth.update();
-      await cloth.refreshBbVisualsFromGpu();
-      cloth.render();
-    } finally {
-      bbVisualSyncBusy = false;
-    }
+async function bootstrapCharacterSdfTool(
+  statusEl: HTMLElement,
+  backendEl: HTMLElement,
+  particlesEl: HTMLElement,
+): Promise<void> {
+  const heading = document.querySelector('#overlay h1');
+  if (heading) {
+    heading.textContent = 'Character SDF Tool';
+  }
+
+  const resetBtn = document.querySelector<HTMLButtonElement>('#reset-flag-btn');
+  if (resetBtn) {
+    resetBtn.textContent = 'Reset view';
+  }
+  const grabToggleBtn = document.querySelector<HTMLButtonElement>('#grab-toggle-btn');
+  if (grabToggleBtn) {
+    grabToggleBtn.style.display = 'none';
+  }
+  const shootToggleBtn = document.querySelector<HTMLButtonElement>('#shoot-toggle-btn');
+  if (shootToggleBtn) {
+    shootToggleBtn.style.display = 'none';
+  }
+
+  const tool = new CharacterSdfTool(document.body, statusEl, backendEl, particlesEl);
+  await tool.load();
+  tool.createControls();
+  resetBtn?.addEventListener('click', () => {
+    tool.controls.reset();
+  });
+
+  window.__characterSdfToolStats = () => tool.getStats();
+  window.__characterSdfToolCapsules = () => tool.getCapsules();
+  window.__characterSdfToolReport = () => tool.getReport();
+  window.__characterSdfToolPreset = () => tool.getPreset();
+  window.__characterSdfToolSetGlobalRadiusScale = (scale: number) => tool.setGlobalRadiusScale(scale);
+
+  window.addEventListener('resize', () => tool.resize());
+  tool.renderer.setAnimationLoop(() => {
+    tool.update();
+    tool.render();
   });
 }
 
@@ -1139,6 +1223,7 @@ async function bootstrapZeroGravityTube(
   };
   window.__zeroGravityTubeDeleteSettingsPreset = (id) => deleteFlagSettingsPreset(id);
   window.__zeroGravityTubeFire = (ndcX, ndcY) => cloth.fireBbForTest(ndcX, ndcY) !== null;
+  window.__zeroGravityTubeReadbackStats = () => cloth.getReadbackStats();
   window.__zeroGravityTubeSpawnShape = spawnAssembly;
   window.__zeroGravityTubeClearSpawnedShapes = clearSpawnedAssembly;
   window.__zeroGravityTubeShapeStats = () => spawnedAssemblyStats;
@@ -1211,22 +1296,9 @@ async function bootstrapZeroGravityTube(
   canvas.addEventListener('pointerleave', () => cloth.clearMousePointer());
 
   window.addEventListener('resize', () => cloth.resize());
-  let bbVisualSyncBusy = false;
-  cloth.renderer.setAnimationLoop(async () => {
-    if (bbVisualSyncBusy) {
-      cloth.update();
-      cloth.render();
-      return;
-    }
-
-    bbVisualSyncBusy = true;
-    try {
-      cloth.update();
-      await cloth.refreshBbVisualsFromGpu();
-      cloth.render();
-    } finally {
-      bbVisualSyncBusy = false;
-    }
+  cloth.renderer.setAnimationLoop(() => {
+    cloth.update();
+    cloth.render();
   });
 }
 
@@ -1310,6 +1382,7 @@ async function bootstrapGarmentStudio(
 
   window.__garmentStudioStats = () => activeStats;
   window.__garmentStudioPhysicsStats = () => cloth.getStats();
+  window.__garmentStudioReadbackStats = () => cloth.getReadbackStats();
   window.__garmentStudioGetPreset = () => studioControls.getCurrentPreset();
   window.__garmentStudioGenerate = async (garmentType, params, name) => {
     const preset = createGarmentPresetEnvelope(name ?? `Generated ${garmentType}`, garmentType, params);
@@ -1416,6 +1489,8 @@ function syncCharacterBoneSdfsToGpu(cloth: ClothSimulation, rig: AnimatedCharact
 }
 
 async function bootstrap(): Promise<void> {
+  setupDeveloperDashboard();
+
   const statusEl = document.querySelector<HTMLElement>('[data-testid="sim-status"]');
   const backendEl = document.querySelector<HTMLElement>('[data-testid="sim-backend"]');
   const particlesEl = document.querySelector<HTMLElement>('[data-testid="sim-particles"]');
@@ -1445,6 +1520,11 @@ async function bootstrap(): Promise<void> {
 
   if (mode === 'character') {
     await bootstrapCharacterPreview(statusEl, backendEl, particlesEl);
+    return;
+  }
+
+  if (mode === 'character-sdf') {
+    await bootstrapCharacterSdfTool(statusEl, backendEl, particlesEl);
     return;
   }
 

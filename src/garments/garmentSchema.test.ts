@@ -63,6 +63,8 @@ test('upgrades v2 pleated skirt presets with real fold and grid defaults', () =>
   assert.equal(upgraded.params.pleatType, 'knife');
   assert.equal(upgraded.params.hemPleatRelease, 0.55);
   assert.equal(upgraded.params.gridSpacing, 0.04);
+  assert.equal(upgraded.params.waistFinish, 'yoke');
+  assert.equal(upgraded.params.pleatTackDepth, 0.22);
 });
 
 test('normalizes skirt and pleated skirt parameters independently', () => {
@@ -72,7 +74,7 @@ test('normalizes skirt and pleated skirt parameters independently', () => {
     hemRadius: 2,
     panelCount: 99,
   });
-  assert.equal(skirt.waistRadius, 0.12);
+  assert.equal(skirt.waistRadius, 0.045);
   assert.equal(skirt.hemRadius, 1.1);
   assert.equal(skirt.panelCount, 36);
   assert.equal(skirt.gridSpacing, 0.04);
@@ -90,6 +92,29 @@ test('normalizes skirt and pleated skirt parameters independently', () => {
   assert.equal(pleated.pleatType, 'box');
   assert.equal(pleated.hemPleatRelease, 1);
   assert.equal(pleated.gridSpacing, 0.018);
+  assert.equal(pleated.waistFinish, 'yoke');
+  assert.equal(pleated.waistCompression, 0.92);
+});
+
+test('normalizes snug lower-body garment ranges for character fitting', () => {
+  const trousers = normalizeGarmentParams('trousers', {
+    garmentType: 'trousers',
+    waistCircumference: 0.1,
+    hipCircumference: 0.1,
+    thighCircumference: 0.1,
+    kneeCircumference: 0.1,
+    hemCircumference: 0.05,
+    hipEase: -0.5,
+    seatEase: -0.5,
+  });
+
+  assert.equal(trousers.waistCircumference, 0.24);
+  assert.equal(trousers.hipCircumference, 0.32);
+  assert.equal(trousers.thighCircumference, 0.18);
+  assert.equal(trousers.kneeCircumference, 0.14);
+  assert.equal(trousers.hemCircumference, 0.1);
+  assert.equal(trousers.hipEase, -0.12);
+  assert.equal(trousers.seatEase, -0.12);
 });
 
 test('generates valid assemblies for supported garment types', () => {
@@ -183,12 +208,47 @@ test('pleated skirt uses real hidden material length instead of radius-only wave
   assert.ok(measuredTopPath < material.flatWaistMaterialLength * 1.01);
 });
 
+test('pleated skirt adds waist control construction and top tack constraints', () => {
+  const params = normalizeGarmentParams('pleatedSkirt', {
+    garmentType: 'pleatedSkirt',
+    waistFinish: 'yoke',
+    yokeHeight: 0.16,
+    waistbandStiffness: 0.8,
+    pleatTackDepth: 0.3,
+    waistCompression: 0.82,
+    pleatCount: 16,
+  });
+  const assembly = generateGarmentAssembly(params);
+
+  assert.equal(validateClothAssembly(assembly).length, 0);
+  assertPatch(assembly, 'pleated-skirt-folded-panel');
+  assertPatch(assembly, 'pleated-skirt-yoke');
+  assert.ok(assembly.stitchEdges.some((edge) => edge.sourceId === 'pleated-skirt-yoke-attach-pleats'));
+  assert.ok(assembly.edges.some((edge) => edge.sourceId === 'pleated-top-tack'));
+  assert.ok(assembly.edges.some((edge) => edge.sourceId === 'pleated-waist-control-brace'));
+});
+
+test('pleated skirt can use elastic waistband construction', () => {
+  const params = normalizeGarmentParams('pleatedSkirt', {
+    garmentType: 'pleatedSkirt',
+    waistFinish: 'elasticBand',
+    waistbandHeight: 0.075,
+    waistCompression: 0.72,
+  });
+  const assembly = generateGarmentAssembly(params);
+
+  assert.equal(validateClothAssembly(assembly).length, 0);
+  assertPatch(assembly, 'pleated-skirt-elasticBand');
+  assert.ok(assembly.stitchEdges.some((edge) => edge.sourceId === 'pleated-skirt-elasticBand-attach-pleats'));
+});
+
 function measureTopBoundaryPath(
   assembly: ReturnType<typeof generateGarmentAssembly>,
 ): number {
-  const maxY = Math.max(...assembly.vertices.map((vertex) => vertex.position[1]));
-  const topVertices = assembly.vertices
-    .filter((vertex) => vertex.patchId === 'pleated-skirt-folded-panel' && Math.abs(vertex.position[1] - maxY) < 1e-6)
+  const pleatedVertices = assembly.vertices.filter((vertex) => vertex.patchId === 'pleated-skirt-folded-panel');
+  const maxY = Math.max(...pleatedVertices.map((vertex) => vertex.position[1]));
+  const topVertices = pleatedVertices
+    .filter((vertex) => Math.abs(vertex.position[1] - maxY) < 1e-6)
     .sort((a, b) => a.localId - b.localId);
 
   let length = 0;
@@ -204,6 +264,7 @@ function maxStructuralRestLength(assembly: ReturnType<typeof generateGarmentAsse
   return Math.max(
     ...assembly.edges
       .filter((edge) => edge.kind === 'structural')
+      .filter((edge) => !/brace|tack/.test(edge.sourceId))
       .map((edge) => edge.restLength),
   );
 }

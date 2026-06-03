@@ -214,7 +214,8 @@ export function buildAssemblyClothTopology(assembly: ClothAssembly): ClothTopolo
   for (const [root, vertexIds] of groups) {
     const average = new THREE.Vector3();
     for (const vertexId of vertexIds) {
-      const position = assembly.vertices[vertexId]!.position;
+      const vertex = assembly.vertices[vertexId]!;
+      const position = vertex.position;
       average.add(new THREE.Vector3(position[0], position[1], position[2]));
     }
     average.multiplyScalar(1 / vertexIds.length);

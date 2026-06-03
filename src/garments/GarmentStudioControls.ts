@@ -19,6 +19,14 @@ import {
 
 export interface GarmentStudioControlsOptions {
   readonly onGenerate: (preset: GarmentPresetEnvelope) => Promise<void> | void;
+  readonly title?: string;
+  readonly testId?: string;
+  readonly position?: 'left' | 'right';
+  readonly initialPreset?: GarmentPresetEnvelope;
+  readonly initialGarmentType?: GarmentType;
+  readonly initialPresetName?: string;
+  readonly showServerFixture?: boolean;
+  readonly showExport?: boolean;
 }
 
 export interface GarmentStudioControls {
@@ -33,25 +41,31 @@ type MutableParams = Record<string, number | string | boolean>;
 export function createGarmentStudioControls(
   options: GarmentStudioControlsOptions,
 ): GarmentStudioControls {
-  const gui = new GUI({ title: 'Clothing Generator Studio', width: 360 });
-  gui.domElement.setAttribute('data-testid', 'garment-studio-controls');
+  const initialGarmentType = options.initialPreset?.garmentType ?? options.initialGarmentType ?? 'tshirt';
+  const gui = new GUI({ title: options.title ?? 'Clothing Generator Studio', width: 360 });
+  gui.domElement.setAttribute('data-testid', options.testId ?? 'garment-studio-controls');
   gui.domElement.style.position = 'fixed';
   gui.domElement.style.top = '12px';
-  gui.domElement.style.left = '12px';
-  gui.domElement.style.right = 'auto';
+  if ((options.position ?? 'left') === 'right') {
+    gui.domElement.style.left = 'auto';
+    gui.domElement.style.right = '12px';
+  } else {
+    gui.domElement.style.left = '12px';
+    gui.domElement.style.right = 'auto';
+  }
   gui.domElement.style.zIndex = '25';
   gui.domElement.style.maxHeight = 'calc(100vh - 24px)';
   gui.domElement.style.overflow = 'auto';
 
-  let garmentType: GarmentType = 'tshirt';
-  let currentParams = mutableParams(defaultGarmentParams(garmentType));
+  let garmentType: GarmentType = initialGarmentType;
+  let currentParams = mutableParams(options.initialPreset?.params ?? defaultGarmentParams(garmentType));
   let paramFolder: GUI | null = null;
   let presetSummaries: GarmentPresetSummary[] = [];
   const presetOptions: Record<string, string> = { '': '(select preset)' };
 
   const state = {
-    presetName: 'My T-shirt',
-    selectedPresetId: '',
+    presetName: options.initialPreset?.name ?? options.initialPresetName ?? defaultPresetName(garmentType),
+    selectedPresetId: options.initialPreset?.id ?? '',
     garmentType,
     status: 'Ready',
     async generate() {
@@ -149,10 +163,14 @@ export function createGarmentStudioControls(
   presetFolder.add(state, 'loadPreset').name('Load preset')
     .domElement.setAttribute('data-testid', 'garment-load-btn');
   presetFolder.add(state, 'deletePreset').name('Delete preset');
-  presetFolder.add(state, 'saveServerFixture').name('Save server fixture')
-    .domElement.setAttribute('data-testid', 'garment-save-server-btn');
-  presetFolder.add(state, 'exportJson').name('Export JSON')
-    .domElement.setAttribute('data-testid', 'garment-export-btn');
+  if (options.showServerFixture ?? true) {
+    presetFolder.add(state, 'saveServerFixture').name('Save server fixture')
+      .domElement.setAttribute('data-testid', 'garment-save-server-btn');
+  }
+  if (options.showExport ?? true) {
+    presetFolder.add(state, 'exportJson').name('Export JSON')
+      .domElement.setAttribute('data-testid', 'garment-export-btn');
+  }
   const statusController = presetFolder.add(state, 'status').name('Status').disable();
   statusController.domElement.setAttribute('data-testid', 'garment-status');
   presetFolder.open();
@@ -268,23 +286,33 @@ export function createGarmentStudioControls(
     paramFolder?.destroy();
     paramFolder = gui.addFolder('Garment parameters');
     if (garmentType === 'tshirt') {
-      addSlider('bodyWidth', 0.2, 1.2, 0.01, 'Body width');
+      addSlider('bodyWidth', 0.12, 1.2, 0.01, 'Body width');
       addSlider('torsoHeight', 0.2, 1.2, 0.01, 'Torso height');
       addSlider('sleeveLength', 0, 0.7, 0.01, 'Sleeve length');
-      addSlider('sleeveOpening', 0.035, 0.55, 0.005, 'Sleeve opening');
-      addSlider('sleeveTubeRadius', 0.01, 0.22, 0.001, 'Sleeve tube radius');
-      addSlider('depth', 0.035, 0.45, 0.005, 'Front/back depth');
+      addSlider('sleeveOpening', 0.02, 0.55, 0.005, 'Sleeve opening');
+      addSlider('sleeveTubeRadius', 0.006, 0.22, 0.001, 'Sleeve tube radius');
+      addSlider('depth', 0.02, 0.45, 0.005, 'Front/back depth');
       addSlider('gridSpacing', 0.018, 0.08, 0.001, 'Grid spacing');
       addSlider('sleeveHangScale', 0, 1, 0.01, 'Sleeve hang');
       addSlider('sleeveLiftScale', 0, 1, 0.01, 'Sleeve lift');
       addSlider('sleeveVerticalRadiusScale', 0.02, 0.8, 0.01, 'Sleeve vertical radius');
     } else if (garmentType === 'skirt' || garmentType === 'pleatedSkirt') {
-      addSlider('waistRadius', 0.12, 0.8, 0.01, 'Waist radius');
-      addSlider('hemRadius', 0.12, 1.1, 0.01, 'Hem radius');
+      addSlider('waistRadius', 0.045, 0.8, 0.005, 'Waist radius');
+      addSlider('hemRadius', 0.065, 1.1, 0.005, 'Hem radius');
       addSlider('length', 0.15, 1.4, 0.01, 'Length');
       addSlider('panelCount', garmentType === 'pleatedSkirt' ? 6 : 4, garmentType === 'pleatedSkirt' ? 48 : 36, 1, 'Panel count');
       addSlider('gridSpacing', 0.018, 0.08, 0.001, 'Grid spacing');
       if (garmentType === 'pleatedSkirt') {
+        addChoice('waistFinish', {
+          'Plain waistband': 'plainBand',
+          'Wide waistband': 'wideBand',
+          'Elastic waistband': 'elasticBand',
+          'Fitted yoke': 'yoke',
+        }, 'Waist finish');
+        addSlider('waistbandHeight', 0.015, 0.18, 0.001, 'Waistband height');
+        addSlider('waistbandStiffness', 0, 1, 0.01, 'Waistband stiffness');
+        addSlider('yokeHeight', 0, 0.35, 0.005, 'Yoke height');
+        addSlider('waistCompression', 0.55, 1.15, 0.01, 'Waist compression');
         addChoice('pleatType', {
           'Knife pleats': 'knife',
           'Box pleats': 'box',
@@ -292,18 +320,20 @@ export function createGarmentStudioControls(
         }, 'Pleat type');
         addSlider('pleatDepth', 0, 0.18, 0.005, 'Pleat depth');
         addSlider('pleatCount', 4, 48, 1, 'Pleat count');
+        addSlider('pleatTackDepth', 0, 0.8, 0.01, 'Pleat tack depth');
         addSlider('hemPleatRelease', 0, 1, 0.01, 'Hem pleat release');
       }
     } else {
-      addSlider('waistCircumference', 0.45, 1.4, 0.01, 'Waist circumference');
-      addSlider('hipCircumference', 0.5, 1.7, 0.01, 'Hip circumference');
+      addOutseamLengthControl();
+      addSlider('waistCircumference', 0.24, 1.4, 0.01, 'Waist circumference');
+      addSlider('hipCircumference', 0.32, 1.7, 0.01, 'Hip circumference');
       addSlider('rise', 0.16, 0.5, 0.005, 'Rise');
-      addSlider('inseam', 0.06, 1.1, 0.01, 'Inseam');
-      addSlider('thighCircumference', 0.28, 1, 0.01, 'Thigh circumference');
-      addSlider('kneeCircumference', 0.24, 0.9, 0.01, 'Knee circumference');
-      addSlider('hemCircumference', 0.18, 0.9, 0.01, 'Hem circumference');
-      addSlider('hipEase', 0, 0.22, 0.005, 'Hip ease');
-      addSlider('seatEase', 0, 0.22, 0.005, 'Seat ease');
+      addSlider('inseam', 0.06, 1.1, 0.01, 'Inseam / leg length');
+      addSlider('thighCircumference', 0.18, 1, 0.01, 'Thigh circumference');
+      addSlider('kneeCircumference', 0.14, 0.9, 0.01, 'Knee circumference');
+      addSlider('hemCircumference', 0.1, 0.9, 0.01, 'Hem circumference');
+      addSlider('hipEase', -0.12, 0.22, 0.005, 'Hip ease');
+      addSlider('seatEase', -0.12, 0.22, 0.005, 'Seat ease');
       addSlider('gridSpacing', 0.018, 0.08, 0.001, 'Grid spacing');
       if (garmentType === 'elasticShorts') {
         addSlider('elasticWidth', 0.015, 0.08, 0.001, 'Elastic width');
@@ -335,6 +365,20 @@ export function createGarmentStudioControls(
       .name(label)
       .onFinishChange(() => {
         currentParams = mutableParams(currentTypedParams());
+        void generateCurrent();
+      });
+  }
+
+  function addOutseamLengthControl(): void {
+    currentParams.outseamLength = Number(currentParams.rise) + Number(currentParams.inseam);
+    paramFolder
+      ?.add(currentParams, 'outseamLength', 0.24, 1.45, 0.01)
+      .name('Outseam / full length')
+      .onFinishChange((next: number) => {
+        currentParams.inseam = Math.max(0.06, next - Number(currentParams.rise));
+        currentParams = mutableParams(currentTypedParams());
+        currentParams.outseamLength = Number(currentParams.rise) + Number(currentParams.inseam);
+        rebuildParamFolder();
         void generateCurrent();
       });
   }

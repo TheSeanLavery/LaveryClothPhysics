@@ -9,6 +9,13 @@ import {
   type ClothAssembly,
 } from '../cloth/patternAssembly';
 import { BreastPhysicsSimulator } from './breastPhysics';
+import {
+  buildCharacterSdfBlueprints,
+  compileCharacterSdfCapsulesFromBlueprints,
+  compileFallbackCharacterSdfCapsules,
+  type CharacterSdfCapsule,
+  type CharacterSdfCapsuleBlueprint,
+} from './sdf';
 export const VISIBLE_CHARACTER_MODEL_URL = '/assets/characters/meshy/blue-haired-anime-girl.fbx';
 export const MIXAMO_TPOSE_URL = '/assets/characters/mixamo/tpose.fbx';
 export const MIXAMO_IDLE_URL = '/assets/characters/mixamo/idle.fbx';
@@ -22,17 +29,7 @@ const TMP_B = new THREE.Vector3();
 const TMP_C = new THREE.Vector3();
 const BONE_SDF_CLOTH_SKIN = 0.012;
 
-export interface BoneSdfCapsule {
-  readonly id: number;
-  readonly name: string;
-  readonly parentName: string;
-  readonly start: THREE.Vector3;
-  readonly end: THREE.Vector3;
-  readonly radius: number;
-  readonly length: number;
-  readonly fitVertexCount?: number;
-  readonly fitted?: boolean;
-}
+export type BoneSdfCapsule = CharacterSdfCapsule;
 
 export interface CharacterAnchors {
   readonly hips: THREE.Vector3 | null;
@@ -76,16 +73,7 @@ export interface BoneSdfCollisionProbe {
   readonly hitBoneNames: string[];
 }
 
-interface BoneSdfCapsuleBlueprint {
-  readonly name: string;
-  readonly parentName: string;
-  readonly startBone: THREE.Bone;
-  readonly endBone: THREE.Bone;
-  readonly t0: number;
-  readonly t1: number;
-  readonly radius: number;
-  readonly fitVertexCount: number;
-}
+type BoneSdfCapsuleBlueprint = CharacterSdfCapsuleBlueprint;
 
 interface MutableRegionCoverage {
   sampledVertexCount: number;
@@ -729,53 +717,7 @@ export class AnimatedCharacterSceneRig {
     }
     this.loadedRoot.updateMatrixWorld(true);
     this.boneSdfBlueprints.length = 0;
-
-    const pointsByBone = new Map<THREE.Bone, THREE.Vector3[]>();
-    this.loadedRoot.traverse((object) => {
-      if (!(object instanceof THREE.SkinnedMesh)) {
-        return;
-      }
-      const geometry = object.geometry;
-      const positionAttr = geometry.getAttribute('position');
-      const skinIndexAttr = geometry.getAttribute('skinIndex');
-      const skinWeightAttr = geometry.getAttribute('skinWeight');
-      if (!positionAttr || !skinIndexAttr || !skinWeightAttr || !object.skeleton) {
-        return;
-      }
-
-      const worldVertex = new THREE.Vector3();
-      for (let vertexIndex = 0; vertexIndex < positionAttr.count; vertexIndex++) {
-        getSkinnedVertexWorldPosition(object, vertexIndex, worldVertex);
-
-        for (let influence = 0; influence < Math.min(4, skinWeightAttr.itemSize); influence++) {
-          const weight = skinWeightAttr.getComponent(vertexIndex, influence);
-          if (weight < 0.18) {
-            continue;
-          }
-          const boneIndex = Math.round(skinIndexAttr.getComponent(vertexIndex, influence));
-          const bone = object.skeleton.bones[boneIndex];
-          if (!bone || shouldSkipFittedBone(bone.name)) {
-            continue;
-          }
-          const points = pointsByBone.get(bone);
-          if (points) {
-            points.push(worldVertex.clone());
-          } else {
-            pointsByBone.set(bone, [worldVertex.clone()]);
-          }
-        }
-      }
-    });
-
-    for (const bone of this.bones) {
-      const endBone = primaryCollisionChildBone(bone) ?? (bone.parent instanceof THREE.Bone ? bone.parent : null);
-      if (!endBone || shouldSkipFittedBone(bone.name)) {
-        continue;
-      }
-      const points = pointsByBone.get(bone) ?? [];
-      const fitted = buildCapsuleBlueprintsForBone(bone, endBone, points);
-      this.boneSdfBlueprints.push(...fitted);
-    }
+    this.boneSdfBlueprints.push(...buildCharacterSdfBlueprints(this.loadedRoot, this.bones));
   }
 
   private updateBoneSdfs(delta = 0): void {
@@ -785,52 +727,11 @@ export class AnimatedCharacterSceneRig {
     this.loadedRoot.updateMatrixWorld(true);
     this.boneCapsules.length = 0;
     if (this.boneSdfBlueprints.length > 0) {
-      for (const blueprint of this.boneSdfBlueprints) {
-        const startPosition = blueprint.startBone.getWorldPosition(new THREE.Vector3());
-        const endPosition = blueprint.endBone.getWorldPosition(new THREE.Vector3());
-        const start = startPosition.clone().lerp(endPosition, blueprint.t0);
-        const end = startPosition.clone().lerp(endPosition, blueprint.t1);
-        const length = start.distanceTo(end);
-        if (length < 0.004) {
-          continue;
-        }
-        this.boneCapsules.push({
-          id: this.boneCapsules.length,
-          name: blueprint.name,
-          parentName: blueprint.parentName,
-          start,
-          end,
-          radius: withClothCollisionSkin(blueprint.radius),
-          length,
-          fitVertexCount: blueprint.fitVertexCount,
-          fitted: true,
-        });
-      }
+      this.boneCapsules.push(...compileCharacterSdfCapsulesFromBlueprints(this.boneSdfBlueprints));
       this.addSoftChestJiggleSdfs(delta);
       return;
     }
-
-    for (const bone of this.bones) {
-      const parent = bone.parent;
-      if (!(parent instanceof THREE.Bone)) {
-        continue;
-      }
-      const start = parent.getWorldPosition(new THREE.Vector3());
-      const end = bone.getWorldPosition(new THREE.Vector3());
-      const length = start.distanceTo(end);
-      if (length < 0.01) {
-        continue;
-      }
-      this.boneCapsules.push({
-        id: this.boneCapsules.length,
-        name: bone.name,
-        parentName: parent.name,
-        start,
-        end,
-        radius: withClothCollisionSkin(radiusForBone(bone.name, length)),
-        length,
-      });
-    }
+    this.boneCapsules.push(...compileFallbackCharacterSdfCapsules(this.bones));
     this.addSoftChestJiggleSdfs(delta);
   }
 

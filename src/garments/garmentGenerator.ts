@@ -613,7 +613,7 @@ function createPleatedSkirtAssembly(params: PleatedSkirtGarmentParams): ClothAss
     }
   }
 
-  const patch: ClothPatchDefinition = {
+  const skirtPatch: ClothPatchDefinition = {
     id: 'pleated-skirt-folded-panel',
     label: `${params.pleatType} pleated skirt folded fabric`,
     vertices,
@@ -627,16 +627,157 @@ function createPleatedSkirtAssembly(params: PleatedSkirtGarmentParams): ClothAss
     },
   };
 
-  return buildClothAssembly({
-    patches: [patch],
-    renderStitches: true,
-    stitches: [{
-      id: 'pleated-skirt-back-seam',
-      a: { patchId: patch.id, boundary: 'right' },
-      b: { patchId: patch.id, boundary: 'left' },
-      renderFaces: true,
-    }],
+  const patches: ClothPatchDefinition[] = [skirtPatch];
+  const stitches: StitchDefinition[] = [{
+    id: 'pleated-skirt-back-seam',
+    a: { patchId: skirtPatch.id, boundary: 'right' },
+    b: { patchId: skirtPatch.id, boundary: 'left' },
+    renderFaces: true,
+  }];
+
+  const topBoundary = skirtPatch.boundaries.top.map((localId) => skirtPatch.vertices[localId]!);
+  const controlHeight = params.waistFinish === 'yoke'
+    ? Math.max(params.yokeHeight, params.waistbandHeight)
+    : params.waistbandHeight;
+  const controlPatch = createPleatedWaistControlPatch(params, topBoundary, controlHeight);
+  patches.push(controlPatch);
+  stitches.push({
+    id: `${controlPatch.id}-attach-pleats`,
+    a: { patchId: skirtPatch.id, boundary: 'top' },
+    b: { patchId: controlPatch.id, boundary: 'bottom' },
+    renderFaces: true,
   });
+  stitches.push({
+    id: `${controlPatch.id}-back-seam`,
+    a: { patchId: controlPatch.id, boundary: 'sideEnd' },
+    b: { patchId: controlPatch.id, boundary: 'sideStart' },
+    renderFaces: true,
+  });
+
+  const assembly = buildClothAssembly({
+    patches,
+    renderStitches: true,
+    stitches,
+  });
+  return addPleatedConstructionEdges(assembly, params);
+}
+
+function createPleatedWaistControlPatch(
+  params: PleatedSkirtGarmentParams,
+  pleatedTop: readonly AssemblyVec3[],
+  height: number,
+): ClothPatchDefinition {
+  const vertices: AssemblyVec3[] = [];
+  const uvs: AssemblyVec2[] = [];
+  const faces: [number, number, number][] = [];
+  const segmentsV = segmentsForLength(height, params.gridSpacing, 1, 12);
+  const segmentsU = Math.max(1, pleatedTop.length - 1);
+  const idx = (u: number, v: number) => u * (segmentsV + 1) + v;
+  const topY = Math.max(...pleatedTop.map((point) => point[1]));
+  const finishName = params.waistFinish === 'yoke' ? 'yoke' : params.waistFinish;
+  const waistRadius = params.waistRadius * params.waistCompression;
+  const lowerRadius = params.waistFinish === 'yoke'
+    ? Math.max(waistRadius, params.waistRadius * 1.06)
+    : waistRadius;
+  const upperRadius = params.waistFinish === 'wideBand'
+    ? waistRadius * 0.96
+    : params.waistFinish === 'elasticBand'
+      ? waistRadius * 0.9
+      : waistRadius;
+
+  for (let u = 0; u <= segmentsU; u++) {
+    const topPoint = pleatedTop[u]!;
+    const angle = Math.atan2(topPoint[2], topPoint[0]);
+    for (let v = 0; v <= segmentsV; v++) {
+      const t = v / segmentsV;
+      const radius = lerp(lowerRadius, upperRadius, t);
+      vertices.push([
+        Math.cos(angle) * radius,
+        topY + height * t,
+        Math.sin(angle) * radius,
+      ]);
+      uvs.push([u / segmentsU, t]);
+    }
+  }
+
+  for (let u = 0; u < segmentsU; u++) {
+    for (let v = 0; v < segmentsV; v++) {
+      faces.push([idx(u, v), idx(u + 1, v), idx(u, v + 1)], [idx(u + 1, v), idx(u + 1, v + 1), idx(u, v + 1)]);
+    }
+  }
+
+  return {
+    id: `pleated-skirt-${finishName}`,
+    label: `${finishName} controlling pleated waist`,
+    vertices,
+    uvs,
+    faces,
+    boundaries: {
+      bottom: range(0, segmentsU).map((u) => idx(u, 0)),
+      top: range(0, segmentsU).map((u) => idx(u, segmentsV)),
+      sideStart: range(0, segmentsV).map((v) => idx(0, v)),
+      sideEnd: range(0, segmentsV).map((v) => idx(segmentsU, v)),
+    },
+  };
+}
+
+function addPleatedConstructionEdges(
+  assembly: ClothAssembly,
+  params: PleatedSkirtGarmentParams,
+): ClothAssembly {
+  const extraEdges: ClothAssembly['edges'] = [];
+  let nextId = assembly.edges.length;
+  const topY = Math.max(...assembly.vertices.map((vertex) => vertex.position[1]));
+  const tackCutoffY = topY - params.length * params.pleatTackDepth;
+  const pleatRows = assembly.vertices
+    .filter((vertex) => vertex.patchId === 'pleated-skirt-folded-panel' && vertex.position[1] >= tackCutoffY)
+    .sort((a, b) => a.localId - b.localId);
+  const rowGroups = new Map<number, typeof pleatRows>();
+  for (const vertex of pleatRows) {
+    const rowKey = Math.round(vertex.position[1] / Math.max(0.001, params.gridSpacing * 0.25));
+    rowGroups.set(rowKey, [...(rowGroups.get(rowKey) ?? []), vertex]);
+  }
+
+  for (const row of rowGroups.values()) {
+    const sorted = [...row].sort((a, b) => Math.atan2(a.position[2], a.position[0]) - Math.atan2(b.position[2], b.position[0]));
+    const step = Math.max(2, Math.round(sorted.length / Math.max(4, params.pleatCount)));
+    for (let i = 0; i + step < sorted.length; i += step) {
+      const a = sorted[i]!;
+      const b = sorted[i + step]!;
+      extraEdges.push({
+        id: nextId++,
+        a: a.id,
+        b: b.id,
+        kind: 'structural',
+        restLength: distance3(a.position, b.position) * lerp(1, 0.65, params.waistbandStiffness),
+        sourceId: 'pleated-top-tack',
+      });
+    }
+  }
+
+  const controlVertices = assembly.vertices.filter((vertex) => /pleated-skirt-(plainBand|wideBand|elasticBand|yoke)/.test(vertex.patchId));
+  const controlTopY = Math.max(...controlVertices.map((vertex) => vertex.position[1]));
+  const controlTop = controlVertices.filter((vertex) => Math.abs(vertex.position[1] - controlTopY) < params.gridSpacing * 0.4);
+  const center = averageVec3(controlTop.map((vertex) => vertex.position));
+  const sortedTop = [...controlTop].sort((a, b) => Math.atan2(a.position[2] - center[2], a.position[0] - center[0]) - Math.atan2(b.position[2] - center[2], b.position[0] - center[0]));
+  const half = Math.floor(sortedTop.length / 2);
+  for (let i = 0; i < half; i++) {
+    const a = sortedTop[i]!;
+    const b = sortedTop[(i + half) % sortedTop.length]!;
+    extraEdges.push({
+      id: nextId++,
+      a: a.id,
+      b: b.id,
+      kind: 'structural',
+      restLength: distance3(a.position, b.position),
+      sourceId: 'pleated-waist-control-brace',
+    });
+  }
+
+  return {
+    ...assembly,
+    edges: [...assembly.edges, ...extraEdges],
+  };
 }
 
 interface PleatedColumn {

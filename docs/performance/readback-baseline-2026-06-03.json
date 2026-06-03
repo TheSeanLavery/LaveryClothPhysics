@@ -1,0 +1,138 @@
+{
+  "capturedAt": "2026-06-03T17:06:07.590Z",
+  "durationMs": 2000,
+  "original": {
+    "label": "original",
+    "git": "def7726",
+    "modes": [
+      {
+        "mode": "flag",
+        "loadMs": 733.7755420000001,
+        "rafFramesPerSecond": 69.5,
+        "simFramesPerSecond": 69,
+        "particleCount": 1350
+      },
+      {
+        "mode": "tube",
+        "loadMs": 494.8565840000001,
+        "rafFramesPerSecond": 52,
+        "simFramesPerSecond": null,
+        "particleCount": 1850
+      },
+      {
+        "mode": "character",
+        "loadMs": 1654.9764999999998,
+        "rafFramesPerSecond": 118.5,
+        "simFramesPerSecond": 119.5,
+        "particleCount": null
+      }
+    ]
+  },
+  "current": {
+    "label": "current",
+    "git": "working-tree",
+    "modes": [
+      {
+        "mode": "flag",
+        "loadMs": 604.1063750000001,
+        "rafFramesPerSecond": 67,
+        "simFramesPerSecond": 67,
+        "particleCount": 1350,
+        "readbackStats": {
+          "healthStarted": 11,
+          "healthCompleted": 11,
+          "topologyStarted": 24,
+          "topologyCompleted": 24,
+          "topologySkippedPending": 23,
+          "bbVisualSkippedNoActive": 140
+        }
+      },
+      {
+        "mode": "tube",
+        "loadMs": 487.83658300000025,
+        "rafFramesPerSecond": 50.5,
+        "simFramesPerSecond": null,
+        "particleCount": 1850,
+        "readbackStats": {
+          "healthStarted": 9,
+          "healthCompleted": 8,
+          "topologySkippedDisabled": 36,
+          "bbVisualSkippedNoActive": 108
+        }
+      },
+      {
+        "mode": "character",
+        "loadMs": 4018.7714160000005,
+        "rafFramesPerSecond": 116,
+        "simFramesPerSecond": 116.5,
+        "particleCount": 4346,
+        "readbackStats": {
+          "healthStarted": 22,
+          "healthCompleted": 22,
+          "topologySkippedDisabled": 90,
+          "bbVisualSkippedNoActive": 268
+        }
+      }
+    ]
+  },
+  "optimized": {
+    "label": "current-optimized",
+    "git": "working-tree",
+    "modes": [
+      {
+        "mode": "flag",
+        "loadMs": 799.4133750000001,
+        "rafFramesPerSecond": 116.5,
+        "simFramesPerSecond": 117,
+        "particleCount": 1350,
+        "readbackStats": {
+          "healthStarted": 4,
+          "healthCompleted": 4,
+          "topologyStarted": 0,
+          "topologyCompleted": 0,
+          "topologySkippedPending": 0,
+          "topologySkippedDisabled": 21,
+          "bbVisualStarted": 0,
+          "bbVisualCompleted": 0,
+          "bbVisualSkippedNoActive": 0
+        }
+      },
+      {
+        "mode": "tube",
+        "loadMs": 445.6929580000001,
+        "rafFramesPerSecond": 70,
+        "simFramesPerSecond": null,
+        "particleCount": 1850,
+        "readbackStats": {
+          "healthStarted": 2,
+          "healthCompleted": 2,
+          "topologyStarted": 0,
+          "topologyCompleted": 0,
+          "topologySkippedPending": 0,
+          "topologySkippedDisabled": 13,
+          "bbVisualStarted": 0,
+          "bbVisualCompleted": 0,
+          "bbVisualSkippedNoActive": 0
+        }
+      },
+      {
+        "mode": "character",
+        "loadMs": 1548.7464170000003,
+        "rafFramesPerSecond": 118.5,
+        "simFramesPerSecond": 118.5,
+        "particleCount": 4346,
+        "readbackStats": {
+          "healthStarted": 4,
+          "healthCompleted": 4,
+          "topologyStarted": 0,
+          "topologyCompleted": 0,
+          "topologySkippedPending": 0,
+          "topologySkippedDisabled": 23,
+          "bbVisualStarted": 0,
+          "bbVisualCompleted": 0,
+          "bbVisualSkippedNoActive": 0
+        }
+      }
+    ]
+  }
+}

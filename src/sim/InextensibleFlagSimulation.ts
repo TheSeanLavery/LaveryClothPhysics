@@ -93,7 +93,7 @@ import {
   type StructuralGraphEdge,
   type StrandThreadCollectionOptions,
 } from './clothMeshCuts';
-import { createBbProjectileMesh, syncBbProjectileMesh } from '../shaders/BbProjectileVisual';
+import { createGpuBbProjectileMesh } from '../shaders/BbProjectileVisual';
 import {
   createStrandThreadInstancedMesh,
   syncStrandThreadInstancedMesh,
@@ -142,6 +142,27 @@ export interface InextensibleFlagSimulationStats {
   isHealthy: boolean;
 }
 
+export interface InextensibleFlagReadbackStats {
+  healthPending: boolean;
+  healthStarted: number;
+  healthCompleted: number;
+  healthSkippedPending: number;
+  lastHealthFrame: number;
+  topologyPending: boolean;
+  topologyStarted: number;
+  topologyCompleted: number;
+  topologySkippedPending: number;
+  topologySkippedDisabled: number;
+  lastTopologyFrame: number;
+  bbVisualPending: boolean;
+  bbVisualStarted: number;
+  bbVisualCompleted: number;
+  bbVisualSkippedPending: number;
+  bbVisualSkippedNoActive: number;
+  lastBbVisualFrame: number;
+  strandThreadPending: boolean;
+}
+
 interface ClothVertex {
   id: number;
   position: THREE.Vector3;
@@ -177,6 +198,7 @@ declare global {
   interface Window {
     __flagSim?: InextensibleFlagSimulationStats;
     __flagSimRefreshHealth?: () => Promise<InextensibleFlagSimulationStats>;
+    __flagSimReadbackStats?: () => InextensibleFlagReadbackStats;
     __flagSimSetFabric?: (settings: Partial<FabricTestSettings>) => void;
     __flagSimSetFabricTextureSource?: (
       source: InextensibleFlagSettings['fabricTextureSource'],
@@ -326,6 +348,7 @@ interface FabricNormalMapStats {
 }
 
 const MAX_BONE_SDF_CAPSULES = 96;
+const BB_INACTIVE_POSITION = 9_999;
 
 /**
  * Inextensible flag: Verlet predict (wind only) + PBD distance constraints on mesh edges.
@@ -376,6 +399,7 @@ export class InextensibleFlagSimulation {
   private particleRenderBaseIndices: Uint32Array | null = null;
   private particleRenderTriangleEdgeIds: Int32Array | null = null;
   private clothTopologyReadbackPending = false;
+  private healthReadbackPending = false;
   private lastBrokenEdgeCount = 0;
   private lastConnectivitySignature = '';
   private bbVisualRefreshPending = false;
@@ -384,8 +408,25 @@ export class InextensibleFlagSimulation {
   private strandThreadReadbackPending = false;
   private lastStrandThreadEdgeIds: number[] = [];
   private lastSyncedEdgeActive: Uint32Array | null = null;
-  private readonly clothTopologyRefreshInterval = 3;
+  private readonly activeClothTopologyRefreshInterval = 3;
+  private readonly idleClothTopologyRefreshInterval = 12;
+  private readonly tearReadbackIdleThreshold = 2.5;
+  private readonly healthReadbackInterval = 60;
   private readonly strandPositionRefreshInterval = 4;
+  private healthReadbacksStarted = 0;
+  private healthReadbacksCompleted = 0;
+  private healthReadbacksSkippedPending = 0;
+  private lastHealthReadbackFrame = -1;
+  private topologyReadbacksStarted = 0;
+  private topologyReadbacksCompleted = 0;
+  private topologyReadbacksSkippedPending = 0;
+  private topologyReadbacksSkippedDisabled = 0;
+  private lastTopologyReadbackFrame = -1;
+  private bbVisualReadbacksStarted = 0;
+  private bbVisualReadbacksCompleted = 0;
+  private bbVisualReadbacksSkippedPending = 0;
+  private bbVisualReadbacksSkippedNoActive = 0;
+  private lastBbVisualReadbackFrame = -1;
 
   private vertexPositionBuffer!: ReturnType<typeof instancedArray>;
   private vertexPreviousBuffer!: ReturnType<typeof instancedArray>;
@@ -521,8 +562,11 @@ export class InextensibleFlagSimulation {
   private grabTryLatch = false;
   private isShootModeEnabled = false;
   private hasBoneSdfHistory = false;
+  private boneSdfCapsuleCount = 0;
   private readonly bbPool = new BbProjectilePool();
-  private readonly bbMeshes: THREE.Mesh[] = [];
+  private bbMesh: THREE.InstancedMesh | null = null;
+  private nextBbSlot = 0;
+  private bbGpuMayHaveActiveProjectiles = false;
   private readonly grabHitTestPosition = new THREE.Vector3();
   private readonly bbBounds = new THREE.Box3(
     new THREE.Vector3(-4, -2, -4),
@@ -838,18 +882,7 @@ export class InextensibleFlagSimulation {
       return false;
     }
 
-    const mouseNdc = new THREE.Vector2(mouseNdcX, mouseNdcY);
-    const fired = this.bbPool.fire(this.camera, mouseNdc);
-    if (fired) {
-      this.syncBbPoolToGpu();
-      for (let i = 0; i < this.bbPool.maxCount; i++) {
-        if (this.bbPool.getProjectile(i) === fired) {
-          syncBbProjectileMesh(this.bbMeshes[i]!, fired.position, this.bbPool.visualRadius, true);
-          break;
-        }
-      }
-    }
-    return fired !== null;
+    return this.spawnGpuBb(mouseNdcX, mouseNdcY) !== null;
   }
 
   getBbPool(): BbProjectilePool {
@@ -861,21 +894,7 @@ export class InextensibleFlagSimulation {
       return null;
     }
 
-    const mouseNdc = new THREE.Vector2(ndcX, ndcY);
-    const fired = this.bbPool.fire(this.camera, mouseNdc);
-    if (!fired) {
-      return null;
-    }
-
-    this.syncBbPoolToGpu();
-    for (let i = 0; i < this.bbPool.maxCount; i++) {
-      if (this.bbPool.getProjectile(i) === fired) {
-        syncBbProjectileMesh(this.bbMeshes[i]!, fired.position, this.bbPool.visualRadius, true);
-        return i;
-      }
-    }
-
-    return null;
+    return this.spawnGpuBb(ndcX, ndcY);
   }
 
   async readBbProjectileSamples(): Promise<BbProjectileSample[]> {
@@ -908,20 +927,11 @@ export class InextensibleFlagSimulation {
         y: velocities[i * 3 + 1]!,
         z: velocities[i * 3 + 2]!,
       };
-      const bb = this.bbPool.getProjectile(i);
-      bb.alive = alive;
-      bb.position.set(position.x, position.y, position.z);
-      bb.velocity.set(velocity.x, velocity.y, velocity.z);
-      syncBbProjectileMesh(this.bbMeshes[i]!, bb.position, this.bbPool.visualRadius, alive);
-
-      const mesh = this.bbMeshes[i]!;
       samples.push({
         slot: i,
         alive,
         position,
-        meshPosition: alive
-          ? { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z }
-          : null,
+        meshPosition: alive ? position : null,
         velocity,
       });
     }
@@ -940,11 +950,7 @@ export class InextensibleFlagSimulation {
     const issues: string[] = [];
     const expectedSpeed = this.bbPool.projectileSpeed;
 
-    this.bbPool.reset();
-    this.syncBbPoolToGpu();
-    for (let i = 0; i < this.bbPool.maxCount; i++) {
-      syncBbProjectileMesh(this.bbMeshes[i]!, this.bbPool.getProjectile(i).position, this.bbPool.visualRadius, false);
-    }
+    this.resetGpuBbs();
 
     const slot = this.fireBbForTest(ndcX, ndcY);
     if (slot === null) {
@@ -1087,16 +1093,7 @@ export class InextensibleFlagSimulation {
     const issues: string[] = [];
     const flagCenter = { x: 0, y: 0.95, z: 0 };
 
-    this.bbPool.reset();
-    this.syncBbPoolToGpu();
-    for (let i = 0; i < this.bbPool.maxCount; i++) {
-      syncBbProjectileMesh(
-        this.bbMeshes[i]!,
-        this.bbPool.getProjectile(i).position,
-        this.bbPool.visualRadius,
-        false,
-      );
-    }
+    this.resetGpuBbs();
 
     for (let warmup = 0; warmup < 4; warmup++) {
       await this.waitForFrame();
@@ -1240,6 +1237,11 @@ export class InextensibleFlagSimulation {
     const previousEndRadiusArray = previousEndRadiusAttr.array as Float32Array;
     const startArray = startAttr.array as Float32Array;
     const endRadiusArray = endRadiusAttr.array as Float32Array;
+    const count = Math.min(capsules.length, MAX_BONE_SDF_CAPSULES);
+
+    if (this.hasBoneSdfHistory && count === this.boneSdfCapsuleCount && boneSdfCapsulesMatchGpuBuffers(capsules, count, startArray, endRadiusArray)) {
+      return;
+    }
 
     if (this.hasBoneSdfHistory) {
       previousStartArray.set(startArray);
@@ -1249,11 +1251,11 @@ export class InextensibleFlagSimulation {
     startArray.fill(0);
     endRadiusArray.fill(0);
 
-    const count = Math.min(capsules.length, MAX_BONE_SDF_CAPSULES);
     if (count === 0) {
       previousStartArray.fill(0);
       previousEndRadiusArray.fill(0);
       this.hasBoneSdfHistory = false;
+      this.boneSdfCapsuleCount = 0;
       previousStartAttr.needsUpdate = true;
       previousEndRadiusAttr.needsUpdate = true;
       startAttr.needsUpdate = true;
@@ -1278,6 +1280,7 @@ export class InextensibleFlagSimulation {
       previousEndRadiusArray.set(endRadiusArray);
       this.hasBoneSdfHistory = true;
     }
+    this.boneSdfCapsuleCount = count;
 
     previousStartAttr.needsUpdate = true;
     previousEndRadiusAttr.needsUpdate = true;
@@ -1286,10 +1289,7 @@ export class InextensibleFlagSimulation {
   }
 
   resetFlag(): void {
-    this.bbPool.reset();
-    if (this.bbPositionBuffer) {
-      this.syncBbPoolToGpu();
-    }
+    this.resetGpuBbs();
 
     if (!this.isReady) {
       return;
@@ -1351,13 +1351,14 @@ export class InextensibleFlagSimulation {
     this.clothMesh = this.setupClothMesh(this.clothMaterial);
     this.setupStrandThreadVisual();
     this.rebuildSimGridDebugOverlay();
+    this.setupBbVisuals();
 
     this.particlesEl.textContent = `particles: ${this.clothVertices.length}`;
     this.timeSinceLastStep = 0;
     this.simGridSizeYUniform.value = this.clothNumSegmentsY + 1;
     this.clothSegmentsXUniform.value = this.clothNumSegmentsX;
     this.clothSegmentsYUniform.value = this.clothNumSegmentsY;
-    this.bbPool.reset();
+    this.resetGpuBbs();
     this.applySettings();
     await this.renderer.compileAsync(this.scene, this.camera);
     this.isReady = true;
@@ -1396,13 +1397,14 @@ export class InextensibleFlagSimulation {
     this.clothMesh = this.setupClothMesh(this.clothMaterial);
     this.setupStrandThreadVisual();
     this.rebuildSimGridDebugOverlay();
+    this.setupBbVisuals();
 
     this.particlesEl.textContent = `particles: ${this.clothVertices.length}`;
     this.timeSinceLastStep = 0;
     this.simGridSizeYUniform.value = this.clothNumSegmentsY + 1;
     this.clothSegmentsXUniform.value = this.clothNumSegmentsX;
     this.clothSegmentsYUniform.value = this.clothNumSegmentsY;
-    this.bbPool.reset();
+    this.resetGpuBbs();
     this.applySettings();
     this.applyHealthFromCpuVertices();
     await this.renderer.compileAsync(this.scene, this.camera);
@@ -1534,6 +1536,8 @@ export class InextensibleFlagSimulation {
     const deltaTime = Math.min(this.timer.getDelta(), 1 / 60);
     const timePerStep = 1 / this.stepsPerSecond;
     this.timeSinceLastStep += deltaTime;
+    const hasActiveBbs = this.hasActiveBbProjectile();
+    const hasBoneSdfCapsules = this.boneSdfCapsuleCount > 0;
 
     while (this.timeSinceLastStep >= timePerStep) {
       this.timeSinceLastStep -= timePerStep;
@@ -1547,9 +1551,11 @@ export class InextensibleFlagSimulation {
       this.renderer.compute(this.enforcePins);
       this.renderer.compute(this.beginSubstep);
       this.renderer.compute(this.predictMotion);
-      this.bbSubstepDtUniform.value = timePerStep * 0.5;
-      this.renderer.compute(this.integrateBbs);
-      this.renderer.compute(this.integrateBbs);
+      if (hasActiveBbs) {
+        this.bbSubstepDtUniform.value = timePerStep * 0.5;
+        this.renderer.compute(this.integrateBbs);
+        this.renderer.compute(this.integrateBbs);
+      }
 
       const iterations = THREE.MathUtils.clamp(
         Math.round(this.settings.constraintIterations),
@@ -1574,8 +1580,10 @@ export class InextensibleFlagSimulation {
         if (this.settings.mannequinCollision) {
           this.renderer.compute(this.resolveMannequinCollision);
         }
-        for (let boneSdfPass = 0; boneSdfPass < 3; boneSdfPass++) {
-          this.renderer.compute(this.resolveBoneSdfCollision);
+        if (hasBoneSdfCapsules) {
+          for (let boneSdfPass = 0; boneSdfPass < 3; boneSdfPass++) {
+            this.renderer.compute(this.resolveBoneSdfCollision);
+          }
         }
         if (this.settings.selfCollision) {
           this.renderer.compute(this.resolveSelfCollision);
@@ -1585,10 +1593,12 @@ export class InextensibleFlagSimulation {
       this.renderer.compute(this.clampSubstepTravel);
       this.renderer.compute(this.enforcePins);
 
-      for (let contactPass = 0; contactPass < 3; contactPass++) {
-        this.renderer.compute(this.resolveClothAgainstBbs);
-        this.renderer.compute(this.resolveBbClothContacts);
-        this.renderer.compute(this.applyBbClothVertexImpulses);
+      if (hasActiveBbs) {
+        for (let contactPass = 0; contactPass < 3; contactPass++) {
+          this.renderer.compute(this.resolveClothAgainstBbs);
+          this.renderer.compute(this.resolveBbClothContacts);
+          this.renderer.compute(this.applyBbClothVertexImpulses);
+        }
       }
 
       if (this.isGrabModeEnabled && this.isGrabActive) {
@@ -1606,8 +1616,10 @@ export class InextensibleFlagSimulation {
           if (this.settings.mannequinCollision) {
             this.renderer.compute(this.resolveMannequinCollision);
           }
-          for (let boneSdfPass = 0; boneSdfPass < 3; boneSdfPass++) {
-            this.renderer.compute(this.resolveBoneSdfCollision);
+          if (hasBoneSdfCapsules) {
+            for (let boneSdfPass = 0; boneSdfPass < 3; boneSdfPass++) {
+              this.renderer.compute(this.resolveBoneSdfCollision);
+            }
           }
           if (this.settings.selfCollision) {
             this.renderer.compute(this.resolveSelfCollision);
@@ -1619,10 +1631,12 @@ export class InextensibleFlagSimulation {
     }
 
     this.renderer.compute(this.syncEdgeVisualForRender);
-    if (this.frameCount % this.clothTopologyRefreshInterval === 0) {
+    if (this.shouldScheduleClothTopologyReadback()) {
       void this.refreshClothTopologyFromGpu();
     }
-    void this.refreshStrandThreadPositionsFromGpu();
+    if (this.settings.renderStrandThreads) {
+      void this.refreshStrandThreadPositionsFromGpu();
+    }
 
     this.frameCount += 1;
 
@@ -1631,7 +1645,7 @@ export class InextensibleFlagSimulation {
       void this.validateFlagRender();
     }
 
-    if (this.frameCount % 12 === 0) {
+    if (this.frameCount % this.healthReadbackInterval === 0) {
       void this.refreshHealthFromGpu();
     } else {
       this.publishStats();
@@ -1643,11 +1657,29 @@ export class InextensibleFlagSimulation {
   }
 
   async refreshHealthFromGpu(): Promise<InextensibleFlagSimulationStats> {
-    const attr = this.vertexPositionBuffer.value as StorageInstancedBufferAttribute;
-    const buffer = await this.renderer.getArrayBufferAsync(attr);
-    this.applyHealthFromArray(new Float32Array(buffer), attr.itemSize ?? 3);
-    this.publishStats();
-    return this.getStats();
+    if (!this.isReady) {
+      return this.getStats();
+    }
+    if (this.healthReadbackPending) {
+      this.healthReadbacksSkippedPending += 1;
+      this.publishStats();
+      return this.getStats();
+    }
+
+    this.healthReadbackPending = true;
+    this.healthReadbacksStarted += 1;
+    this.lastHealthReadbackFrame = this.frameCount;
+
+    try {
+      const attr = this.vertexPositionBuffer.value as StorageInstancedBufferAttribute;
+      const buffer = await this.renderer.getArrayBufferAsync(attr);
+      this.applyHealthFromArray(new Float32Array(buffer), attr.itemSize ?? 3);
+      this.healthReadbacksCompleted += 1;
+      this.publishStats();
+      return this.getStats();
+    } finally {
+      this.healthReadbackPending = false;
+    }
   }
 
   async readCurrentClothAssembly(baseAssembly: ClothAssembly): Promise<ClothAssembly> {
@@ -1671,34 +1703,16 @@ export class InextensibleFlagSimulation {
   }
 
   async refreshBbVisualsFromGpu(): Promise<void> {
-    if (!this.isReady || this.bbVisualRefreshPending) {
-      return;
-    }
-
-    this.bbVisualRefreshPending = true;
-    try {
-      const positionAttr = this.bbPositionBuffer.value as StorageInstancedBufferAttribute;
-      const activeAttr = this.bbActiveBuffer.value as StorageInstancedBufferAttribute;
-      const [positionBuffer, activeBuffer] = await Promise.all([
-        this.renderer.getArrayBufferAsync(positionAttr),
-        this.renderer.getArrayBufferAsync(activeAttr),
-      ]);
-      const positions = new Float32Array(positionBuffer);
-      const active = new Uint32Array(activeBuffer);
-
-      for (let i = 0; i < this.bbPool.maxCount; i++) {
-        const bb = this.bbPool.getProjectile(i);
-        bb.alive = active[i] === 1;
-        bb.position.set(positions[i * 3]!, positions[i * 3 + 1]!, positions[i * 3 + 2]!);
-        syncBbProjectileMesh(this.bbMeshes[i]!, bb.position, this.bbPool.visualRadius, bb.alive);
-      }
-    } finally {
-      this.bbVisualRefreshPending = false;
-    }
+    // BB visuals are GPU-driven by the projectile position storage buffer.
+    // This method remains for older tests/hooks but intentionally performs no readback.
   }
 
   render(): void {
     this.renderer.render(this.scene, this.camera);
+  }
+
+  hasActiveBbProjectile(): boolean {
+    return this.bbGpuMayHaveActiveProjectiles;
   }
 
   private waitForFrame(): Promise<void> {
@@ -1725,6 +1739,29 @@ export class InextensibleFlagSimulation {
       maxStretch: this.maxStretch,
       hasNaN: this.hasNaN,
       isHealthy: this.isHealthy,
+    };
+  }
+
+  getReadbackStats(): InextensibleFlagReadbackStats {
+    return {
+      healthPending: this.healthReadbackPending,
+      healthStarted: this.healthReadbacksStarted,
+      healthCompleted: this.healthReadbacksCompleted,
+      healthSkippedPending: this.healthReadbacksSkippedPending,
+      lastHealthFrame: this.lastHealthReadbackFrame,
+      topologyPending: this.clothTopologyReadbackPending,
+      topologyStarted: this.topologyReadbacksStarted,
+      topologyCompleted: this.topologyReadbacksCompleted,
+      topologySkippedPending: this.topologyReadbacksSkippedPending,
+      topologySkippedDisabled: this.topologyReadbacksSkippedDisabled,
+      lastTopologyFrame: this.lastTopologyReadbackFrame,
+      bbVisualPending: this.bbVisualRefreshPending,
+      bbVisualStarted: this.bbVisualReadbacksStarted,
+      bbVisualCompleted: this.bbVisualReadbacksCompleted,
+      bbVisualSkippedPending: this.bbVisualReadbacksSkippedPending,
+      bbVisualSkippedNoActive: this.bbVisualReadbacksSkippedNoActive,
+      lastBbVisualFrame: this.lastBbVisualReadbackFrame,
+      strandThreadPending: this.strandThreadReadbackPending,
     };
   }
 
@@ -2278,7 +2315,78 @@ export class InextensibleFlagSimulation {
       }));
   }
 
-  private syncBbPoolToGpu(): void {
+  private spawnGpuBb(ndcX: number, ndcY: number): number | null {
+    if (!this.bbPositionBuffer || !this.bbPreviousPositionBuffer || !this.bbVelocityBuffer || !this.bbAgeBuffer || !this.bbActiveBuffer) {
+      return null;
+    }
+
+    this.camera.updateMatrixWorld();
+    const origin = new THREE.Vector3().setFromMatrixPosition(this.camera.matrixWorld);
+    const direction = new THREE.Vector3(ndcX, ndcY, 0.5)
+      .unproject(this.camera)
+      .sub(origin)
+      .normalize();
+    const position = origin.clone().addScaledVector(direction, 0.35);
+    const velocity = direction.multiplyScalar(this.bbPool.projectileSpeed);
+    const slot = this.nextBbSlot;
+    this.nextBbSlot = (this.nextBbSlot + 1) % this.bbPool.maxCount;
+
+    const positionAttr = this.bbPositionBuffer.value as StorageInstancedBufferAttribute;
+    const positionArray = positionAttr.array as Float32Array;
+    const previousAttr = this.bbPreviousPositionBuffer.value as StorageInstancedBufferAttribute;
+    const previousArray = previousAttr.array as Float32Array;
+    const velocityAttr = this.bbVelocityBuffer.value as StorageInstancedBufferAttribute;
+    const velocityArray = velocityAttr.array as Float32Array;
+    const ageAttr = this.bbAgeBuffer.value as StorageInstancedBufferAttribute;
+    const ageArray = ageAttr.array as Float32Array;
+    const activeAttr = this.bbActiveBuffer.value as StorageInstancedBufferAttribute;
+    const activeArray = activeAttr.array as Uint32Array;
+
+    // GPU kernels can expire projectiles without updating these CPU-side upload shadows.
+    // Clear them before each shot so a new upload cannot resurrect an old GPU slot.
+    for (let i = 0; i < this.bbPool.maxCount; i++) {
+      const inactiveOffset = i * 3;
+      positionArray[inactiveOffset] = BB_INACTIVE_POSITION;
+      positionArray[inactiveOffset + 1] = BB_INACTIVE_POSITION;
+      positionArray[inactiveOffset + 2] = BB_INACTIVE_POSITION;
+      previousArray[inactiveOffset] = BB_INACTIVE_POSITION;
+      previousArray[inactiveOffset + 1] = BB_INACTIVE_POSITION;
+      previousArray[inactiveOffset + 2] = BB_INACTIVE_POSITION;
+      velocityArray[inactiveOffset] = 0;
+      velocityArray[inactiveOffset + 1] = 0;
+      velocityArray[inactiveOffset + 2] = 0;
+      ageArray[i] = 0;
+      activeArray[i] = 0;
+    }
+
+    const offset = slot * 3;
+
+    positionArray[offset] = position.x;
+    positionArray[offset + 1] = position.y;
+    positionArray[offset + 2] = position.z;
+    previousArray[offset] = position.x;
+    previousArray[offset + 1] = position.y;
+    previousArray[offset + 2] = position.z;
+    velocityArray[offset] = velocity.x;
+    velocityArray[offset + 1] = velocity.y;
+    velocityArray[offset + 2] = velocity.z;
+    ageArray[slot] = 0;
+    activeArray[slot] = 1;
+
+    positionAttr.needsUpdate = true;
+    previousAttr.needsUpdate = true;
+    velocityAttr.needsUpdate = true;
+    ageAttr.needsUpdate = true;
+    activeAttr.needsUpdate = true;
+    this.bbGpuMayHaveActiveProjectiles = true;
+    return slot;
+  }
+
+  private resetGpuBbs(): void {
+    if (!this.bbPositionBuffer || !this.bbPreviousPositionBuffer || !this.bbVelocityBuffer || !this.bbAgeBuffer || !this.bbActiveBuffer) {
+      return;
+    }
+
     const positionAttr = this.bbPositionBuffer.value as StorageInstancedBufferAttribute;
     const positionArray = positionAttr.array as Float32Array;
     const previousAttr = this.bbPreviousPositionBuffer.value as StorageInstancedBufferAttribute;
@@ -2291,18 +2399,18 @@ export class InextensibleFlagSimulation {
     const activeArray = activeAttr.array as Uint32Array;
 
     for (let i = 0; i < this.bbPool.maxCount; i++) {
-      const bb = this.bbPool.getProjectile(i);
-      positionArray[i * 3] = bb.position.x;
-      positionArray[i * 3 + 1] = bb.position.y;
-      positionArray[i * 3 + 2] = bb.position.z;
-      previousArray[i * 3] = bb.position.x;
-      previousArray[i * 3 + 1] = bb.position.y;
-      previousArray[i * 3 + 2] = bb.position.z;
-      velocityArray[i * 3] = bb.velocity.x;
-      velocityArray[i * 3 + 1] = bb.velocity.y;
-      velocityArray[i * 3 + 2] = bb.velocity.z;
-      ageArray[i] = bb.age;
-      activeArray[i] = bb.alive ? 1 : 0;
+      const offset = i * 3;
+      positionArray[offset] = BB_INACTIVE_POSITION;
+      positionArray[offset + 1] = BB_INACTIVE_POSITION;
+      positionArray[offset + 2] = BB_INACTIVE_POSITION;
+      previousArray[offset] = BB_INACTIVE_POSITION;
+      previousArray[offset + 1] = BB_INACTIVE_POSITION;
+      previousArray[offset + 2] = BB_INACTIVE_POSITION;
+      velocityArray[offset] = 0;
+      velocityArray[offset + 1] = 0;
+      velocityArray[offset + 2] = 0;
+      ageArray[i] = 0;
+      activeArray[i] = 0;
     }
 
     positionAttr.needsUpdate = true;
@@ -2310,6 +2418,8 @@ export class InextensibleFlagSimulation {
     velocityAttr.needsUpdate = true;
     ageAttr.needsUpdate = true;
     activeAttr.needsUpdate = true;
+    this.nextBbSlot = 0;
+    this.bbGpuMayHaveActiveProjectiles = false;
   }
 
   private setupVertexBuffers(): void {
@@ -2402,11 +2512,10 @@ export class InextensibleFlagSimulation {
       nonEmptyUint32Array(this.packSimEdgeIdLookup(this.simShearUpEdgeIds)),
       'uint',
     ).setPBO(true);
-    this.bbPositionBuffer = instancedArray(new Float32Array(this.bbPool.maxCount * 3), 'vec3').setPBO(
-      true,
-    );
+    const inactiveBbPositions = new Float32Array(this.bbPool.maxCount * 3).fill(BB_INACTIVE_POSITION);
+    this.bbPositionBuffer = instancedArray(inactiveBbPositions.slice(), 'vec3').setPBO(true);
     this.bbPreviousPositionBuffer = instancedArray(
-      new Float32Array(this.bbPool.maxCount * 3),
+      inactiveBbPositions.slice(),
       'vec3',
     ).setPBO(true);
     this.bbVelocityBuffer = instancedArray(new Float32Array(this.bbPool.maxCount * 3), 'vec3').setPBO(
@@ -3156,18 +3265,42 @@ export class InextensibleFlagSimulation {
     this.lastBrokenEdgeCount = 0;
   }
 
+  private shouldScheduleClothTopologyReadback(): boolean {
+    const topologyRefreshInterval =
+      this.lastBrokenEdgeCount > 0 || this.settings.renderStrandThreads
+        ? this.activeClothTopologyRefreshInterval
+        : this.idleClothTopologyRefreshInterval;
+    if (this.frameCount % topologyRefreshInterval !== 0) {
+      return false;
+    }
+    if (
+      !this.settings.renderStrandThreads &&
+      this.lastBrokenEdgeCount === 0 &&
+      this.settings.tearStretchThreshold >= this.tearReadbackIdleThreshold
+    ) {
+      this.topologyReadbacksSkippedDisabled += 1;
+      return false;
+    }
+    return true;
+  }
+
   private async refreshClothTopologyFromGpu(): Promise<void> {
     if (
       !this.isReady ||
-      this.clothTopologyReadbackPending ||
       !this.clothSimGridCoords ||
       (!this.simEdgeLookup && !this.particleRenderBaseIndices) ||
       (this.simEdgeLookup && this.clothRenderQuads.length === 0)
     ) {
       return;
     }
+    if (this.clothTopologyReadbackPending) {
+      this.topologyReadbacksSkippedPending += 1;
+      return;
+    }
 
     this.clothTopologyReadbackPending = true;
+    this.topologyReadbacksStarted += 1;
+    this.lastTopologyReadbackFrame = this.frameCount;
 
     try {
       const activeAttr = this.edgeActiveBuffer.value as StorageInstancedBufferAttribute;
@@ -3178,6 +3311,7 @@ export class InextensibleFlagSimulation {
       this.lastSyncedEdgeActive = syncedEdgeActive;
       const signature = this.connectivitySignature(syncedEdgeActive, components);
       if (signature === this.lastConnectivitySignature) {
+        this.topologyReadbacksCompleted += 1;
         return;
       }
 
@@ -3210,6 +3344,7 @@ export class InextensibleFlagSimulation {
           this.strandThreadReadbackPending = false;
         }
       }
+      this.topologyReadbacksCompleted += 1;
     } finally {
       this.clothTopologyReadbackPending = false;
     }
@@ -3217,12 +3352,14 @@ export class InextensibleFlagSimulation {
 
 
   private setupBbVisuals(): void {
-    for (let i = 0; i < this.bbPool.maxCount; i++) {
-      const mesh = createBbProjectileMesh();
-      mesh.renderOrder = 12;
-      this.bbMeshes.push(mesh);
-      this.scene.add(mesh);
-    }
+    this.bbMesh?.removeFromParent();
+    this.bbMesh = createGpuBbProjectileMesh(
+      this.bbPositionBuffer,
+      this.bbPool.maxCount,
+      this.bbVisualRadiusUniform,
+    );
+    this.bbMesh.renderOrder = 12;
+    this.scene.add(this.bbMesh);
   }
 
   private getSyncedEdgeActiveForStrands(edgeActive: Uint32Array): Uint32Array {
@@ -3496,6 +3633,11 @@ export class InextensibleFlagSimulation {
     const bbLifetimeUniform = this.bbLifetimeUniform;
     const bbBoundsMinUniform = this.bbBoundsMinUniform;
     const bbBoundsMaxUniform = this.bbBoundsMaxUniform;
+    const inactiveBbPosition = vec3(
+      float(BB_INACTIVE_POSITION),
+      float(BB_INACTIVE_POSITION),
+      float(BB_INACTIVE_POSITION),
+    );
     const bbSlotCount = this.bbPool.maxCount;
     const previousBoneSdfStartBuffer = this.previousBoneSdfStartBuffer;
     const previousBoneSdfEndRadiusBuffer = this.previousBoneSdfEndRadiusBuffer;
@@ -4268,6 +4410,9 @@ export class InextensibleFlagSimulation {
 
       If(age.greaterThan(bbLifetimeUniform), () => {
         bbActiveBuffer.element(instanceIndex).assign(uint(0));
+        bbPositionBuffer.element(instanceIndex).assign(inactiveBbPosition);
+        bbPreviousPositionBuffer.element(instanceIndex).assign(inactiveBbPosition);
+        bbVelocityBuffer.element(instanceIndex).assign(vec3(0, 0, 0));
         Return();
       });
 
@@ -4288,6 +4433,9 @@ export class InextensibleFlagSimulation {
 
       If(outOfBounds, () => {
         bbActiveBuffer.element(instanceIndex).assign(uint(0));
+        bbPositionBuffer.element(instanceIndex).assign(inactiveBbPosition);
+        bbPreviousPositionBuffer.element(instanceIndex).assign(inactiveBbPosition);
+        bbVelocityBuffer.element(instanceIndex).assign(vec3(0, 0, 0));
         Return();
       });
 
@@ -4703,4 +4851,30 @@ export class InextensibleFlagSimulation {
 
 function nonEmptyUint32Array(values: Uint32Array): Uint32Array {
   return values.length > 0 ? values : new Uint32Array([0]);
+}
+
+function boneSdfCapsulesMatchGpuBuffers(
+  capsules: readonly BoneSdfCapsuleSample[],
+  count: number,
+  startArray: Float32Array,
+  endRadiusArray: Float32Array,
+): boolean {
+  const epsilon = 1e-6;
+  for (let i = 0; i < count; i++) {
+    const capsule = capsules[i]!;
+    const offset = i * 4;
+    if (
+      Math.abs(startArray[offset]! - capsule.start[0]) > epsilon ||
+      Math.abs(startArray[offset + 1]! - capsule.start[1]) > epsilon ||
+      Math.abs(startArray[offset + 2]! - capsule.start[2]) > epsilon ||
+      Math.abs(startArray[offset + 3]! - 1) > epsilon ||
+      Math.abs(endRadiusArray[offset]! - capsule.end[0]) > epsilon ||
+      Math.abs(endRadiusArray[offset + 1]! - capsule.end[1]) > epsilon ||
+      Math.abs(endRadiusArray[offset + 2]! - capsule.end[2]) > epsilon ||
+      Math.abs(endRadiusArray[offset + 3]! - capsule.radius) > epsilon
+    ) {
+      return false;
+    }
+  }
+  return true;
 }

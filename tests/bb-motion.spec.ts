@@ -156,4 +156,75 @@ test.describe('BB projectile motion', () => {
       `expected BB to travel toward flag (reason=${motion.reason}, traveled=${'traveled' in motion ? motion.traveled : 'n/a'})`,
     ).toBe(true);
   });
+
+  test('later BB shots do not resurrect stale GPU projectile slots', async ({ page }) => {
+    await page.goto('/');
+
+    await expect(page.locator('[data-testid="sim-status"]')).toHaveText('running', {
+      timeout: 30_000,
+    });
+
+    await page.waitForFunction(() => (window.__flagSim?.frameCount ?? 0) > 120, undefined, {
+      timeout: 12_000,
+    });
+
+    const result = await page.evaluate(async () => {
+      const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      await window.__flagSimApplySettings?.({ windStrength: 0, bbSpeed: 30 });
+      window.__flagSimResetFlag?.();
+      await nextFrame();
+
+      const firstSlot = window.__flagSimFireBb?.(0, 0);
+      if (firstSlot === null || firstSlot === undefined) {
+        return { ok: false, reason: 'first-fire-failed' as const };
+      }
+
+      let firstExpired = false;
+      for (let frame = 0; frame < 220; frame++) {
+        await nextFrame();
+        const samples = await window.__flagSimReadBbSamples?.();
+        const first = samples?.find((sample) => sample.slot === firstSlot);
+        if (first && !first.alive) {
+          firstExpired = true;
+          break;
+        }
+      }
+
+      if (!firstExpired) {
+        return { ok: false, reason: 'first-never-expired' as const, firstSlot };
+      }
+
+      const secondSlot = window.__flagSimFireBb?.(0.18, -0.03);
+      if (secondSlot === null || secondSlot === undefined) {
+        return { ok: false, reason: 'second-fire-failed' as const, firstSlot };
+      }
+
+      await nextFrame();
+      await nextFrame();
+      const samples = (await window.__flagSimReadBbSamples?.()) ?? [];
+      const active = samples
+        .filter((sample) => sample.alive)
+        .map((sample) => ({
+          slot: sample.slot,
+          position: sample.position,
+          velocity: sample.velocity,
+        }));
+
+      return {
+        ok: active.length === 1 && active[0]?.slot === secondSlot,
+        reason:
+          active.length === 1 && active[0]?.slot === secondSlot
+            ? ('ok' as const)
+            : ('stale-active-slot' as const),
+        firstSlot,
+        secondSlot,
+        active,
+      };
+    });
+
+    expect(
+      result.ok,
+      `expected only the second shot to be active; result=${JSON.stringify(result)}`,
+    ).toBe(true);
+  });
 });
