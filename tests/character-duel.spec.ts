@@ -12,12 +12,42 @@ test.describe('Character duel scene', () => {
     await expect(page.locator('#overlay h1')).toHaveText('Character Duel');
     await expect(page.locator('[data-testid="duel-controls"]')).toBeVisible();
     await expect(page.locator('[data-testid="duel-animation-fsm-panel"]')).toBeVisible();
-    await expect(page.locator('[data-testid="duel-animation-clip-editor"]')).toBeVisible();
+    await expect(page.locator('[data-testid="animation-fsm-edit-clip"]')).toBeVisible();
+    await expect(page.locator('[data-testid="duel-facing-debug-btn"]')).toBeVisible();
+    await expect(page.locator('[data-testid="duel-bones-a-btn"]')).toBeVisible();
+    await expect(page.locator('[data-testid="duel-bones-b-btn"]')).toBeVisible();
+    expect(await page.evaluate(() => window.__duelGetBonesVisible?.('A'))).toBe(false);
+    expect(await page.evaluate(() => window.__duelGetBonesVisible?.('B'))).toBe(false);
+    await page.evaluate(() => window.__duelSetBonesVisible?.('A', true));
+    expect(await page.evaluate(() => window.__duelGetBonesVisible?.('A'))).toBe(true);
 
     const fsmSnapshot = await page.evaluate(() => window.__duelAnimationFsmSnapshot?.('A'));
     expect(fsmSnapshot?.state).toBe('idle');
+
+    await page.locator('.animation-fsm-panel__graph-node[data-state="walk"]').click();
+    await expect(page.locator('[data-testid="animation-fsm-editing-heading"]')).toContainText(/walk/i);
+    expect(await page.evaluate(() => window.__duelAnimationFsmSnapshot?.('A')?.state)).toBe('idle');
+
+    await page.evaluate(() => window.__duelSimulateKey?.('KeyW', 'down'));
+    await page.locator('[data-testid="animation-fsm-preview-state"]').click();
+    await page.waitForTimeout(900);
+    expect(await page.evaluate(() => window.__duelAnimationFsmSnapshot?.('A')?.state)).toBe('walk');
+    await page.evaluate(() => window.__duelSimulateKey?.('KeyW', 'up'));
+
+    await page.locator('[data-testid="animation-fsm-pin-editing"]').check();
+    await page.locator('.animation-fsm-panel__graph-node[data-state="idle"]').click();
+    await expect(page.locator('[data-testid="animation-fsm-editing-heading"]')).toContainText(/walk/i);
+
+    const particlesBeforeTpose = await page.evaluate(() => window.__duelStats?.().particleCount ?? 0);
+    await page.locator('.animation-fsm-panel__graph-node[data-state="tpose"]').click();
+    await page.locator('[data-testid="animation-fsm-preview-state"]').click();
+    await page.waitForTimeout(2_500);
+    const particlesAfterTpose = await page.evaluate(() => window.__duelStats?.().particleCount ?? 0);
+    expect(particlesAfterTpose).toBe(particlesBeforeTpose);
+    const afterTposeRedress = await page.evaluate(() => window.__duelAnimationFsmSnapshot?.('A'));
+    expect(afterTposeRedress?.state).toBe('idle');
     expect(fsmSnapshot?.profileId).toBe('duel-fighter');
-    expect(fsmSnapshot?.activeClipName).toBeTruthy();
+    expect(afterTposeRedress?.activeClipName).toBeTruthy();
 
     const settings = await page.evaluate(() => window.__duelClothSettings?.());
     expect(settings?.selfCollision).toBe(true);
@@ -34,7 +64,7 @@ test.describe('Character duel scene', () => {
     await page.waitForTimeout(900);
     await page.evaluate(() => window.__duelSimulateKey?.('KeyW', 'up'));
     const movedA = await page.evaluate(() => window.__duelFighterAPosition?.());
-    expect((movedA?.[2] ?? 0) - (startA?.[2] ?? 0)).toBeGreaterThan(0.2);
+    expect((movedA?.[2] ?? 0) - (startA?.[2] ?? 0)).toBeLessThan(-0.2);
 
     const startB = await page.evaluate(() => window.__duelFighterBPosition?.());
     await page.evaluate(() => window.__duelSimulateKey?.('ArrowLeft', 'down'));
@@ -42,6 +72,9 @@ test.describe('Character duel scene', () => {
     await page.evaluate(() => window.__duelSimulateKey?.('ArrowLeft', 'up'));
     const movedB = await page.evaluate(() => window.__duelFighterBPosition?.());
     expect((movedB?.[0] ?? 0) - (startB?.[0] ?? 0)).toBeLessThan(-0.15);
+
+    const attackResult = await page.evaluate(async () => window.__duelRequestAttack?.('A'));
+    expect(attackResult?.started, JSON.stringify(attackResult)).toBe(true);
 
     await page.waitForTimeout(1_200);
     const settled = await page.evaluate(() => window.__duelSettledShirtSurfaceReport?.());

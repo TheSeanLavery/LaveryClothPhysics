@@ -76,8 +76,11 @@
   align-items: center;
 }
 
-.animation-fsm-panel__row label {
+.animation-fsm-panel label {
   color: var(--fsm-muted);
+}
+
+.animation-fsm-panel__row label {
   min-width: 52px;
 }
 
@@ -98,6 +101,9 @@
   border-radius: 8px;
   background: linear-gradient(180deg, rgb(16 22 34) 0%, rgb(8 12 20) 100%);
   margin-bottom: 10px;
+  color: #eef4fc;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  user-select: none;
 }
 
 .animation-fsm-panel__graph-edge {
@@ -137,6 +143,56 @@
   filter: drop-shadow(0 0 6px rgb(126 231 135 / 45%));
 }
 
+.animation-fsm-panel__graph-node.is-editing circle {
+  stroke: var(--fsm-accent);
+  stroke-width: 2.5;
+  fill: rgb(28 40 58);
+}
+
+.animation-fsm-panel__graph-node.is-active.is-editing circle {
+  stroke: var(--fsm-active);
+  stroke-width: 2.5;
+  fill: rgb(36 58 42);
+  filter: drop-shadow(0 0 6px rgb(126 231 135 / 45%));
+}
+
+.animation-fsm-panel__detail-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.animation-fsm-panel__detail-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--fsm-muted);
+  min-width: auto;
+  cursor: pointer;
+}
+
+.animation-fsm-panel__detail-toolbar button.primary {
+  border-color: var(--fsm-accent);
+  color: #0d1117;
+  background: var(--fsm-accent);
+}
+
+.animation-fsm-panel__detail-toolbar button.primary:hover {
+  color: #0d1117;
+  background: #7ed4ff;
+}
+
+.animation-fsm-panel__trigger-label {
+  width: 100%;
+  margin: 4px 0 2px;
+  color: var(--fsm-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .animation-fsm-panel__graph-node[data-state='attack'] circle {
   stroke: rgb(255 123 114 / 70%);
 }
@@ -145,18 +201,34 @@
   stroke: rgb(210 168 255 / 70%);
 }
 
-.animation-fsm-panel__graph-node text {
-  fill: #fff;
-  font-size: 10px;
-  font-weight: 600;
+.animation-fsm-panel__graph .animation-fsm-panel__node-label,
+.animation-fsm-panel__graph-node .animation-fsm-panel__node-label {
+  fill: #eef4fc;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: ui-sans-serif, system-ui, sans-serif;
   text-anchor: middle;
+  dominant-baseline: middle;
   pointer-events: none;
+  paint-order: stroke fill;
+  stroke: rgb(8 12 20 / 88%);
+  stroke-width: 3px;
+  stroke-linejoin: round;
 }
 
-.animation-fsm-panel__graph-node .sub {
-  fill: var(--fsm-muted);
-  font-size: 8px;
-  font-weight: 400;
+.animation-fsm-panel__graph .animation-fsm-panel__node-sublabel,
+.animation-fsm-panel__graph-node .animation-fsm-panel__node-sublabel {
+  fill: #9aadc4;
+  font-size: 9px;
+  font-weight: 500;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  pointer-events: none;
+  paint-order: stroke fill;
+  stroke: rgb(8 12 20 / 88%);
+  stroke-width: 2.5px;
+  stroke-linejoin: round;
 }
 
 .animation-fsm-panel__detail {
@@ -177,6 +249,11 @@
   color: var(--fsm-muted);
   line-height: 1.5;
   margin-bottom: 6px;
+}
+
+.animation-fsm-panel__meta strong {
+  color: #eef4fc;
+  font-weight: 600;
 }
 
 .animation-fsm-panel__actions {

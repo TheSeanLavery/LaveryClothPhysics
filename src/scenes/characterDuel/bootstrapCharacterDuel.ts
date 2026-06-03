@@ -8,10 +8,20 @@ import {
   CharacterDuelScene,
   type CharacterDuelStats,
 } from './CharacterDuelScene.ts';
-import { createAnimationClipEditorPanel } from '../../animations/clipEditor/index.ts';
+import { createAnimationClipEditorPopup } from '../../animations/clipEditor/index.ts';
 import { createAnimationFsmPanel } from '../../animations/fsm/index.ts';
 import { getSubclipLibrary, refreshSubclipLibraryFromServer } from '../../animations/animationSubclip.ts';
+import {
+  buildCharacterDuelAnimationSetup,
+  getCharacterDuelAnimationSetup,
+  refreshCharacterDuelAnimationFromServer,
+  saveCharacterDuelAnimationSetup,
+} from './characterDuelAnimation.ts';
 import { CHARACTER_DUEL_CONFIG, type DuelControlMode } from './characterDuelConfig.ts';
+import { resolveProfileFacingParameters } from '../../animations/characterAnimationProfile.ts';
+import {
+  meshBindYawFromMeasuredForward,
+} from '../../character/rigForwardMeasure.ts';
 
 export async function bootstrapCharacterDuel(
   statusEl: HTMLElement,
@@ -22,6 +32,12 @@ export async function bootstrapCharacterDuel(
   if (heading) {
     heading.textContent = 'Character Duel';
   }
+
+  const duelHint = document.createElement('p');
+  duelHint.dataset.testid = 'duel-controls-hint';
+  duelHint.textContent =
+    'A: WASD+Space · B: Arrows+Enter · M: AI · Green=look intent · Orange=mesh facing · Console: __duelFacingDebug("A").meshAlignErrorDeg';
+  document.querySelector('#overlay')?.append(duelHint);
 
   const resetBtn = document.querySelector<HTMLButtonElement>('#reset-flag-btn');
   if (resetBtn) {
@@ -35,6 +51,11 @@ export async function bootstrapCharacterDuel(
   const shootToggleBtn = document.querySelector<HTMLButtonElement>('#shoot-toggle-btn');
   if (shootToggleBtn) {
     shootToggleBtn.style.display = 'none';
+  }
+
+  const toolbar = document.querySelector<HTMLElement>('#toolbar');
+  if (toolbar) {
+    toolbar.style.display = 'flex';
   }
 
   const controlParam = new URLSearchParams(window.location.search).get('control');
@@ -92,7 +113,65 @@ export async function bootstrapCharacterDuel(
 
   statusEl.textContent = 'loading (character duel)';
   await duel.load();
+
+  await Promise.all([
+    refreshSubclipLibraryFromServer(),
+    refreshCharacterDuelAnimationFromServer(),
+  ]);
+
+  const duelSetup = getCharacterDuelAnimationSetup();
+  duel.controllerA.applyProfile(duelSetup.fighterA.profile);
+  duel.controllerB.applyProfile(duelSetup.fighterB.profile);
+  await Promise.all([
+    duel.controllerA.fsm.preload(),
+    duel.controllerB.fsm.preload(),
+  ]);
+  duel.syncFightersFacing();
+
   duel.startFighting();
+
+  duel.rigA.setXrayVisible(false);
+  duel.rigB.setXrayVisible(false);
+
+  let bonesVisibleA = false;
+  let bonesVisibleB = false;
+
+  const bonesABtn = document.createElement('button');
+  bonesABtn.type = 'button';
+  bonesABtn.id = 'duel-bones-a-btn';
+  bonesABtn.dataset.testid = 'duel-bones-a-btn';
+  bonesABtn.textContent = 'Bones A';
+  toolbar?.append(bonesABtn);
+
+  const bonesBBtn = document.createElement('button');
+  bonesBBtn.type = 'button';
+  bonesBBtn.id = 'duel-bones-b-btn';
+  bonesBBtn.dataset.testid = 'duel-bones-b-btn';
+  bonesBBtn.textContent = 'Bones B';
+  toolbar?.append(bonesBBtn);
+
+  bonesABtn.addEventListener('click', () => {
+    bonesVisibleA = !bonesVisibleA;
+    duel.rigA.setXrayVisible(bonesVisibleA);
+    bonesABtn.classList.toggle('active', bonesVisibleA);
+  });
+  bonesBBtn.addEventListener('click', () => {
+    bonesVisibleB = !bonesVisibleB;
+    duel.rigB.setXrayVisible(bonesVisibleB);
+    bonesBBtn.classList.toggle('active', bonesVisibleB);
+  });
+
+  const facingBtn = document.createElement('button');
+  facingBtn.type = 'button';
+  facingBtn.id = 'duel-facing-debug-btn';
+  facingBtn.dataset.testid = 'duel-facing-debug-btn';
+  facingBtn.textContent = 'Facing arrows';
+  facingBtn.classList.add('active');
+  toolbar?.append(facingBtn);
+  facingBtn.addEventListener('click', () => {
+    duel.setFacingDebugVisible(!duel.facingDebugVisible);
+    facingBtn.classList.toggle('active', duel.facingDebugVisible);
+  });
 
   cloth.setSimGridDebugVisible(false);
   cloth.setGrabModeEnabled(false);
@@ -107,9 +186,29 @@ export async function bootstrapCharacterDuel(
     collisionUi: 'boneSdf',
   });
 
-  await refreshSubclipLibraryFromServer();
+  async function persistDuelAnimationSetup(): Promise<void> {
+    const setup = buildCharacterDuelAnimationSetup(
+      duel.controllerA.getProfile(),
+      duel.controllerB.getProfile(),
+    );
+    await saveCharacterDuelAnimationSetup(setup);
+  }
 
-  let clipEditor!: ReturnType<typeof createAnimationClipEditorPanel>;
+  async function afterClipLibraryChanged(): Promise<void> {
+    await refreshSubclipLibraryFromServer();
+    await Promise.all([
+      duel.controllerA.fsm.preload(),
+      duel.controllerB.fsm.preload(),
+    ]);
+    fsmPanel.refresh();
+  }
+
+  const clipEditorPopup = createAnimationClipEditorPopup({
+    testId: 'duel-animation-clip-editor-popup',
+    onLibraryChanged: () => {
+      void afterClipLibraryChanged();
+    },
+  });
 
   const fsmPanel = createAnimationFsmPanel({
     testId: 'duel-animation-fsm-panel',
@@ -117,31 +216,48 @@ export async function bootstrapCharacterDuel(
       { label: 'Fighter A', controller: duel.controllerA },
       { label: 'Fighter B', controller: duel.controllerB },
     ],
-    onTargetChange: () => clipEditor.refresh(),
+    onTargetChange: () => {
+      if (clipEditorPopup.isOpen()) {
+        clipEditorPopup.close();
+      }
+    },
+    onDuelSetupPersist: persistDuelAnimationSetup,
+    openClipEditor: (openOptions) => clipEditorPopup.open(openOptions),
   });
 
-  clipEditor = createAnimationClipEditorPanel({
-    testId: 'duel-animation-clip-editor',
-    target: fsmPanel.getActiveClipEditorTarget(),
-    onLibraryChanged: () => {
-      void refreshSubclipLibraryFromServer();
-      clipEditor.refresh();
-    },
-  });
-  clipEditor.element.style.position = 'fixed';
-  clipEditor.element.style.top = '12px';
-  clipEditor.element.style.right = '400px';
-  clipEditor.element.style.width = 'min(340px, calc(100vw - 420px))';
-  clipEditor.element.style.zIndex = '119';
+  const DUEL_GAME_KEYS = new Set([
+    'KeyW', 'KeyA', 'KeyS', 'KeyD',
+    'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+    'Space', 'Enter', 'KeyM',
+  ]);
+
+  const isTypingTarget = (target: EventTarget | null): boolean => (
+    target instanceof HTMLElement
+    && Boolean(target.closest('input, textarea, select, [contenteditable="true"]'))
+  );
 
   const onKeyDown = (event: KeyboardEvent): void => {
+    if (!DUEL_GAME_KEYS.has(event.code)) {
+      return;
+    }
+    if (isTypingTarget(event.target)) {
+      return;
+    }
+    event.preventDefault();
     duel.handleKeyDown(event.code);
   };
   const onKeyUp = (event: KeyboardEvent): void => {
+    if (!DUEL_GAME_KEYS.has(event.code)) {
+      return;
+    }
+    if (isTypingTarget(event.target)) {
+      return;
+    }
+    event.preventDefault();
     duel.handleKeyUp(event.code);
   };
-  window.addEventListener('keydown', onKeyDown);
-  window.addEventListener('keyup', onKeyUp);
+  window.addEventListener('keydown', onKeyDown, true);
+  window.addEventListener('keyup', onKeyUp, true);
 
   const updateStatus = (sim: ClothSimulation): void => {
     const stats = duel.getStats();
@@ -151,6 +267,13 @@ export async function bootstrapCharacterDuel(
   };
 
   window.__duelStats = () => duel.getStats();
+  window.__duelFacingDebug = (fighter: 'A' | 'B' = 'A') => {
+    const controller = fighter === 'B' ? duel.controllerB : duel.controllerA;
+    return controller.getFacingDebug();
+  };
+  window.__duelSetFacingDebugVisible = (visible: boolean) => {
+    duel.setFacingDebugVisible(visible);
+  };
   window.__duelSetControlMode = (mode: DuelControlMode) => duel.setControlMode(mode);
   window.__duelGetControlMode = () => duel.getControlMode();
   window.__duelFighterAPosition = () => duel.getStats().positionA;
@@ -167,9 +290,42 @@ export async function bootstrapCharacterDuel(
     return controller.fsm.getSnapshot();
   };
   window.__duelAnimationSubclipLibrary = () => getSubclipLibrary();
+  window.__duelAnimationSetup = async () => {
+    await refreshCharacterDuelAnimationFromServer();
+    const { getCharacterDuelAnimationSetup } = await import('./characterDuelAnimation.ts');
+    return getCharacterDuelAnimationSetup();
+  };
+  window.__duelSaveAnimationSetup = persistDuelAnimationSetup;
+  window.__duelSetBonesVisible = (fighter: 'A' | 'B', visible: boolean) => {
+    if (fighter === 'A') {
+      bonesVisibleA = visible;
+      duel.rigA.setXrayVisible(visible);
+      bonesABtn.classList.toggle('active', visible);
+    } else {
+      bonesVisibleB = visible;
+      duel.rigB.setXrayVisible(visible);
+      bonesBBtn.classList.toggle('active', visible);
+    }
+  };
+  window.__duelGetBonesVisible = (fighter: 'A' | 'B') => (
+    fighter === 'A' ? bonesVisibleA : bonesVisibleB
+  );
+  window.__duelRedressShirts = () => duel.redressMergedShirts();
   window.__duelAnimationFsmForceState = (state: string, fighter: 'A' | 'B' = 'A') => {
     const controller = fighter === 'B' ? duel.controllerB : duel.controllerA;
     return controller.fsm.forceState(state as 'tpose' | 'idle' | 'walk' | 'attack');
+  };
+
+  window.__duelRequestAttack = async (fighter: 'A' | 'B' = 'A') => {
+    const attacker = fighter === 'B' ? duel.controllerB : duel.controllerA;
+    const target = fighter === 'B' ? duel.controllerA : duel.controllerB;
+    const targetPos = target.getWorldPosition();
+    return {
+      canAttack: attacker.canAttackNow(),
+      started: await attacker.playAttackToward(targetPos),
+      state: attacker.getState(),
+      controlMode: duel.getControlMode(),
+    };
   };
 
   window.__duelSimulateKey = (code: string, phase: 'down' | 'up') => {
@@ -178,6 +334,48 @@ export async function bootstrapCharacterDuel(
     } else {
       duel.handleKeyUp(code);
     }
+  };
+
+  window.__duelMeasureRigForward = (fighter: 'A' | 'B' = 'A', zeroRootYaw = true) => {
+    const rig = fighter === 'B' ? duel.rigB : duel.rigA;
+    const controller = fighter === 'B' ? duel.controllerB : duel.controllerA;
+    const savedRootY = rig.root.rotation.y;
+    if (zeroRootYaw) {
+      rig.root.rotation.y = 0;
+      rig.root.updateMatrixWorld(true);
+    }
+    const forwardYawRad = rig.measureForwardYaw();
+    if (zeroRootYaw) {
+      rig.root.rotation.y = savedRootY;
+      rig.root.updateMatrixWorld(true);
+    }
+    const forwardYawDeg = forwardYawRad !== null ? (forwardYawRad * 180) / Math.PI : null;
+    const meshBindYaw =
+      forwardYawRad !== null ? meshBindYawFromMeasuredForward(forwardYawRad) : null;
+    const facing = resolveProfileFacingParameters(controller.getProfile().parameters);
+    return {
+      fighter,
+      fsmState: controller.getState(),
+      rootRotationY: savedRootY,
+      forwardYawRad,
+      forwardYawDeg,
+      recommendedMeshBindYaw: meshBindYaw,
+      profileMeshBindYaw: facing.meshBindYaw,
+      profileStanceYawOffset: facing.stanceYawOffset,
+    };
+  };
+
+  window.__duelApplyFacingFromAudit = (fighter: 'A' | 'B', meshBindYaw: number, stanceYawOffset = 0) => {
+    const controller = fighter === 'B' ? duel.controllerB : duel.controllerA;
+    const profile = controller.getProfile();
+    controller.applyProfile({
+      ...profile,
+      parameters: {
+        ...profile.parameters,
+        meshBindYaw,
+        stanceYawOffset,
+      },
+    });
   };
 
   let last = performance.now();

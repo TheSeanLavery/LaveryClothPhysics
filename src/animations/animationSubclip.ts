@@ -46,7 +46,7 @@ export function bindingFromSubclip(subclipId: string): StateClipBinding {
     subclipId,
     file: subclip.sourceFile,
     loop: subclip.loop,
-    fadeIn: subclip.loop ? 0.25 : 0.12,
+    fadeIn: subclip.loop ? 0.5 : 0.32,
   };
 }
 

@@ -2,6 +2,7 @@ import './animationFsmPanel.css';
 import type { CharacterController } from '../../character/CharacterController.ts';
 import { getAllAnimations } from '../animationLoader.ts';
 import { bindingFromSubclip, listSubclips, refreshSubclipLibraryFromServer } from '../animationSubclip.ts';
+import type { AnimationClipEditorOpenOptions } from '../clipEditor/AnimationClipEditorPopup.ts';
 import type { AnimationClipEditorTarget } from '../clipEditor/AnimationClipEditorPanel.ts';
 import type { CharacterAnimationStateMachine } from '../CharacterAnimationStateMachine.ts';
 import {
@@ -9,6 +10,7 @@ import {
   getProfile,
   listProfileSummaries,
   saveProfileOverrides,
+  resolveClipFadeDuration,
   updateStatePrimaryClip,
   type CharacterAnimationProfile,
   type FsmStateId,
@@ -27,11 +29,16 @@ export interface AnimationFsmPanelOptions {
   readonly testId?: string;
   readonly collapsed?: boolean;
   readonly onTargetChange?: () => void;
+  /** When set, FSM profile edits persist here instead of localStorage. */
+  readonly onDuelSetupPersist?: () => void | Promise<void>;
+  readonly openClipEditor?: (options: AnimationClipEditorOpenOptions) => void;
 }
 
 export interface AnimationFsmPanel {
   readonly element: HTMLElement;
   getActiveClipEditorTarget(): AnimationClipEditorTarget;
+  getActiveTargetIndex(): number;
+  refresh(): void;
   setCollapsed(collapsed: boolean): void;
   dispose(): void;
 }
@@ -45,7 +52,9 @@ export function createAnimationFsmPanel(options: AnimationFsmPanelOptions): Anim
   panel.dataset.collapsed = String(options.collapsed ?? false);
 
   let activeTargetIndex = options.initialTargetIndex ?? 0;
-  let selectedState: FsmStateId = 'idle';
+  /** Panel focus for clip editing — only changes on graph click (not runtime). */
+  let editingState: FsmStateId = 'idle';
+  let editingPinned = false;
   let editorSourceFile: string | null = null;
   const catalogByFile = new Map(getAllAnimations().map((entry) => [entry.file, entry]));
 
@@ -138,10 +147,27 @@ export function createAnimationFsmPanel(options: AnimationFsmPanelOptions): Anim
     profileSelect.value = getFsm().getProfile().id;
   }
 
+  async function persistDuelSetupIfNeeded(): Promise<void> {
+    await options.onDuelSetupPersist?.();
+  }
+
   function applyProfileToTarget(profile: CharacterAnimationProfile): void {
     getTarget().controller.applyProfile(profile);
     void getFsm().preload();
     render();
+    void persistDuelSetupIfNeeded();
+  }
+
+  function syncEditorSourceForState(stateId: FsmStateId): void {
+    const clip = getFsm().getProfile().states[stateId].clips[0];
+    editorSourceFile = clip?.subclipId
+      ? bindingFromSubclip(clip.subclipId).file ?? clip.file ?? null
+      : clip?.file ?? null;
+  }
+
+  function selectEditingState(stateId: FsmStateId): void {
+    editingState = stateId;
+    syncEditorSourceForState(stateId);
   }
 
   function renderGraph(profile: CharacterAnimationProfile, snapshot: ReturnType<CharacterAnimationStateMachine['getSnapshot']>): void {
@@ -191,14 +217,16 @@ export function createAnimationFsmPanel(options: AnimationFsmPanelOptions): Anim
       if (snapshot.state === stateId) {
         group.classList.add('is-active');
       }
+      if (editingState === stateId) {
+        group.classList.add('is-editing');
+      }
       group.addEventListener('click', () => {
-        selectedState = stateId;
-        const clip = getFsm().getProfile().states[stateId].clips[0];
-        editorSourceFile = clip?.subclipId
-          ? bindingFromSubclip(clip.subclipId).file ?? clip.file ?? null
-          : clip?.file ?? null;
-        void getFsm().forceState(stateId);
-        render();
+        if (!editingPinned) {
+          selectEditingState(stateId);
+        }
+        const snapshotNow = getFsm().getSnapshot();
+        renderGraph(profile, snapshotNow);
+        renderDetail(profile, snapshotNow);
       });
 
       const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
@@ -207,14 +235,21 @@ export function createAnimationFsmPanel(options: AnimationFsmPanelOptions): Anim
       circle.setAttribute('r', '26');
 
       const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      label.setAttribute('class', 'animation-fsm-panel__node-label');
       label.setAttribute('x', String(cx));
-      label.setAttribute('y', String(cy + 4));
+      label.setAttribute('y', String(cy - 4));
+      label.setAttribute('text-anchor', 'middle');
+      label.setAttribute('dominant-baseline', 'middle');
+      label.setAttribute('fill', '#eef4fc');
       label.textContent = state.label;
 
       const sub = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      sub.setAttribute('class', 'sub');
+      sub.setAttribute('class', 'animation-fsm-panel__node-sublabel');
       sub.setAttribute('x', String(cx));
-      sub.setAttribute('y', String(cy + 16));
+      sub.setAttribute('y', String(cy + 10));
+      sub.setAttribute('text-anchor', 'middle');
+      sub.setAttribute('dominant-baseline', 'middle');
+      sub.setAttribute('fill', '#9aadc4');
       sub.textContent = stateId;
 
       group.append(circle, label, sub);
@@ -223,20 +258,50 @@ export function createAnimationFsmPanel(options: AnimationFsmPanelOptions): Anim
   }
 
   function renderDetail(profile: CharacterAnimationProfile, snapshot: ReturnType<CharacterAnimationStateMachine['getSnapshot']>): void {
-    const state = profile.states[selectedState];
+    const state = profile.states[editingState];
     const primary = state.clips[0];
     detail.replaceChildren();
 
     const heading = document.createElement('h3');
-    heading.textContent = `${state.label} · ${selectedState}`;
+    heading.textContent = `Editing: ${state.label} · ${editingState}`;
+    heading.dataset.testid = 'animation-fsm-editing-heading';
+
+    const toolbar = document.createElement('div');
+    toolbar.className = 'animation-fsm-panel__detail-toolbar';
+
+    const pinLabel = document.createElement('label');
+    const pinInput = document.createElement('input');
+    pinInput.type = 'checkbox';
+    pinInput.checked = editingPinned;
+    pinInput.dataset.testid = 'animation-fsm-pin-editing';
+    pinLabel.append(pinInput, document.createTextNode(' Pin'));
+
+    const previewBtn = document.createElement('button');
+    previewBtn.type = 'button';
+    previewBtn.className = 'primary';
+    previewBtn.textContent = 'Preview state';
+    previewBtn.dataset.testid = 'animation-fsm-preview-state';
+    previewBtn.title = `Play ${editingState} on ${getTarget().label} (runtime)`;
+    previewBtn.addEventListener('click', () => {
+      void getFsm().forceState(editingState);
+    });
+
+    pinInput.addEventListener('change', () => {
+      editingPinned = pinInput.checked;
+    });
+
+    toolbar.append(pinLabel, previewBtn);
 
     const meta = document.createElement('div');
     meta.className = 'animation-fsm-panel__meta';
-    meta.innerHTML = [
-      `Active: <strong>${snapshot.activeClipName ?? '—'}</strong>`,
-      snapshot.lastTransitionLabel ? `Last: ${snapshot.lastTransitionLabel}` : '',
-      primary ? `Clip: ${primary.name}` : '',
-    ].filter(Boolean).join('<br>');
+    meta.dataset.testid = 'animation-fsm-meta';
+    const metaLines = [
+      `Runtime: <strong>${snapshot.state}</strong> · ${snapshot.activeClipName ?? '—'}`,
+      `Editing: <strong>${editingState}</strong>${editingPinned ? ' (pinned)' : ''}`,
+      snapshot.lastTransitionLabel ? `Last transition: ${snapshot.lastTransitionLabel}` : '',
+      primary ? `Binding: ${primary.name}` : '',
+    ];
+    meta.innerHTML = metaLines.filter(Boolean).join('<br>');
 
     const clipRow = document.createElement('div');
     clipRow.className = 'animation-fsm-panel__row';
@@ -294,16 +359,41 @@ export function createAnimationFsmPanel(options: AnimationFsmPanelOptions): Anim
           name: entry.name,
           file: entry.file,
           loop: entry.loop,
-          fadeIn: selectedState === 'attack' ? 0.12 : 0.25,
+          fadeIn: resolveClipFadeDuration(getFsm().getProfile(), editingState, {
+            name: entry.name,
+            file: entry.file,
+            loop: entry.loop,
+          }),
         };
         editorSourceFile = file;
       }
-      const next = updateStatePrimaryClip(getFsm().getProfile(), selectedState, binding);
+      const next = updateStatePrimaryClip(getFsm().getProfile(), editingState, binding);
       applyProfileToTarget(next);
-      saveProfileOverrides(next);
+      if (!options.onDuelSetupPersist) {
+        saveProfileOverrides(next);
+      }
     });
 
     clipRow.append(clipLabel, clipSelect);
+
+    const editClipBtn = document.createElement('button');
+    editClipBtn.type = 'button';
+    editClipBtn.textContent = 'Edit clip…';
+    editClipBtn.dataset.testid = 'animation-fsm-edit-clip';
+    editClipBtn.addEventListener('click', () => {
+      if (!options.openClipEditor) {
+        return;
+      }
+      options.openClipEditor({
+        target: getActiveClipEditorTarget(),
+        initialSubclipId: primary?.subclipId,
+        lockSubclipId: Boolean(primary?.subclipId),
+      });
+    });
+
+    const triggerLabel = document.createElement('div');
+    triggerLabel.className = 'animation-fsm-panel__trigger-label';
+    triggerLabel.textContent = 'Runtime triggers';
 
     const actions = document.createElement('div');
     actions.className = 'animation-fsm-panel__actions';
@@ -321,6 +411,12 @@ export function createAnimationFsmPanel(options: AnimationFsmPanelOptions): Anim
       btn.type = 'button';
       btn.textContent = btnLabel;
       btn.addEventListener('click', () => {
+        if (trigger === 'attack' && options.targets.length >= 2) {
+          const otherIndex = (activeTargetIndex + 1) % options.targets.length;
+          const opponentPos = options.targets[otherIndex]!.controller.getWorldPosition();
+          void getTarget().controller.playAttackToward(opponentPos);
+          return;
+        }
         void getFsm().trigger(trigger);
       });
       actions.append(btn);
@@ -330,20 +426,56 @@ export function createAnimationFsmPanel(options: AnimationFsmPanelOptions): Anim
     resetBtn.type = 'button';
     resetBtn.textContent = 'Reset profile';
     resetBtn.addEventListener('click', () => {
-      clearProfileOverrides(profile.id);
-      applyProfileToTarget(getProfile(profile.id));
+      editingPinned = false;
+      if (options.onDuelSetupPersist) {
+        applyProfileToTarget(getProfile(profile.id));
+      } else {
+        clearProfileOverrides(profile.id);
+        applyProfileToTarget(getProfile(profile.id));
+      }
       syncProfileSelect();
+      selectEditingState('idle');
     });
     actions.append(resetBtn);
 
-    detail.append(heading, meta, clipRow, actions);
+    if (options.onDuelSetupPersist) {
+      const saveDuelBtn = document.createElement('button');
+      saveDuelBtn.type = 'button';
+      saveDuelBtn.className = 'primary';
+      saveDuelBtn.textContent = 'Save duel setup';
+      saveDuelBtn.dataset.testid = 'animation-fsm-save-duel';
+      saveDuelBtn.addEventListener('click', () => {
+        void persistDuelSetupIfNeeded().then(() => {
+          setDuelSaveStatus('Saved → data/characterDuelAnimation.json', 'ok');
+        }).catch((error) => {
+          setDuelSaveStatus(error instanceof Error ? error.message : String(error), 'err');
+        });
+      });
+      actions.append(saveDuelBtn);
+    }
+
+    detail.append(heading, toolbar, meta, clipRow, editClipBtn, triggerLabel, actions);
+
+    let duelSaveStatusEl: HTMLElement | null = null;
+    function setDuelSaveStatus(message: string, kind: 'ok' | 'err'): void {
+      if (!options.onDuelSetupPersist) {
+        return;
+      }
+      if (!duelSaveStatusEl) {
+        duelSaveStatusEl = document.createElement('div');
+        duelSaveStatusEl.className = 'animation-fsm-panel__meta';
+        duelSaveStatusEl.dataset.testid = 'animation-fsm-duel-save-status';
+        detail.append(duelSaveStatusEl);
+      }
+      duelSaveStatusEl.textContent = message;
+      duelSaveStatusEl.dataset.kind = kind;
+    }
     pulseBar.style.transform = `scaleX(${snapshot.transitionPulse})`;
   }
 
   function render(): void {
     const snapshot = getFsm().getSnapshot();
     const profile = getFsm().getProfile();
-    selectedState = snapshot.state;
     renderGraph(profile, snapshot);
     renderDetail(profile, snapshot);
   }
@@ -361,6 +493,7 @@ export function createAnimationFsmPanel(options: AnimationFsmPanelOptions): Anim
   rebuildTargetTabs();
   syncProfileSelect();
   bindFsmListener();
+  selectEditingState('idle');
   render();
 
   const getActiveClipEditorTarget = (): AnimationClipEditorTarget => ({
@@ -377,6 +510,8 @@ export function createAnimationFsmPanel(options: AnimationFsmPanelOptions): Anim
   return {
     element: panel,
     getActiveClipEditorTarget,
+    getActiveTargetIndex: () => activeTargetIndex,
+    refresh: render,
     setCollapsed(collapsed: boolean) {
       panel.dataset.collapsed = String(collapsed);
       collapseBtn.textContent = collapsed ? '+' : '−';

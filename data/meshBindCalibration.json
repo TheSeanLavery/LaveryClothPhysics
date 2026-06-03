@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "generatedAt": "2026-06-03T23:34:15.590Z",
+  "baseUrl": "http://localhost:5174",
+  "assetNote": "meshy blue-haired-anime-girl + duel FSM clips",
+  "idle": {
+    "fighter": "A",
+    "fsmState": "idle",
+    "rootRotationY": 0,
+    "forwardYawRad": -0.1384640073864019,
+    "forwardYawDeg": -7.933403237709086,
+    "recommendedMeshBindYaw": 0.1384640073864019,
+    "profileMeshBindYaw": -1.5707963267948966,
+    "profileStanceYawOffset": 0
+  },
+  "tpose": {
+    "fighter": "A",
+    "fsmState": "tpose",
+    "rootRotationY": 0,
+    "forwardYawRad": -0.0011056448865507018,
+    "forwardYawDeg": -0.06334878563957592,
+    "recommendedMeshBindYaw": 0.0011056448865507018,
+    "profileMeshBindYaw": -1.5707963267948966,
+    "profileStanceYawOffset": 0
+  },
+  "walkMoving": {
+    "fighter": "A",
+    "fsmState": "walk",
+    "rootRotationY": 1.5707963267948966,
+    "forwardYawRad": 1.8378210307947045,
+    "forwardYawDeg": 105.29938856491907,
+    "recommendedMeshBindYaw": -1.8378210307947045,
+    "profileMeshBindYaw": -1.5707963267948966,
+    "profileStanceYawOffset": 0
+  },
+  "recommendations": {
+    "meshBindYawFromBones": 0.1384640073864019,
+    "stanceYawOffset": 0.1373583624998512,
+    "empiricalMeshBindYawForWalk": -1.5707963267948966,
+    "notes": [
+      "Bone forward at idle: -7.9° → meshBindYaw 0.1385 rad.",
+      "stanceYawOffset 7.9° (idle vs tpose bone forward).",
+      "Walk (W held) bone forward: 105.3° at root.y=1.57.",
+      "Keep profile meshBindYaw at -90° for correct walk until we add stride-based correction (bone measure ≠ visual stride)."
+    ]
+  }
+}

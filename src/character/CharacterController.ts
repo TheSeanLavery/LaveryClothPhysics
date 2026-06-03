@@ -2,16 +2,37 @@ import * as THREE from 'three';
 import { CharacterAnimationStateMachine } from '../animations/CharacterAnimationStateMachine.ts';
 import { CharacterAnimationPlayer } from '../animations/CharacterAnimationPlayer.ts';
 import {
+  DEFAULT_MESH_BIND_YAW,
   getDefaultProfileId,
   getProfile,
+  resolveProfileFacingParameters,
   type CharacterAnimationProfile,
   type FsmStateId,
 } from '../animations/characterAnimationProfile.ts';
 import type { AnimatedCharacterSceneRig } from './AnimatedCharacter.ts';
+import { wrapAngleRad } from './rigForwardMeasure.ts';
 
 export type CharacterControllerState = FsmStateId;
 
 export type CharacterInputMode = 'human' | 'ai';
+
+export type FacingDebugMode = 'walk' | 'idle' | 'hold' | 'attack';
+
+export interface FacingDebugSnapshot {
+  readonly desiredYaw: number;
+  readonly actualYaw: number;
+  readonly mode: FacingDebugMode;
+  readonly intentDirX: number;
+  readonly intentDirZ: number;
+  readonly meshForwardYaw: number | null;
+  readonly intentMeshYaw: number;
+  /** `wrap(intentMeshYaw - meshForwardYaw)` — ~±90° when meshBindYaw path used wrongly. */
+  readonly meshAlignErrorDeg: number | null;
+}
+
+export interface CharacterControllerOptions {
+  readonly onStateEntered?: (state: FsmStateId) => void | Promise<void>;
+}
 
 export class CharacterController {
   readonly root: THREE.Group;
@@ -24,10 +45,24 @@ export class CharacterController {
   private readonly tmpTarget = new THREE.Vector3();
   private aiWanderTimer = 0;
   private aiMoveBias = new THREE.Vector2();
+  /** Last opponent world position from `update` — used to re-snap facing when attack clip starts. */
+  private readonly lastOpponent = new THREE.Vector3();
+  private hasLastOpponent = false;
+  private facingDebug: FacingDebugSnapshot = {
+    desiredYaw: 0,
+    actualYaw: 0,
+    mode: 'hold',
+    intentDirX: 0,
+    intentDirZ: -1,
+    meshForwardYaw: null,
+    intentMeshYaw: 0,
+    meshAlignErrorDeg: null,
+  };
 
   constructor(
     readonly rig: AnimatedCharacterSceneRig,
     profile: CharacterAnimationProfile = getProfile(getDefaultProfileId()),
+    options: CharacterControllerOptions = {},
   ) {
     this.root = rig.root;
     const mixer = rig.getMixer();
@@ -35,13 +70,24 @@ export class CharacterController {
     if (!mixer || !loadedRoot) {
       throw new Error('CharacterController requires a loaded rig with mixer');
     }
-    this.player = new CharacterAnimationPlayer(mixer, loadedRoot, rig.getBones(), { fadeDuration: 0.3 });
-    this.fsm = new CharacterAnimationStateMachine(profile, { rig, player: this.player });
+    this.player = new CharacterAnimationPlayer(mixer, loadedRoot, rig.getBones(), { fadeDuration: 0.45 });
+    rig.muteEmbeddedAnimations();
+    this.fsm = new CharacterAnimationStateMachine(profile, {
+      rig,
+      player: this.player,
+      onStateEntered: async (state) => {
+        if (state === 'attack' && this.hasLastOpponent) {
+          this.snapFaceToward(this.lastOpponent);
+        }
+        await options.onStateEntered?.(state);
+      },
+    });
     this.player.onFinished(() => {
       if (this.fsm.getState() === 'attack') {
         void this.fsm.trigger('attackDone');
       }
     });
+    this.facingYaw = this.root.rotation.y;
   }
 
   getProfile(): CharacterAnimationProfile {
@@ -64,6 +110,103 @@ export class CharacterController {
     return this.facingYaw;
   }
 
+  getFacingDebug(): FacingDebugSnapshot {
+    return this.facingDebug;
+  }
+
+  private facingParams() {
+    return resolveProfileFacingParameters(this.fsm.getProfile().parameters);
+  }
+
+  /** Where the mesh should point on XZ (green arrow). */
+  private meshIntentYawFromDirection(dx: number, dz: number): number {
+    return Math.atan2(dx, dz);
+  }
+
+  /**
+   * Walk only: root.y so velocity matches walk stride (meshBindYaw ≈ −90°).
+   * Do not use for idle/attack/spawn look-at — clips need mesh-aligned root.
+   */
+  private walkRootYawFromVelocity(dx: number, dz: number): number {
+    const { meshBindYaw } = this.facingParams();
+    return Math.atan2(dx, dz) + (meshBindYaw ?? DEFAULT_MESH_BIND_YAW);
+  }
+
+  /** Steer root.y until bone forward matches mesh intent. */
+  private rootYawToMatchMeshIntent(dx: number, dz: number): number {
+    const intentMeshYaw = this.meshIntentYawFromDirection(dx, dz);
+    const meshYaw = this.rig.measureForwardYaw();
+    if (meshYaw === null) {
+      return this.walkRootYawFromVelocity(dx, dz);
+    }
+    return this.facingYaw + wrapAngleRad(intentMeshYaw - meshYaw);
+  }
+
+  private meshAlignErrorDeg(intentMeshYaw: number, meshForwardYaw: number | null): number | null {
+    if (meshForwardYaw === null) {
+      return null;
+    }
+    return (wrapAngleRad(intentMeshYaw - meshForwardYaw) * 180) / Math.PI;
+  }
+
+  private refreshFacingDebug(
+    opponent: THREE.Vector3 | undefined,
+    moveLength: number,
+    moveThreshold: number,
+  ): void {
+    const state = this.fsm.getState();
+    let desiredYaw = this.facingYaw;
+    let mode: FacingDebugMode = 'hold';
+    let intentDirX = Math.sin(this.facingYaw);
+    let intentDirZ = -Math.cos(this.facingYaw);
+    let intentMeshYaw = Math.atan2(intentDirX, intentDirZ);
+    const meshForwardYaw = this.rig.measureForwardYaw();
+
+    if (state === 'attack' && opponent) {
+      mode = 'attack';
+      const position = this.getWorldPosition(this.tmpTarget);
+      const dx = opponent.x - position.x;
+      const dz = opponent.z - position.z;
+      const len = Math.hypot(dx, dz);
+      if (len >= 1e-6) {
+        intentDirX = dx / len;
+        intentDirZ = dz / len;
+        intentMeshYaw = Math.atan2(dx, dz);
+        desiredYaw = this.rootYawToMatchMeshIntent(dx, dz);
+      }
+    } else if (moveLength > moveThreshold) {
+      mode = 'walk';
+      const normalized = this.moveInput.clone().divideScalar(moveLength);
+      intentDirX = normalized.x;
+      intentDirZ = normalized.y;
+      intentMeshYaw = Math.atan2(intentDirX, intentDirZ);
+      desiredYaw = this.walkRootYawFromVelocity(normalized.x, normalized.y);
+    } else if (opponent && state === 'idle') {
+      mode = 'idle';
+      const position = this.getWorldPosition(this.tmpTarget);
+      const dx = opponent.x - position.x;
+      const dz = opponent.z - position.z;
+      const len = Math.hypot(dx, dz);
+      if (len >= 1e-6) {
+        intentDirX = dx / len;
+        intentDirZ = dz / len;
+        intentMeshYaw = Math.atan2(dx, dz);
+        desiredYaw = this.rootYawToMatchMeshIntent(dx, dz);
+      }
+    }
+
+    this.facingDebug = {
+      desiredYaw,
+      actualYaw: this.facingYaw,
+      mode,
+      intentDirX,
+      intentDirZ,
+      meshForwardYaw,
+      intentMeshYaw,
+      meshAlignErrorDeg: this.meshAlignErrorDeg(intentMeshYaw, meshForwardYaw),
+    };
+  }
+
   async preloadLocomotion(): Promise<void> {
     await this.fsm.preload();
   }
@@ -80,14 +223,7 @@ export class CharacterController {
     this.moveInput.set(x, z);
   }
 
-  faceToward(target: THREE.Vector3, delta: number): void {
-    const position = this.getWorldPosition(this.tmpTarget);
-    const dx = target.x - position.x;
-    const dz = target.z - position.z;
-    if (dx * dx + dz * dz < 1e-6) {
-      return;
-    }
-    const desiredYaw = Math.atan2(dx, dz);
+  private turnTowardYaw(desiredYaw: number, delta: number): void {
     const turnSpeed = this.fsm.getProfile().parameters.turnSpeed;
     let deltaYaw = desiredYaw - this.facingYaw;
     while (deltaYaw > Math.PI) deltaYaw -= Math.PI * 2;
@@ -96,19 +232,46 @@ export class CharacterController {
     this.root.rotation.y = this.facingYaw;
   }
 
+  /** Instant mesh-aligned facing (attack start, spawn sync). */
+  snapFaceToward(target: THREE.Vector3): void {
+    const position = this.getWorldPosition(this.tmpTarget);
+    const dx = target.x - position.x;
+    const dz = target.z - position.z;
+    if (dx * dx + dz * dz < 1e-6) {
+      return;
+    }
+    this.facingYaw = this.rootYawToMatchMeshIntent(dx, dz);
+    this.root.rotation.y = this.facingYaw;
+  }
+
+  faceToward(target: THREE.Vector3, delta: number): void {
+    const position = this.getWorldPosition(this.tmpTarget);
+    const dx = target.x - position.x;
+    const dz = target.z - position.z;
+    if (dx * dx + dz * dz < 1e-6) {
+      return;
+    }
+    this.turnTowardYaw(this.rootYawToMatchMeshIntent(dx, dz), delta);
+  }
+
+  canAttackNow(): boolean {
+    return this.attackCooldown <= 0 && this.fsm.getState() !== 'attack';
+  }
+
   async playAttackToward(target: THREE.Vector3): Promise<boolean> {
     const params = this.fsm.getProfile().parameters;
-    if (this.attackCooldown > 0) {
+    if (!this.canAttackNow()) {
       return false;
     }
-    const position = this.getWorldPosition(this.tmpTarget);
-    if (position.distanceTo(target) > params.attackRange) {
-      return false;
-    }
-    this.faceToward(target, 1 / 60);
+    this.snapFaceToward(target);
     this.moveInput.set(0, 0);
-    const started = await this.fsm.trigger('attack');
+    let started = await this.fsm.trigger('attack');
+    if (!started) {
+      await this.fsm.forceState('attack');
+      started = true;
+    }
     if (started) {
+      this.snapFaceToward(target);
       this.attackCooldown = params.attackCooldownSeconds;
     }
     return started;
@@ -123,35 +286,47 @@ export class CharacterController {
     },
   ): void {
     const params = this.fsm.getProfile().parameters;
+    if (options.opponent) {
+      this.lastOpponent.copy(options.opponent);
+      this.hasLastOpponent = true;
+    }
     this.attackCooldown = Math.max(0, this.attackCooldown - delta);
     this.rig.update(delta);
     this.player.update(delta);
     this.fsm.tick(delta);
-
-    if (this.fsm.getState() === 'attack') {
-      return;
-    }
 
     if (options.inputMode === 'ai') {
       this.updateAiInput(delta, options.opponent, options.boundsRadius ?? 4);
     }
 
     const moveLength = this.moveInput.length();
+    const state = this.fsm.getState();
+
+    if (state === 'attack') {
+      this.refreshFacingDebug(options.opponent, moveLength, params.moveThreshold);
+      if (options.opponent) {
+        this.snapFaceToward(options.opponent);
+      }
+      return;
+    }
+
+    this.refreshFacingDebug(options.opponent, moveLength, params.moveThreshold);
+
     if (moveLength > params.moveThreshold) {
-      if (this.fsm.getState() !== 'walk') {
+      if (state !== 'walk') {
         void this.fsm.trigger('moveStart');
       }
       const normalized = this.moveInput.clone().divideScalar(moveLength);
-      if (options.opponent) {
-        this.faceToward(options.opponent, delta);
-      } else {
-        this.facingYaw = Math.atan2(normalized.x, normalized.y);
-        this.root.rotation.y = this.facingYaw;
-      }
+      this.turnTowardYaw(
+        this.walkRootYawFromVelocity(normalized.x, normalized.y),
+        delta,
+      );
       this.root.position.x += normalized.x * params.walkSpeed * delta;
       this.root.position.z += normalized.y * params.walkSpeed * delta;
-    } else if (this.fsm.getState() === 'walk') {
+    } else if (state === 'walk') {
       void this.fsm.trigger('moveStop');
+    } else if (options.opponent && state === 'idle') {
+      this.faceToward(options.opponent, delta);
     }
   }
 

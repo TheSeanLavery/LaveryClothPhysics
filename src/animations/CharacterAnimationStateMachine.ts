@@ -1,6 +1,8 @@
 import type { CharacterAnimationPlayer } from './CharacterAnimationPlayer.ts';
 import type { AnimatedCharacterSceneRig } from '../character/AnimatedCharacter.ts';
 import {
+  normalizeCharacterAnimationProfile,
+  resolveClipFadeDuration,
   type CharacterAnimationProfile,
   type FsmStateId,
   type FsmTriggerId,
@@ -22,6 +24,7 @@ export interface FsmSnapshot {
 export interface CharacterAnimationStateMachineOptions {
   readonly rig: AnimatedCharacterSceneRig;
   readonly player: CharacterAnimationPlayer;
+  readonly onStateEntered?: (state: FsmStateId) => void | Promise<void>;
   readonly onTransition?: (
     from: FsmStateId,
     to: FsmStateId,
@@ -45,7 +48,7 @@ export class CharacterAnimationStateMachine {
     profile: CharacterAnimationProfile,
     private readonly options: CharacterAnimationStateMachineOptions,
   ) {
-    this.profile = profile;
+    this.profile = normalizeCharacterAnimationProfile(profile);
   }
 
   getProfile(): CharacterAnimationProfile {
@@ -53,7 +56,7 @@ export class CharacterAnimationStateMachine {
   }
 
   setProfile(profile: CharacterAnimationProfile): void {
-    this.profile = profile;
+    this.profile = normalizeCharacterAnimationProfile(profile);
     void this.enterState(this.state, 'force', true);
     this.emit();
   }
@@ -148,23 +151,19 @@ export class CharacterAnimationStateMachine {
     this.lastTransitionLabel = transition?.label ?? trigger;
     this.transitionPulse = 1;
 
-    if (next === 'tpose') {
-      this.options.rig.blendToAnimation('tpose', this.profile.states.tpose.clips[0]?.fadeIn ?? 0.05);
-      this.activeClipName = this.profile.states.tpose.label;
-      this.activeClipFile = this.profile.states.tpose.clips[0]?.file ?? null;
-    } else {
-      const clip = this.pickClipForState(next);
-      await this.options.player.playBinding(clip, {
-        loop: clip.loop,
-        fadeDuration: clip.fadeIn ?? 0.25,
-      });
-      this.activeClipName = clip.name;
-      this.activeClipFile = clip.subclipId ?? clip.file ?? null;
-    }
+    const clip = this.pickClipForState(next);
+    this.options.rig.muteEmbeddedAnimations();
+    await this.options.player.playBinding(clip, {
+      loop: clip.loop,
+      fadeDuration: resolveClipFadeDuration(this.profile, next, clip),
+    });
+    this.activeClipName = clip.name;
+    this.activeClipFile = clip.subclipId ?? clip.file ?? null;
 
     if (transition) {
       this.options.onTransition?.(from, next, trigger, transition);
     }
+    await this.options.onStateEntered?.(next);
     this.emit();
     return true;
   }

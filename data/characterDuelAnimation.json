@@ -1,0 +1,288 @@
+{
+  "version": 1,
+  "fighterA": {
+    "profile": {
+      "id": "duel-fighter",
+      "label": "Duel Fighter",
+      "description": "In-place locomotion and melee combat for character duel.",
+      "parameters": {
+        "meshBindYaw": -1.5707963267948966,
+        "stanceYawOffset": 0.1373583624998512,
+        "walkSpeed": 1.35,
+        "turnSpeed": 8,
+        "attackRange": 1.35,
+        "attackCooldownSeconds": 1.1,
+        "moveThreshold": 0.08,
+        "clipFadeTpose": 0.4,
+        "clipFadeIdle": 0.55,
+        "clipFadeWalk": 0.5,
+        "clipFadeAttack": 0.32
+      },
+      "states": {
+        "tpose": {
+          "label": "T-Pose",
+          "graph": {
+            "x": 0.12,
+            "y": 0.5
+          },
+          "clips": [
+            {
+              "name": "T-Pose (shirt default)",
+              "file": "mixamo/tpose.fbx",
+              "loop": false,
+              "fadeIn": 0.4
+            }
+          ]
+        },
+        "idle": {
+          "label": "Idle",
+          "graph": {
+            "x": 0.38,
+            "y": 0.5
+          },
+          "clips": [
+            {
+              "name": "Mutant Claws",
+              "file": "rokoko-mixamo/MutantClaws_mixamo.fbx",
+              "loop": false,
+              "fadeIn": 0.55
+            }
+          ]
+        },
+        "walk": {
+          "label": "Walk",
+          "graph": {
+            "x": 0.62,
+            "y": 0.28
+          },
+          "clips": [
+            {
+              "name": "walk_1",
+              "subclipId": "walk-1",
+              "file": "rokoko-mixamo/StepForward_mixamo.fbx",
+              "loop": true,
+              "fadeIn": 0.5
+            }
+          ]
+        },
+        "attack": {
+          "label": "Attack",
+          "graph": {
+            "x": 0.78,
+            "y": 0.72
+          },
+          "pick": "random",
+          "clips": [
+            {
+              "name": "Fight 01 — Jab",
+              "subclipId": "fight-01-jab",
+              "loop": false,
+              "fadeIn": 0.32
+            },
+            {
+              "name": "Fight 02",
+              "file": "rokoko-mixamo/Fight_02_mixamo.fbx",
+              "loop": false,
+              "fadeIn": 0.32
+            },
+            {
+              "name": "Roundhouse Kick",
+              "file": "rokoko-mixamo/RoundHouseKick_mixamo.fbx",
+              "loop": false,
+              "fadeIn": 0.32
+            },
+            {
+              "name": "Big Front Kick",
+              "file": "rokoko-mixamo/BigFrontKick_mixamo.fbx",
+              "loop": false,
+              "fadeIn": 0.32
+            },
+            {
+              "name": "Boxing",
+              "file": "rokoko-mixamo/Boxing_mixamo.fbx",
+              "loop": false,
+              "fadeIn": 0.32
+            }
+          ]
+        }
+      },
+      "transitions": [
+        {
+          "from": "tpose",
+          "to": "idle",
+          "trigger": "start",
+          "label": "Start"
+        },
+        {
+          "from": "idle",
+          "to": "walk",
+          "trigger": "moveStart",
+          "label": "Move"
+        },
+        {
+          "from": "walk",
+          "to": "idle",
+          "trigger": "moveStop",
+          "label": "Stop"
+        },
+        {
+          "from": "idle",
+          "to": "attack",
+          "trigger": "attack",
+          "label": "Attack"
+        },
+        {
+          "from": "walk",
+          "to": "attack",
+          "trigger": "attack",
+          "label": "Attack"
+        },
+        {
+          "from": "attack",
+          "to": "idle",
+          "trigger": "attackDone",
+          "label": "Done"
+        }
+      ]
+    }
+  },
+  "fighterB": {
+    "profile": {
+      "id": "duel-brawler",
+      "label": "Duel Brawler",
+      "description": "Heavier idle and wider attack variety.",
+      "parameters": {
+        "meshBindYaw": -1.5707963267948966,
+        "stanceYawOffset": 0.1373583624998512,
+        "walkSpeed": 1.2,
+        "turnSpeed": 7,
+        "attackRange": 1.5,
+        "attackCooldownSeconds": 0.95,
+        "moveThreshold": 0.08,
+        "clipFadeTpose": 0.4,
+        "clipFadeIdle": 0.55,
+        "clipFadeWalk": 0.5,
+        "clipFadeAttack": 0.32
+      },
+      "states": {
+        "tpose": {
+          "label": "T-Pose",
+          "graph": {
+            "x": 0.12,
+            "y": 0.5
+          },
+          "clips": [
+            {
+              "name": "T-Pose (shirt default)",
+              "file": "mixamo/tpose.fbx",
+              "loop": false,
+              "fadeIn": 0.4
+            }
+          ]
+        },
+        "idle": {
+          "label": "Idle",
+          "graph": {
+            "x": 0.38,
+            "y": 0.5
+          },
+          "clips": [
+            {
+              "name": "Regular Medium Idle",
+              "file": "rokoko-mixamo/Regular_Medium_mixamo.fbx",
+              "loop": true,
+              "fadeIn": 0.55
+            }
+          ]
+        },
+        "walk": {
+          "label": "Walk",
+          "graph": {
+            "x": 0.62,
+            "y": 0.28
+          },
+          "clips": [
+            {
+              "name": "Step Forward",
+              "file": "rokoko-mixamo/StepForward_mixamo.fbx",
+              "loop": true,
+              "fadeIn": 0.5
+            }
+          ]
+        },
+        "attack": {
+          "label": "Attack",
+          "graph": {
+            "x": 0.78,
+            "y": 0.72
+          },
+          "pick": "random",
+          "clips": [
+            {
+              "name": "Knife Fight",
+              "file": "rokoko-mixamo/KnifeFight_mixamo.fbx",
+              "loop": false,
+              "fadeIn": 0.32
+            },
+            {
+              "name": "Sword Fight",
+              "file": "rokoko-mixamo/SwordFight_mixamo.fbx",
+              "loop": false,
+              "fadeIn": 0.32
+            },
+            {
+              "name": "Shadow Boxing",
+              "file": "rokoko-mixamo/ShadowBoxing_mixamo.fbx",
+              "loop": false,
+              "fadeIn": 0.32
+            },
+            {
+              "name": "GunFu",
+              "file": "rokoko-mixamo/GunFu_JohnWick_mixamo.fbx",
+              "loop": false,
+              "fadeIn": 0.32
+            }
+          ]
+        }
+      },
+      "transitions": [
+        {
+          "from": "tpose",
+          "to": "idle",
+          "trigger": "start",
+          "label": "Start"
+        },
+        {
+          "from": "idle",
+          "to": "walk",
+          "trigger": "moveStart",
+          "label": "Move"
+        },
+        {
+          "from": "walk",
+          "to": "idle",
+          "trigger": "moveStop",
+          "label": "Stop"
+        },
+        {
+          "from": "idle",
+          "to": "attack",
+          "trigger": "attack",
+          "label": "Attack"
+        },
+        {
+          "from": "walk",
+          "to": "attack",
+          "trigger": "attack",
+          "label": "Attack"
+        },
+        {
+          "from": "attack",
+          "to": "idle",
+          "trigger": "attackDone",
+          "label": "Done"
+        }
+      ]
+    }
+  }
+}

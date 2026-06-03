@@ -17,8 +17,11 @@ import {
   type CharacterSdfCapsuleBlueprint,
 } from './sdf';
 import { EyeBlinkSystem, type EyeBlinkConfig } from './eyeBlink';
+import { measureRigForwardYaw } from './rigForwardMeasure.ts';
 export const VISIBLE_CHARACTER_MODEL_URL = '/assets/characters/meshy/blue-haired-anime-girl.fbx';
-export const MIXAMO_TPOSE_URL = '/assets/characters/mixamo/tpose.fbx';
+/** Mixamo T-pose used for shirt dressing and the character preview toolbar. */
+export const CHARACTER_SHIRT_TPOSE_FILE = 'mixamo/tpose.fbx';
+export const MIXAMO_TPOSE_URL = `/assets/characters/${CHARACTER_SHIRT_TPOSE_FILE}`;
 export const MIXAMO_IDLE_URL = '/assets/characters/mixamo/idle.fbx';
 export const MIXAMO_DANCING_TWERK_URL = '/assets/characters/mixamo/dancing-twerk.fbx';
 
@@ -291,6 +294,7 @@ export class AnimatedCharacterSceneRig {
     this.animationUrl = animationUrl;
     this.root.name = 'animated-character-in-cloth-scene';
     this.sdfDebugGroup.name = 'animated-character-bone-sdf-xray';
+    this.sdfDebugGroup.visible = false;
     this.scene.add(this.root, this.sdfDebugGroup);
   }
 
@@ -383,6 +387,25 @@ export class AnimatedCharacterSceneRig {
 
   transitionToTpose(fadeDuration = 0.75): void {
     this.blendToAnimation('tpose', fadeDuration);
+  }
+
+  /** Fade out rig-embedded clips so FSM/player clips own the mixer. */
+  muteEmbeddedAnimations(): void {
+    for (const action of [this.tposeAction, this.idleAction, this.danceAction]) {
+      if (!action) {
+        continue;
+      }
+      action.setEffectiveWeight(0);
+      action.stop();
+    }
+  }
+
+  /** Same pose path as character preview — use before placing a T-shirt assembly. */
+  settleShirtTpose(): void {
+    this.blendToAnimation('tpose', 0.05);
+    for (let frame = 0; frame < 4; frame += 1) {
+      this.update(1 / 30);
+    }
   }
 
   blendToAnimation(kind: CharacterAnimationKind, fadeDuration = 0.75): void {
@@ -629,6 +652,11 @@ export class AnimatedCharacterSceneRig {
 
   getBones(): readonly THREE.Bone[] {
     return this.bones;
+  }
+
+  /** Visual forward yaw (radians) from current bone pose — used by mesh-bind audit. */
+  measureForwardYaw(): number | null {
+    return measureRigForwardYaw(this);
   }
 
   getBreastPhysics(): BreastPhysicsSimulator {

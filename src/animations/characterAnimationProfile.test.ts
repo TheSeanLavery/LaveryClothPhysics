@@ -11,6 +11,8 @@ test('duel-fighter profile defines four states and combat transitions', () => {
   assert.equal(profile.states.attack.clips.length, 5);
   assert.equal(profile.states.attack.pick, 'random');
   assert.equal(profile.transitions.length, 6);
+  assert.equal(profile.parameters.meshBindYaw, -Math.PI / 2);
+  assert.ok(typeof profile.parameters.stanceYawOffset === 'number');
   assert.ok(resolveClipUrl(profile.states.walk.clips[0]!).includes('ZombieWalk_01_mixamo.fbx'));
 });
 

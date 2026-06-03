@@ -43,6 +43,15 @@
       "loop": true,
       "fps": 30,
       "loopBlendSec": 0.15
+    },
+    "stepforward-mixamo": {
+      "label": "StepForward mixamo",
+      "sourceFile": "rokoko-mixamo/StepForward_mixamo.fbx",
+      "start": 6,
+      "end": 6.416666666666666,
+      "loop": true,
+      "fps": 30,
+      "loopBlendSec": 0.15
     }
   }
 }

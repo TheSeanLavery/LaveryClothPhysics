@@ -174,7 +174,7 @@
       { "name": "Zombie Walk 02 Slow", "file": "rokoko-mixamo/ZombieWalk_02_Slow_mixamo.fbx", "loop": true, "source": "rokoko" }
     ],
     "pose": [
-      { "name": "T-Pose", "file": "mixamo/tpose.fbx", "loop": false, "source": "mixamo" },
+      { "name": "T-Pose (shirt default)", "file": "mixamo/tpose.fbx", "loop": false, "source": "mixamo" },
       { "name": "Rise 01", "file": "rokoko-mixamo/Rise_01_mixamo.fbx", "loop": false, "source": "rokoko" },
       { "name": "Rise 02", "file": "rokoko-mixamo/Rise_02_mixamo.fbx", "loop": false, "source": "rokoko" },
       { "name": "Rise 03", "file": "rokoko-mixamo/Rise_03_mixamo.fbx", "loop": false, "source": "rokoko" },

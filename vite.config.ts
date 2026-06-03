@@ -163,6 +163,59 @@ function animationRatingsPlugin(): Plugin {
   };
 }
 
+function characterDuelAnimationPlugin(): Plugin {
+  return {
+    name: 'character-duel-animation',
+    configureServer(server) {
+      const setupPath = path.resolve(server.config.root, 'data/characterDuelAnimation.json');
+
+      server.middlewares.use('/__character-duel/animation', async (req, res) => {
+        if (req.method === 'GET') {
+          try {
+            const data = await readFile(setupPath, 'utf8');
+            res.statusCode = 200;
+            res.setHeader('content-type', 'application/json');
+            res.end(data);
+          } catch {
+            res.statusCode = 200;
+            res.setHeader('content-type', 'application/json');
+            res.end('{"version":1,"fighterA":{"profile":{"id":"duel-fighter"}},"fighterB":{"profile":{"id":"duel-brawler"}}}');
+          }
+          return;
+        }
+
+        if (req.method === 'POST') {
+          try {
+            const chunks: Buffer[] = [];
+            for await (const chunk of req) {
+              chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+            }
+            const raw = Buffer.concat(chunks).toString('utf8');
+            const parsed = JSON.parse(raw);
+            await mkdir(path.dirname(setupPath), { recursive: true });
+            await writeFile(setupPath, `${JSON.stringify(parsed, null, 2)}\n`, 'utf8');
+            res.statusCode = 200;
+            res.setHeader('content-type', 'application/json');
+            res.end(JSON.stringify({ ok: true }));
+          } catch (error) {
+            res.statusCode = 500;
+            res.setHeader('content-type', 'application/json');
+            res.end(JSON.stringify({
+              ok: false,
+              error: error instanceof Error ? error.message : String(error),
+            }));
+          }
+          return;
+        }
+
+        res.statusCode = 405;
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ ok: false, error: 'Method not allowed' }));
+      });
+    },
+  };
+}
+
 function animationSubclipsPlugin(): Plugin {
   return {
     name: 'animation-subclips',
@@ -222,10 +275,18 @@ export default defineConfig({
     garmentPresetFixturePlugin(),
     animationRatingsPlugin(),
     animationSubclipsPlugin(),
+    characterDuelAnimationPlugin(),
   ],
   server: {
     host: 'localhost',
     port: 5173,
     strictPort: true,
+    watch: {
+      // POST saves from clip editor / duel FSM; app refreshes via fetch, not HMR.
+      ignored: [
+        '**/data/animationSubclips.json',
+        '**/data/characterDuelAnimation.json',
+      ],
+    },
   },
 });

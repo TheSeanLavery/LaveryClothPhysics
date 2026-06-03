@@ -136,6 +136,8 @@ declare global {
     };
     __characterClothReadbackStats?: () => ReturnType<ClothSimulation['getReadbackStats']>;
     __duelStats?: () => CharacterDuelStats;
+    __duelFacingDebug?: (fighter?: 'A' | 'B') => import('./character/CharacterController.ts').FacingDebugSnapshot;
+    __duelSetFacingDebugVisible?: (visible: boolean) => void;
     __duelSetControlMode?: (mode: DuelControlMode) => void;
     __duelGetControlMode?: () => DuelControlMode;
     __duelFighterAPosition?: () => [number, number, number];
@@ -150,6 +152,22 @@ declare global {
     __duelAnimationFsmSnapshot?: (fighter?: 'A' | 'B') => import('./animations/CharacterAnimationStateMachine.ts').FsmSnapshot;
     __duelAnimationFsmForceState?: (state: string, fighter?: 'A' | 'B') => Promise<void>;
     __duelAnimationSubclipLibrary?: () => import('./animations/animationSubclip.ts').AnimationSubclipLibrary;
+    __duelAnimationSetup?: () => Promise<import('./scenes/characterDuel/characterDuelAnimation.ts').CharacterDuelAnimationSetup>;
+    __duelSaveAnimationSetup?: () => Promise<void>;
+    __duelRedressShirts?: () => Promise<void>;
+    __duelSetBonesVisible?: (fighter: 'A' | 'B', visible: boolean) => void;
+    __duelGetBonesVisible?: (fighter: 'A' | 'B') => boolean;
+    __duelMeasureRigForward?: (fighter?: 'A' | 'B') => {
+      fighter: 'A' | 'B';
+      fsmState: string;
+      rootRotationY: number;
+      forwardYawRad: number | null;
+      forwardYawDeg: number | null;
+      recommendedMeshBindYaw: number | null;
+      profileMeshBindYaw: number;
+      profileStanceYawOffset: number;
+    };
+    __duelApplyFacingFromAudit?: (fighter: 'A' | 'B', meshBindYaw: number, stanceYawOffset?: number) => void;
     __animationSubclipLibrary?: () => Promise<import('./animations/animationSubclip.ts').AnimationSubclipLibrary>;
     __zeroGravityTubeReset?: () => Promise<void>;
     __zeroGravityTubeSpawnShape?: (kind: TubeAssemblySpawnKind) => Promise<number>;
@@ -1917,6 +1935,19 @@ async function bootstrapAnimationBrowser(
   `;
   panel.appendChild(searchBox);
 
+  const editClipRow = document.createElement('div');
+  editClipRow.style.cssText = 'padding: 0 12px 8px; border-bottom: 1px solid #2a3448; margin-bottom: 4px;';
+  const editClipBtn = document.createElement('button');
+  editClipBtn.type = 'button';
+  editClipBtn.textContent = 'Edit clip…';
+  editClipBtn.dataset.testid = 'animation-browser-edit-clip';
+  editClipBtn.style.cssText = `
+    width: 100%; padding: 6px 8px; background: #1a2436; border: 1px solid #2a3448;
+    color: #c8d6e5; border-radius: 4px; cursor: pointer; font-family: monospace; font-size: 12px;
+  `;
+  editClipRow.appendChild(editClipBtn);
+  panel.appendChild(editClipRow);
+
   // Category sections
   const categoryEls: HTMLElement[] = [];
   let activeButton: HTMLButtonElement | null = null;
@@ -1959,7 +1990,6 @@ async function bootstrapAnimationBrowser(
       btn.addEventListener('click', async () => {
         const file = btn.dataset.file!;
         selectedSourceFile = file;
-        clipEditor.refresh();
         const loop = btn.dataset.loop === 'true';
         const url = `/assets/characters/${file}`;
         nowPlaying.textContent = `Loading: ${anim.name}...`;
@@ -2012,30 +2042,29 @@ async function bootstrapAnimationBrowser(
 
   let selectedSourceFile: string | null = 'mixamo/idle.fbx';
 
-  const { createAnimationClipEditorPanel } = await import('./animations/clipEditor/index.ts');
+  const { createAnimationClipEditorPopup } = await import('./animations/clipEditor/index.ts');
   const { refreshSubclipLibraryFromServer } = await import('./animations/animationSubclip.ts');
   await refreshSubclipLibraryFromServer();
 
-  let clipEditor!: ReturnType<typeof createAnimationClipEditorPanel>;
-  clipEditor = createAnimationClipEditorPanel({
-    testId: 'animation-clip-editor',
-    target: {
-      label: 'Animation Browser',
-      getMixer: () => rig.getMixer(),
-      getLoadedRoot: () => rig.getLoadedRoot(),
-      getBones: () => rig.getBones(),
-      getSourceFile: () => selectedSourceFile,
-      setSourceFile: (file) => {
-        selectedSourceFile = file;
-        clipEditor.refresh();
-      },
+  const clipEditorTarget = () => ({
+    label: 'Animation Browser',
+    getMixer: () => rig.getMixer(),
+    getLoadedRoot: () => rig.getLoadedRoot(),
+    getBones: () => rig.getBones(),
+    getSourceFile: () => selectedSourceFile,
+    setSourceFile: (file: string) => {
+      selectedSourceFile = file;
     },
+  });
+
+  const clipEditorPopup = createAnimationClipEditorPopup({
+    testId: 'animation-clip-editor-popup',
     onLibraryChanged: () => refreshSubclipLibraryFromServer(),
   });
-  clipEditor.element.style.cssText = `
-    position: fixed; right: 12px; top: 12px; bottom: 12px; width: min(360px, calc(100vw - 320px));
-    z-index: 100; overflow: auto;
-  `;
+
+  editClipBtn.addEventListener('click', () => {
+    clipEditorPopup.open({ target: clipEditorTarget });
+  });
 
   window.__animationSubclipLibrary = async () => {
     await refreshSubclipLibraryFromServer();

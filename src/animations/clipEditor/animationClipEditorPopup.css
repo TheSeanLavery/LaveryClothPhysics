@@ -1,0 +1,64 @@
+.animation-clip-editor-popup {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  pointer-events: none;
+}
+
+.animation-clip-editor-popup.is-open {
+  display: flex;
+  pointer-events: auto;
+}
+
+.animation-clip-editor-popup__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 55%);
+  backdrop-filter: blur(4px);
+}
+
+.animation-clip-editor-popup__dialog {
+  position: relative;
+  z-index: 1;
+  width: min(400px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgb(0 0 0 / 50%);
+}
+
+.animation-clip-editor-popup__dialog .animation-clip-editor {
+  border-radius: 8px;
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+}
+
+.animation-clip-editor-popup__dialog .animation-clip-editor__body {
+  max-height: min(70vh, 560px);
+}
+
+.animation-clip-editor-popup__close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #2a3448;
+  border-radius: 6px;
+  background: rgb(12 16 24 / 90%);
+  color: #c8d6e5;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.animation-clip-editor-popup__close:hover {
+  background: #1a2436;
+  color: #fff;
+}

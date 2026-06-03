@@ -9,7 +9,9 @@ test.describe('Animation subclips', () => {
     await expect(page.locator('[data-testid="sim-status"]')).toHaveText('running (animation browser)', {
       timeout: 45_000,
     });
-    await expect(page.locator('[data-testid="animation-clip-editor"]')).toBeVisible();
+    await page.locator('[data-testid="animation-browser-edit-clip"]').click();
+    await expect(page.locator('[data-testid="animation-clip-editor-popup"]')).toHaveClass(/is-open/);
+    await expect(page.locator('[data-testid="animation-clip-editor-panel"]')).toBeVisible();
 
     const library = await page.evaluate(() => window.__animationSubclipLibrary?.());
     expect(library?.subclips['fight-01-jab']?.sourceFile).toBe('rokoko-mixamo/Fight_01_mixamo.fbx');
@@ -32,11 +34,17 @@ test.describe('Animation subclips', () => {
     await expect(page.locator('[data-testid="sim-status"]')).toHaveText(/running \(character duel/, {
       timeout: 45_000,
     });
-    await expect(page.locator('[data-testid="duel-animation-clip-editor"]')).toBeVisible();
     await expect(page.locator('[data-testid="duel-animation-fsm-panel"]')).toBeVisible();
+
+    await page.locator('[data-testid="animation-fsm-edit-clip"]').click();
+    await expect(page.locator('[data-testid="duel-animation-clip-editor-popup"]')).toHaveClass(/is-open/);
 
     const library = await page.evaluate(() => window.__duelAnimationSubclipLibrary?.());
     expect(library?.subclips['roundhouse-kick']).toBeTruthy();
+
+    const setup = await page.evaluate(() => window.__duelAnimationSetup?.());
+    expect(setup?.fighterA.profile.id).toBeTruthy();
+    expect(setup?.fighterB.profile.id).toBeTruthy();
 
     expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
   });

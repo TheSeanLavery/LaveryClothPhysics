@@ -5,6 +5,7 @@ import { findBestLoopEnd } from '../loopMatch.ts';
 import {
   bindingFromSubclip,
   deleteSubclip,
+  getSubclip,
   listSubclipsForSource,
   normalizeSubclipId,
   refreshSubclipLibraryFromServer,
@@ -21,8 +22,13 @@ export interface AnimationClipEditorTarget {
   setSourceFile?(file: string): void;
 }
 
+export type AnimationClipEditorTargetProvider =
+  | AnimationClipEditorTarget
+  | (() => AnimationClipEditorTarget);
+
 export interface AnimationClipEditorPanelOptions {
-  readonly target: AnimationClipEditorTarget;
+  readonly target: AnimationClipEditorTargetProvider;
+  readonly container?: HTMLElement;
   readonly testId?: string;
   readonly onLibraryChanged?: () => void;
 }
@@ -30,6 +36,8 @@ export interface AnimationClipEditorPanelOptions {
 export interface AnimationClipEditorPanel {
   readonly element: HTMLElement;
   refresh(): void;
+  loadFromSubclip(subclipId: string): void;
+  setSubclipIdLocked(locked: boolean): void;
   dispose(): void;
 }
 
@@ -217,17 +225,22 @@ export function createAnimationClipEditorPanel(
 
   body.append(sourceMeta, trimSection.section, loopSection.section, saveSection.section, status);
   root.append(header, body);
-  document.body.append(root);
+  (options.container ?? document.body).append(root);
 
   let player: CharacterAnimationPlayer | null = null;
   let sourceDuration = 0;
   let startSec = 0;
   let endSec = 1;
 
+  function resolveTarget(): AnimationClipEditorTarget {
+    return typeof options.target === 'function' ? options.target() : options.target;
+  }
+
   function ensurePlayer(): CharacterAnimationPlayer | null {
-    const mixer = options.target.getMixer();
-    const loadedRoot = options.target.getLoadedRoot();
-    const bones = options.target.getBones();
+    const target = resolveTarget();
+    const mixer = target.getMixer();
+    const loadedRoot = target.getLoadedRoot();
+    const bones = target.getBones();
     if (!mixer || !loadedRoot || bones.length === 0) {
       return null;
     }
@@ -293,7 +306,7 @@ export function createAnimationClipEditorPanel(
   }
 
   function renderSubclipList(): void {
-    const file = options.target.getSourceFile();
+    const file = resolveTarget().getSourceFile();
     subclipList.replaceChildren();
     if (!file) {
       subclipList.textContent = 'Select a source animation.';
@@ -335,10 +348,30 @@ export function createAnimationClipEditorPanel(
     }
   }
 
+  function loadFromSubclip(subclipId: string): void {
+    const subclip = getSubclip(subclipId);
+    resolveTarget().setSourceFile?.(subclip.sourceFile);
+    idInput.value = subclipId;
+    labelInput.value = subclip.label;
+    startSec = subclip.start;
+    endSec = subclip.end;
+    loopCheckbox.checked = subclip.loop;
+    blendEnable.checked = (subclip.loopBlendSec ?? 0) > 0;
+    blendSecInput.value = String(subclip.loopBlendSec ?? 0.15);
+    syncInputsFromRange();
+    void loadSourceDuration(subclip.sourceFile);
+  }
+
+  function setSubclipIdLocked(locked: boolean): void {
+    idInput.readOnly = locked;
+    idInput.style.opacity = locked ? '0.75' : '';
+  }
+
   function refresh(): void {
     player = null;
-    const file = options.target.getSourceFile();
-    const label = options.target.label ?? 'Character';
+    const target = resolveTarget();
+    const file = target.getSourceFile();
+    const label = target.label ?? 'Character';
     if (!file) {
       sourceMeta.textContent = `${label} — no source selected`;
       return;
@@ -380,7 +413,7 @@ export function createAnimationClipEditorPanel(
   });
 
   findLoopBtn.addEventListener('click', async () => {
-    const file = options.target.getSourceFile();
+    const file = resolveTarget().getSourceFile();
     const p = ensurePlayer();
     if (!file || !p) {
       setStatus('Load a character and source first.', 'err');
@@ -409,7 +442,7 @@ export function createAnimationClipEditorPanel(
   });
 
   previewTrimBtn.addEventListener('click', async () => {
-    const file = options.target.getSourceFile();
+    const file = resolveTarget().getSourceFile();
     const p = ensurePlayer();
     if (!file || !p) {
       setStatus('Load a character and source clip first.', 'err');
@@ -430,7 +463,7 @@ export function createAnimationClipEditorPanel(
   });
 
   previewFullBtn.addEventListener('click', async () => {
-    const file = options.target.getSourceFile();
+    const file = resolveTarget().getSourceFile();
     const p = ensurePlayer();
     if (!file || !p) {
       return;
@@ -444,7 +477,7 @@ export function createAnimationClipEditorPanel(
   });
 
   saveBtn.addEventListener('click', async () => {
-    const file = options.target.getSourceFile();
+    const file = resolveTarget().getSourceFile();
     if (!file) {
       setStatus('No source file selected.', 'err');
       return;
@@ -485,6 +518,8 @@ export function createAnimationClipEditorPanel(
   return {
     element: root,
     refresh,
+    loadFromSubclip,
+    setSubclipIdLocked,
     dispose() {
       player = null;
       root.remove();
