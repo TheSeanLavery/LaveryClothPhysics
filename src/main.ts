@@ -76,6 +76,7 @@ import type {
   TriangleQualityReport,
 } from './character/shirtDressing';
 import { getFabricNormalMapStatsForTest } from './textures/createFabricNormalMap';
+import catalogJson from './animations/animationCatalog.json';
 
 declare global {
   interface Window {
@@ -84,6 +85,13 @@ declare global {
     __characterBoneSdfFitReport?: () => BoneSdfFitReport;
     __characterBoneSdfMeshCoverageReport?: () => BoneSdfMeshCoverageReport;
     __characterBreastVisualAlignmentReport?: () => BreastVisualAlignmentReport;
+    __characterButtPhysics?: () => ReturnType<ReturnType<AnimatedCharacterSceneRig['getButtPhysics']>['snapshot']>;
+    __characterButtMorphInfo?: () => ReturnType<AnimatedCharacterSceneRig['getButtMorphInfo']>;
+    __characterSlapButt?: (side: 'left' | 'right' | 'both', strength?: number) => void;
+    __characterBlink?: () => void;
+    __characterBlinkState?: () => number;
+    __characterBlinkDebug?: () => ReturnType<AnimatedCharacterSceneRig['getBlinkInfo']>;
+    __characterSetManualClose?: (value: number) => void;
     __characterBlendTo?: (kind: 'tpose' | 'idle' | 'dance') => void;
     __characterSetTearThreshold?: (threshold: number) => void;
     __characterReloadShirtForTest?: () => Promise<void>;
@@ -405,6 +413,13 @@ async function bootstrapCharacterPreview(
   blendDanceBtn.textContent = 'Blend Dance';
   toolbar?.appendChild(blendDanceBtn);
 
+  const animationsBtn = document.createElement('button');
+  animationsBtn.type = 'button';
+  animationsBtn.id = 'animations-toggle-btn';
+  animationsBtn.dataset.testid = 'animations-toggle-btn';
+  animationsBtn.textContent = 'Animations';
+  toolbar?.appendChild(animationsBtn);
+
   const recordReproBtn = document.createElement('button');
   recordReproBtn.type = 'button';
   recordReproBtn.id = 'record-repro-btn';
@@ -530,7 +545,262 @@ async function bootstrapCharacterPreview(
   breastGui.add({ slap: () => bp.applyImpulse('both', 0, 1.0, -1.5) }, 'slap').name('Test slap');
   breastGui.add({ reset: () => bp.reset() }, 'reset').name('Reset springs');
 
+  // --- Butt physics GUI ---
+  const buttGui = characterGui.addFolder('Butt physics');
+  const buttPlacement = rig.buttPlacement;
+  buttGui.add(buttPlacement, 'dropY', 0, 0.25, 0.005).name('Drop');
+  buttGui.add(buttPlacement, 'backZ', 0.04, 0.25, 0.005).name('Back offset');
+  buttGui.add(buttPlacement, 'sideX', 0.05, 0.2, 0.005).name('Side spread');
+  buttGui.add(buttPlacement, 'radius', 0.04, 0.2, 0.005).name('Capsule size');
+  const buttShape = rig.buttShape;
+  buttGui.add(buttShape, 'volume', 0, 3, 0.05).name('Volume');
+  buttGui.add(buttShape, 'lift', -1, 2, 0.05).name('Lift');
+  buttGui.add(buttShape, 'projection', 0, 0.4, 0.01).name('Projection');
+  buttGui.add(buttShape, 'width', -2, 2, 0.05).name('Width');
+  const buttPhysics = rig.getButtPhysics();
+  const buttConfig = buttPhysics.config;
+  buttGui.add(buttConfig, 'stiffnessY', 10, 200, 1).name('Stiffness Y');
+  buttGui.add(buttConfig, 'stiffnessX', 10, 200, 1).name('Stiffness X');
+  buttGui.add(buttConfig, 'stiffnessZ', 10, 200, 1).name('Stiffness Z');
+  buttGui.add(buttConfig, 'dampingY', 0.5, 20, 0.1).name('Damping Y');
+  buttGui.add(buttConfig, 'dampingX', 0.5, 20, 0.1).name('Damping X');
+  buttGui.add(buttConfig, 'dampingZ', 0.5, 20, 0.1).name('Damping Z');
+  buttGui.add(buttConfig, 'responseY', 0.01, 0.5, 0.005).name('Response Y');
+  buttGui.add(buttConfig, 'responseX', 0.01, 0.5, 0.005).name('Response X');
+  buttGui.add(buttConfig, 'responseZ', 0.01, 0.5, 0.005).name('Response Z');
+  buttGui.add(buttConfig, 'maxOffsetY', 0.01, 0.2, 0.005).name('Max offset Y');
+  buttGui.add(buttConfig, 'maxOffsetX', 0.01, 0.2, 0.005).name('Max offset X');
+  buttGui.add(buttConfig, 'maxOffsetZ', 0.01, 0.2, 0.005).name('Max offset Z');
+  buttGui.add({ slap: () => buttPhysics.applyImpulse('both', 0, 1.0, 1.5) }, 'slap').name('Test slap');
+  buttGui.add({ reset: () => buttPhysics.reset() }, 'reset').name('Reset springs');
+
+  // --- Eye blink GUI ---
+  const eyeGui = characterGui.addFolder('Eye blink');
+  const eyeConfig = rig.eyeBlink.config;
+  eyeGui.add(eyeConfig, 'enabled').name('Auto-blink');
+  eyeGui.add(eyeConfig, 'minInterval', 0.5, 10, 0.1).name('Min interval');
+  eyeGui.add(eyeConfig, 'maxInterval', 1, 15, 0.1).name('Max interval');
+  eyeGui.add(eyeConfig, 'blinkDuration', 0.05, 0.5, 0.01).name('Blink speed');
+  eyeGui.add(eyeConfig, 'doubleBlinkChance', 0, 1, 0.05).name('Double-blink chance');
+  eyeGui.add(eyeConfig, 'manualClose', 0, 1, 0.01).name('Manual close');
+  eyeGui.add({ blink: () => rig.eyeBlink.triggerBlink() }, 'blink').name('Blink now');
+
+  // --- Animation browser panel (toggled via toolbar button) ---
+  // Ratings are saved to data/animationRatings.json via the dev server.
+  type Rating = 'up' | 'down' | null;
+  const ratings: Record<string, Rating> = {};
+  // Load from disk on init
+  try {
+    const diskRatings = await fetch('/__animations/ratings').then((r) => r.json());
+    Object.assign(ratings, diskRatings);
+  } catch { /* no ratings yet */ }
+  const saveRatings = () => {
+    fetch('/__animations/ratings', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(ratings),
+    }).catch(() => {});
+  };
+  const getRating = (file: string): Rating => ratings[file] ?? null;
+  const setRating = (file: string, r: Rating) => { if (r) ratings[file] = r; else delete ratings[file]; saveRatings(); };
+
+  const animPanel = document.createElement('div');
+  animPanel.id = 'animation-panel';
+  animPanel.style.cssText = `
+    position: fixed; right: 0; top: 0; bottom: 0; width: 260px;
+    background: rgba(14,18,27,0.94); color: #c8d6e5; overflow-y: auto;
+    font-family: monospace; font-size: 12px; z-index: 200;
+    border-left: 1px solid #2a3448; padding: 8px 0; display: none;
+  `;
+
+  const animTitle = document.createElement('div');
+  animTitle.style.cssText = 'padding: 8px 12px; font-size: 13px; font-weight: bold; color: #fff; border-bottom: 1px solid #2a3448; margin-bottom: 4px;';
+  animTitle.textContent = `Animations (${Object.values(catalogJson.categories).flat().length})`;
+  animPanel.appendChild(animTitle);
+
+  const animNowPlaying = document.createElement('div');
+  animNowPlaying.style.cssText = 'padding: 4px 12px; color: #5cc8ff; font-size: 11px; border-bottom: 1px solid #2a3448; margin-bottom: 4px;';
+  animNowPlaying.textContent = 'Now playing: T-Pose';
+  animPanel.appendChild(animNowPlaying);
+
+  // Filter bar: All / Liked / Disliked + Export
+  let animFilter: 'all' | 'up' | 'down' = 'all';
+  const filterBar = document.createElement('div');
+  filterBar.style.cssText = 'padding: 4px 12px 6px; display: flex; gap: 4px; border-bottom: 1px solid #2a3448; margin-bottom: 4px;';
+  const filterBtnStyle = (active: boolean) => `
+    padding: 3px 8px; border: 1px solid ${active ? '#5cc8ff' : '#2a3448'}; border-radius: 3px;
+    background: ${active ? 'rgba(92,200,255,0.15)' : 'none'}; color: ${active ? '#5cc8ff' : '#7f8fa6'};
+    cursor: pointer; font-family: monospace; font-size: 10px;
+  `;
+  const filterAll = document.createElement('button');
+  filterAll.textContent = 'All';
+  filterAll.type = 'button';
+  const filterLiked = document.createElement('button');
+  filterLiked.textContent = 'Liked';
+  filterLiked.type = 'button';
+  const filterDisliked = document.createElement('button');
+  filterDisliked.textContent = 'Disliked';
+  filterDisliked.type = 'button';
+  const exportBtn = document.createElement('button');
+  exportBtn.textContent = 'Save';
+  exportBtn.type = 'button';
+  exportBtn.title = 'Save ratings to disk';
+  filterBar.append(filterAll, filterLiked, filterDisliked, exportBtn);
+  animPanel.appendChild(filterBar);
+
+  const syncFilterButtons = () => {
+    filterAll.style.cssText = filterBtnStyle(animFilter === 'all');
+    filterLiked.style.cssText = filterBtnStyle(animFilter === 'up');
+    filterDisliked.style.cssText = filterBtnStyle(animFilter === 'down');
+    exportBtn.style.cssText = filterBtnStyle(false);
+  };
+  syncFilterButtons();
+
+  const animSearch = document.createElement('input');
+  animSearch.type = 'text';
+  animSearch.placeholder = 'Search...';
+  animSearch.style.cssText = `
+    width: calc(100% - 24px); margin: 4px 12px 8px; padding: 5px 8px;
+    background: #1a2030; border: 1px solid #2a3448; color: #c8d6e5;
+    border-radius: 4px; font-family: monospace; font-size: 11px; outline: none;
+  `;
+  animPanel.appendChild(animSearch);
+
+  let animActiveBtn: HTMLElement | null = null;
+  const animRows: { row: HTMLElement; file: string; name: string }[] = [];
+  const animSections: HTMLElement[] = [];
+
+  for (const [category, anims] of Object.entries(catalogJson.categories)) {
+    const section = document.createElement('div');
+    section.dataset.category = category;
+    const header = document.createElement('div');
+    header.style.cssText = 'padding: 5px 12px; color: #7f8fa6; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; cursor: pointer; user-select: none;';
+    header.textContent = `${category} (${(anims as any[]).length})`;
+    const list = document.createElement('div');
+    header.addEventListener('click', () => {
+      list.style.display = list.style.display === 'none' ? 'block' : 'none';
+    });
+
+    for (const anim of anims as any[]) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display: flex; align-items: center; padding: 2px 6px 2px 12px;';
+      row.dataset.file = anim.file;
+      row.dataset.animName = anim.name;
+
+      // Play button (animation name)
+      const playBtn = document.createElement('button');
+      playBtn.type = 'button';
+      playBtn.textContent = anim.name;
+      playBtn.style.cssText = `
+        flex: 1; text-align: left; padding: 3px 6px; background: none; border: none;
+        color: #c8d6e5; cursor: pointer; font-family: monospace; font-size: 11px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+      `;
+      playBtn.addEventListener('mouseenter', () => { if (row !== animActiveBtn) row.style.background = 'rgba(92,200,255,0.06)'; });
+      playBtn.addEventListener('mouseleave', () => { if (row !== animActiveBtn) row.style.background = 'none'; });
+      playBtn.addEventListener('click', async () => {
+        const url = `/assets/characters/${anim.file}`;
+        animNowPlaying.textContent = `Loading: ${anim.name}...`;
+        animNowPlaying.style.color = '#ffc048';
+        if (animActiveBtn) { animActiveBtn.style.background = 'none'; animActiveBtn.querySelector('button')!.style.color = '#c8d6e5'; }
+        row.style.background = 'rgba(92,200,255,0.12)';
+        playBtn.style.color = '#5cc8ff';
+        animActiveBtn = row;
+        try {
+          await rig.loadAndPlayAnimation(url, 0.5, anim.loop);
+          animNowPlaying.textContent = `Now playing: ${anim.name}`;
+          animNowPlaying.style.color = '#5cc8ff';
+        } catch (e) {
+          animNowPlaying.textContent = `Error: ${e instanceof Error ? e.message : String(e)}`;
+          animNowPlaying.style.color = '#ff4f4f';
+        }
+      });
+
+      // Thumbs up
+      const upBtn = document.createElement('button');
+      upBtn.type = 'button';
+      upBtn.textContent = '+';
+      upBtn.title = 'Like';
+      const thumbStyle = (active: boolean, color: string) => `
+        width: 22px; height: 22px; padding: 0; border: none; border-radius: 3px; cursor: pointer;
+        font-size: 13px; line-height: 22px; text-align: center;
+        background: ${active ? color : 'none'}; color: ${active ? '#fff' : '#555'};
+      `;
+      // Thumbs down
+      const downBtn = document.createElement('button');
+      downBtn.type = 'button';
+      downBtn.textContent = '-';
+      downBtn.title = 'Dislike';
+
+      const syncThumbs = () => {
+        const r = getRating(anim.file);
+        upBtn.style.cssText = thumbStyle(r === 'up', 'rgba(46,204,113,0.5)');
+        downBtn.style.cssText = thumbStyle(r === 'down', 'rgba(231,76,60,0.5)');
+      };
+      syncThumbs();
+
+      upBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setRating(anim.file, getRating(anim.file) === 'up' ? null : 'up');
+        syncThumbs();
+        applyFilters();
+      });
+      downBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setRating(anim.file, getRating(anim.file) === 'down' ? null : 'down');
+        syncThumbs();
+        applyFilters();
+      });
+
+      row.append(playBtn, upBtn, downBtn);
+      list.appendChild(row);
+      animRows.push({ row, file: anim.file, name: anim.name });
+    }
+
+    section.appendChild(header);
+    section.appendChild(list);
+    animPanel.appendChild(section);
+    animSections.push(section);
+  }
+
+  const applyFilters = () => {
+    const q = animSearch.value.toLowerCase();
+    for (const sec of animSections) {
+      let vis = 0;
+      for (const { row, file, name } of animRows) {
+        if (row.parentElement?.parentElement !== sec) continue;
+        const nameMatch = !q || name.toLowerCase().includes(q);
+        const r = getRating(file);
+        const ratingMatch = animFilter === 'all' || (animFilter === 'up' && r === 'up') || (animFilter === 'down' && r === 'down');
+        const show = nameMatch && ratingMatch;
+        row.style.display = show ? 'flex' : 'none';
+        if (show) vis++;
+      }
+      (sec as HTMLElement).style.display = vis > 0 || (!q && animFilter === 'all') ? 'block' : 'none';
+    }
+  };
+
+  animSearch.addEventListener('input', applyFilters);
+  filterAll.addEventListener('click', () => { animFilter = 'all'; syncFilterButtons(); applyFilters(); });
+  filterLiked.addEventListener('click', () => { animFilter = animFilter === 'up' ? 'all' : 'up'; syncFilterButtons(); applyFilters(); });
+  filterDisliked.addEventListener('click', () => { animFilter = animFilter === 'down' ? 'all' : 'down'; syncFilterButtons(); applyFilters(); });
+  exportBtn.addEventListener('click', () => {
+    saveRatings();
+    exportBtn.textContent = 'Saved!';
+    setTimeout(() => { exportBtn.textContent = 'Save'; }, 1500);
+  });
+
+  document.body.appendChild(animPanel);
+
+  let animPanelOpen = false;
+  animationsBtn.addEventListener('click', () => {
+    animPanelOpen = !animPanelOpen;
+    animPanel.style.display = animPanelOpen ? 'block' : 'none';
+    animationsBtn.classList.toggle('active', animPanelOpen);
+  });
+
   window.__characterBreastPhysics = () => rig.getBreastPhysics().snapshot();
+  window.__characterButtPhysics = () => rig.getButtPhysics().snapshot();
   window.__characterPokeBreast = (side: 'left' | 'right' | 'both', dx = 0, dy = 0.5, dz = 0) => {
     rig.getBreastPhysics().applyImpulse(side, dx, dy, dz);
   };
@@ -541,7 +811,42 @@ async function bootstrapCharacterPreview(
       rig.getBreastPhysics().applyImpulse(other, (Math.random() - 0.5) * strength * 0.3, strength * 0.15, -strength * 0.25);
     }
   };
+  window.__characterSlapButt = (side: 'left' | 'right' | 'both', strength = 3.0) => {
+    const spreadSign = side === 'left' ? -1 : side === 'right' ? 1 : (Math.random() > 0.5 ? 1 : -1);
+    rig.getButtPhysics().applyImpulse(side, spreadSign * strength * 0.8, strength * 0.4, strength * 0.3);
+    if (side !== 'both') {
+      const other = side === 'left' ? 'right' : 'left';
+      rig.getButtPhysics().applyImpulse(other, spreadSign * strength * 0.25, strength * 0.15, strength * 0.1);
+    }
+  };
   window.__characterBreastMorphInfo = () => rig.getBreastMorphInfo();
+  window.__characterButtMorphInfo = () => rig.getButtMorphInfo();
+  window.__characterBlink = () => rig.eyeBlink.triggerBlink();
+  window.__characterBlinkState = () => rig.eyeBlink.getBlinkAmount();
+  window.__characterBlinkDebug = () => rig.getBlinkInfo();
+  window.__characterSetManualClose = (value: number) => {
+    rig.eyeBlink.config.manualClose = value;
+  };
+  window.__characterTestLoadAnimation = async (url: string) => {
+    try {
+      const { FBXLoader } = await import('three/addons/loaders/FBXLoader.js');
+      const loader = new FBXLoader();
+      const root = await loader.loadAsync(url);
+      const clips = root.animations ?? [];
+      if (clips.length === 0) return { ok: false, error: 'No animation clips' };
+      const clip = clips[0]!;
+      const quatTracks = clip.tracks.filter((t: { name: string }) => t.name.includes('quaternion'));
+      return {
+        ok: true,
+        clipName: clip.name,
+        duration: Math.round(clip.duration * 100) / 100,
+        trackCount: clip.tracks.length,
+        quaternionTracks: quatTracks.length,
+      };
+    } catch (e: unknown) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  };
   window.__characterStats = () => rig.getStats();
   window.__characterBoneSdfs = () => rig.getBoneSdfSummary();
   window.__characterBoneSdfFitReport = () => rig.getBoneSdfFitReport();
@@ -677,35 +982,53 @@ async function bootstrapCharacterPreview(
 
   const slapHitTest = (ndcX: number, ndcY: number): {
     side: 'left' | 'right';
+    region: 'breast' | 'butt';
     point: THREE.Vector3;
     center: THREE.Vector3;
   } | null => {
-    const centers = rig.getBreastWorldCenters();
-    if (!centers) return null;
-
     slapNdc.set(ndcX, ndcY);
     slapRaycaster.setFromCamera(slapNdc, cloth.camera);
     const ray = slapRaycaster.ray;
 
     let bestDist = SLAP_HIT_RADIUS;
     let bestSide: 'left' | 'right' | null = null;
+    let bestRegion: 'breast' | 'butt' = 'breast';
     let bestCenter: THREE.Vector3 | null = null;
 
-    for (const [side, center] of [['left', centers.left], ['right', centers.right]] as const) {
-      const closest = new THREE.Vector3();
-      ray.closestPointToPoint(center, closest);
-      const dist = closest.distanceTo(center);
-      if (dist < bestDist) {
-        bestDist = dist;
-        bestSide = side;
-        bestCenter = center;
+    const breastCenters = rig.getBreastWorldCenters();
+    if (breastCenters) {
+      for (const [side, center] of [['left', breastCenters.left], ['right', breastCenters.right]] as const) {
+        const closest = new THREE.Vector3();
+        ray.closestPointToPoint(center, closest);
+        const dist = closest.distanceTo(center);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestSide = side;
+          bestRegion = 'breast';
+          bestCenter = center;
+        }
+      }
+    }
+
+    const buttCenters = rig.getButtWorldCenters();
+    if (buttCenters) {
+      for (const [side, center] of [['left', buttCenters.left], ['right', buttCenters.right]] as const) {
+        const closest = new THREE.Vector3();
+        ray.closestPointToPoint(center, closest);
+        const dist = closest.distanceTo(center);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestSide = side;
+          bestRegion = 'butt';
+          bestCenter = center;
+        }
       }
     }
 
     if (!bestSide || !bestCenter) return null;
     const hitPoint = new THREE.Vector3();
     ray.closestPointToPoint(bestCenter, hitPoint);
-    return { side: bestSide, point: hitPoint, center: bestCenter };
+    return { side: bestSide, region: bestRegion, point: hitPoint, center: bestCenter };
   };
 
   /**
@@ -849,32 +1172,34 @@ async function bootstrapCharacterPreview(
     updateMouseNdc(event);
     characterReproRecorder.recordPointer('down', event);
 
-    // Slap mode: swipe-velocity–based impact on breast
+    // Slap mode: swipe-velocity-based impact on breast or butt.
     if (slapMode) {
       const ndc = toNdc(event);
       const hit = slapHitTest(ndc.x, ndc.y);
       if (hit) {
+        const targetPhysics = hit.region === 'butt' ? rig.getButtPhysics() : rig.getBreastPhysics();
         const swipe = getSlapSwipeVelocity();
         const swipeSpeed = Math.sqrt(swipe.vx * swipe.vx + swipe.vy * swipe.vy);
 
-        // Impulse = base push + velocity-amplified directional hit
+        // Impulse = base push + velocity-amplified directional hit.
         const impulseX = swipe.vx * SLAP_VELOCITY_SCALE + (hit.point.x - hit.center.x) * SLAP_BASE_STRENGTH;
         const impulseY = swipe.vy * SLAP_VELOCITY_SCALE + (hit.point.y - hit.center.y) * SLAP_BASE_STRENGTH;
-        // Always push into the body (forward/Z) on impact
-        const impulseZ = -(SLAP_BASE_STRENGTH + swipeSpeed * SLAP_FORWARD_PUSH);
+        const impulseZ = hit.region === 'butt'
+          ? (SLAP_BASE_STRENGTH + swipeSpeed * SLAP_FORWARD_PUSH) * 0.3
+          : -(SLAP_BASE_STRENGTH + swipeSpeed * SLAP_FORWARD_PUSH);
 
-        rig.getBreastPhysics().applyImpulse(hit.side, impulseX, impulseY, impulseZ);
+        targetPhysics.applyImpulse(hit.side, impulseX, impulseY, impulseZ);
         characterReproRecorder.recordAction('slap-hit', {
           side: hit.side,
+          region: hit.region,
           impulse: [impulseX, impulseY, impulseZ],
           swipeSpeed,
         });
 
-        // If both breasts are close to the hit, give the other a smaller sympathetic jiggle
+        // Give the opposite side a smaller sympathetic jiggle.
         const otherSide = hit.side === 'left' ? 'right' : 'left';
-        rig.getBreastPhysics().applyImpulse(otherSide, impulseX * 0.3, impulseY * 0.3, impulseZ * 0.25);
+        targetPhysics.applyImpulse(otherSide, impulseX * 0.3, impulseY * 0.3, impulseZ * 0.25);
       }
-      // Clear history after slap
       slapPointerHistory = [];
       return;
     }
@@ -1484,6 +1809,206 @@ async function bootstrapGarmentStudio(
   });
 }
 
+async function bootstrapAnimationBrowser(
+  statusEl: HTMLElement,
+  backendEl: HTMLElement,
+  particlesEl: HTMLElement,
+): Promise<void> {
+  const heading = document.querySelector('#overlay h1');
+  if (heading) heading.textContent = 'Animation Browser';
+
+  const resetBtn = document.querySelector<HTMLButtonElement>('#reset-flag-btn');
+  if (resetBtn) resetBtn.textContent = 'Reset view';
+
+  // Hide shoot button, repurpose grab
+  const shootBtn = document.querySelector<HTMLButtonElement>('#shoot-toggle-btn');
+  if (shootBtn) shootBtn.style.display = 'none';
+  const grabBtn = document.querySelector<HTMLButtonElement>('#grab-toggle-btn');
+  if (grabBtn) grabBtn.style.display = 'none';
+
+  // Create cloth sim (for the scene/renderer)
+  const cloth = await createClothSimulation(
+    { container: document.body, statusEl, backendEl, particlesEl },
+    {
+      autoInit: false,
+      isolated: true,
+      pinMode: 'none',
+      initialShape: 'tube',
+      tubeRadius: 0.34,
+      width: Math.PI * 2 * 0.34,
+      height: 1.1,
+      segmentsX: 49,
+      segmentsY: 36,
+    },
+  );
+  Object.assign(cloth.settings, {
+    windStrength: 0, windTurbulence: 0, zoneAStrength: 0, zoneBStrength: 0,
+    gravity: 0.000025, clothThickness: 0.003, selfCollision: false,
+    poleCollision: false, mannequinCollision: false, showMannequin: false,
+    renderStrandThreads: false, showSimGridDebug: false, tearStretchThreshold: 999,
+    shapePressure: 0, flagColor: '#ff4fa3', fabricTextureSource: 'procedural',
+  });
+  cloth.applySettings();
+  await cloth.init();
+
+  const rig = new AnimatedCharacterSceneRig(cloth.scene);
+  await rig.load();
+  cloth.settings.mannequinCollision = false;
+  cloth.applySettings();
+
+  cloth.setGrabModeEnabled(false);
+  cloth.setShootModeEnabled(false);
+  cloth.camera.position.set(0, 0.95, 2.6);
+  cloth.controls.target.set(0, 0.9, 0);
+  cloth.controls.update();
+
+  statusEl.textContent = 'running (animation browser)';
+  backendEl.textContent = `backend: ${cloth.renderer.backend.constructor.name}`;
+  particlesEl.textContent = `animations: ${Object.values(catalogJson.categories).flat().length}`;
+
+  // --- Build animation list panel ---
+  const panel = document.createElement('div');
+  panel.id = 'animation-panel';
+  panel.style.cssText = `
+    position: fixed; left: 0; top: 0; bottom: 0; width: 280px;
+    background: rgba(14,18,27,0.92); color: #c8d6e5; overflow-y: auto;
+    font-family: monospace; font-size: 12px; z-index: 100;
+    border-right: 1px solid #2a3448; padding: 8px 0;
+  `;
+
+  const titleEl = document.createElement('div');
+  titleEl.style.cssText = 'padding: 8px 12px; font-size: 14px; font-weight: bold; color: #fff; border-bottom: 1px solid #2a3448; margin-bottom: 4px;';
+  titleEl.textContent = `Animations (${Object.values(catalogJson.categories).flat().length})`;
+  panel.appendChild(titleEl);
+
+  // Now playing indicator
+  const nowPlaying = document.createElement('div');
+  nowPlaying.style.cssText = 'padding: 4px 12px; color: #5cc8ff; font-size: 11px; border-bottom: 1px solid #2a3448; margin-bottom: 4px;';
+  nowPlaying.textContent = 'Now playing: Idle';
+  panel.appendChild(nowPlaying);
+
+  // Search box
+  const searchBox = document.createElement('input');
+  searchBox.type = 'text';
+  searchBox.placeholder = 'Search animations...';
+  searchBox.style.cssText = `
+    width: calc(100% - 24px); margin: 4px 12px 8px; padding: 6px 8px;
+    background: #1a2030; border: 1px solid #2a3448; color: #c8d6e5;
+    border-radius: 4px; font-family: monospace; font-size: 12px; outline: none;
+  `;
+  panel.appendChild(searchBox);
+
+  // Category sections
+  const categoryEls: HTMLElement[] = [];
+  let activeButton: HTMLButtonElement | null = null;
+
+  for (const [category, anims] of Object.entries(catalogJson.categories)) {
+    const section = document.createElement('div');
+    section.dataset.category = category;
+
+    const header = document.createElement('div');
+    header.style.cssText = 'padding: 6px 12px; color: #7f8fa6; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; cursor: pointer; user-select: none;';
+    header.textContent = `${category} (${anims.length})`;
+    const list = document.createElement('div');
+    list.style.cssText = 'display: block;';
+
+    header.addEventListener('click', () => {
+      list.style.display = list.style.display === 'none' ? 'block' : 'none';
+      header.style.color = list.style.display === 'none' ? '#7f8fa6' : '#5cc8ff';
+    });
+
+    for (const anim of anims) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = anim.name;
+      btn.title = anim.file;
+      btn.dataset.file = anim.file;
+      btn.dataset.animName = anim.name;
+      btn.dataset.loop = String(anim.loop);
+      btn.style.cssText = `
+        display: block; width: 100%; text-align: left; padding: 5px 12px 5px 20px;
+        background: none; border: none; color: #c8d6e5; cursor: pointer;
+        font-family: monospace; font-size: 12px; white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis;
+      `;
+      btn.addEventListener('mouseenter', () => {
+        if (btn !== activeButton) btn.style.background = 'rgba(92,200,255,0.08)';
+      });
+      btn.addEventListener('mouseleave', () => {
+        if (btn !== activeButton) btn.style.background = 'none';
+      });
+      btn.addEventListener('click', async () => {
+        const file = btn.dataset.file!;
+        const loop = btn.dataset.loop === 'true';
+        const url = `/assets/characters/${file}`;
+        nowPlaying.textContent = `Loading: ${anim.name}...`;
+        nowPlaying.style.color = '#ffc048';
+
+        if (activeButton) {
+          activeButton.style.background = 'none';
+          activeButton.style.color = '#c8d6e5';
+        }
+        btn.style.background = 'rgba(92,200,255,0.15)';
+        btn.style.color = '#5cc8ff';
+        activeButton = btn;
+
+        try {
+          const clipName = await rig.loadAndPlayAnimation(url, 0.5, loop);
+          nowPlaying.textContent = `Now playing: ${anim.name}`;
+          nowPlaying.style.color = '#5cc8ff';
+        } catch (e) {
+          nowPlaying.textContent = `Error: ${e instanceof Error ? e.message : String(e)}`;
+          nowPlaying.style.color = '#ff4f4f';
+        }
+      });
+      list.appendChild(btn);
+    }
+
+    section.appendChild(header);
+    section.appendChild(list);
+    panel.appendChild(section);
+    categoryEls.push(section);
+  }
+
+  // Search filter
+  searchBox.addEventListener('input', () => {
+    const query = searchBox.value.toLowerCase();
+    for (const section of categoryEls) {
+      const buttons = section.querySelectorAll('button');
+      let visibleCount = 0;
+      buttons.forEach((btn) => {
+        const name = btn.dataset.animName?.toLowerCase() ?? '';
+        const match = !query || name.includes(query);
+        (btn as HTMLElement).style.display = match ? 'block' : 'none';
+        if (match) visibleCount++;
+      });
+      // Hide entire category if no matches
+      (section as HTMLElement).style.display = visibleCount > 0 || !query ? 'block' : 'none';
+    }
+  });
+
+  document.body.appendChild(panel);
+
+  // Shift the canvas to make room for the panel
+  const canvas = cloth.renderer.domElement;
+  canvas.style.marginLeft = '280px';
+  canvas.style.width = 'calc(100% - 280px)';
+  cloth.resize();
+
+  resetBtn?.addEventListener('click', () => cloth.controls.reset());
+
+  window.addEventListener('resize', () => cloth.resize());
+  const timer = new THREE.Timer();
+  cloth.renderer.setAnimationLoop(() => {
+    timer.update();
+    const delta = Math.min(timer.getDelta(), 1 / 30);
+    rig.update(delta);
+    syncCharacterBoneSdfsToGpu(cloth, rig);
+    cloth.update();
+    cloth.render();
+  });
+}
+
 function syncCharacterBoneSdfsToGpu(cloth: ClothSimulation, rig: AnimatedCharacterSceneRig): void {
   cloth.setBoneSdfCapsules(rig.getBoneSdfSummary());
 }
@@ -1530,6 +2055,11 @@ async function bootstrap(): Promise<void> {
 
   if (mode === 'garment') {
     await bootstrapGarmentStudio(statusEl, backendEl, particlesEl);
+    return;
+  }
+
+  if (mode === 'animations') {
+    await bootstrapAnimationBrowser(statusEl, backendEl, particlesEl);
     return;
   }
 

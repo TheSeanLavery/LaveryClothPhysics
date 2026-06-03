@@ -1,4 +1,4 @@
-export type AppMode = 'flag' | 'plane' | 'tube' | 'character' | 'character-sdf' | 'garment';
+export type AppMode = 'flag' | 'plane' | 'tube' | 'character' | 'character-sdf' | 'garment' | 'animations';
 
 export interface AppModeLink {
   mode: AppMode;
@@ -44,11 +44,24 @@ export const APP_MODE_LINKS: readonly AppModeLink[] = [
     href: '/?mode=garment',
     description: 'Garment generation and fitting studio',
   },
+  {
+    mode: 'animations',
+    label: 'Animations',
+    href: '/?mode=animations',
+    description: 'Animation browser and rating studio',
+  },
 ];
 
 export function getAppMode(search = window.location.search): AppMode {
   const mode = new URLSearchParams(search).get('mode');
-  if (mode === 'plane' || mode === 'tube' || mode === 'character' || mode === 'character-sdf' || mode === 'garment') {
+  if (
+    mode === 'plane' ||
+    mode === 'tube' ||
+    mode === 'character' ||
+    mode === 'character-sdf' ||
+    mode === 'garment' ||
+    mode === 'animations'
+  ) {
     return mode;
   }
   return 'flag';

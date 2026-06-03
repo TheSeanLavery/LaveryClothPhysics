@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
 
@@ -114,8 +114,57 @@ function safeFixtureSlug(value: string): string {
     .replace(/^-+|-+$/g, '') || 'garment-preset';
 }
 
+function animationRatingsPlugin(): Plugin {
+  return {
+    name: 'animation-ratings',
+    configureServer(server) {
+      const ratingsPath = path.resolve(server.config.root, 'data/animationRatings.json');
+
+      server.middlewares.use('/__animations/ratings', async (req, res) => {
+        if (req.method === 'GET') {
+          try {
+            const data = await readFile(ratingsPath, 'utf8');
+            res.statusCode = 200;
+            res.setHeader('content-type', 'application/json');
+            res.end(data);
+          } catch {
+            res.statusCode = 200;
+            res.setHeader('content-type', 'application/json');
+            res.end('{}');
+          }
+          return;
+        }
+
+        if (req.method === 'POST') {
+          try {
+            const chunks: Buffer[] = [];
+            for await (const chunk of req) {
+              chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+            }
+            const raw = Buffer.concat(chunks).toString('utf8');
+            const parsed = JSON.parse(raw);
+            await writeFile(ratingsPath, `${JSON.stringify(parsed, null, 2)}\n`, 'utf8');
+            res.statusCode = 200;
+            res.setHeader('content-type', 'application/json');
+            res.end(JSON.stringify({ ok: true }));
+          } catch (error) {
+            res.statusCode = 500;
+            res.setHeader('content-type', 'application/json');
+            res.end(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) }));
+          }
+          return;
+        }
+
+        res.statusCode = 405;
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ ok: false, error: 'Method not allowed' }));
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [characterReproRecorderPlugin(), garmentPresetFixturePlugin()],
+  plugins: [characterReproRecorderPlugin(), garmentPresetFixturePlugin(), animationRatingsPlugin()],
   server: {
     host: 'localhost',
     port: 5173,

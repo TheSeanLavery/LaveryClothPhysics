@@ -16,6 +16,7 @@ import {
   type CharacterSdfCapsule,
   type CharacterSdfCapsuleBlueprint,
 } from './sdf';
+import { EyeBlinkSystem, type EyeBlinkConfig } from './eyeBlink';
 export const VISIBLE_CHARACTER_MODEL_URL = '/assets/characters/meshy/blue-haired-anime-girl.fbx';
 export const MIXAMO_TPOSE_URL = '/assets/characters/mixamo/tpose.fbx';
 export const MIXAMO_IDLE_URL = '/assets/characters/mixamo/idle.fbx';
@@ -167,6 +168,22 @@ interface BreastCollisionModel {
   readonly capsules: readonly BreastCollisionPrimitive[];
 }
 
+interface ButtCollisionSideModel {
+  readonly sideName: BreastSideName;
+  readonly center: THREE.Vector3;
+  readonly restCenter: THREE.Vector3;
+  readonly offset: THREE.Vector3;
+  readonly capsules: readonly BreastCollisionPrimitive[];
+}
+
+interface ButtCollisionModel {
+  readonly shoulderWidth: number;
+  readonly xAxis: THREE.Vector3;
+  readonly frontAxis: THREE.Vector3;
+  readonly sides: readonly ButtCollisionSideModel[];
+  readonly capsules: readonly BreastCollisionPrimitive[];
+}
+
 export interface BreastVisualAlignmentSideReport {
   readonly center: [number, number, number];
   readonly sdfCenter: [number, number, number] | null;
@@ -229,13 +246,37 @@ export class AnimatedCharacterSceneRig {
   private boundsWidth = 0;
   private animationSpeed = 1;
   private readonly breastSim = new BreastPhysicsSimulator();
+  private readonly buttSim = new BreastPhysicsSimulator({
+    stiffnessY: 55,
+    stiffnessX: 50,
+    stiffnessZ: 45,
+    dampingY: 5.0,
+    dampingX: 4.5,
+    dampingZ: 4.5,
+    responseY: 0.07,
+    responseX: 0.06,
+    responseZ: 0.06,
+    maxOffsetY: 0.06,
+    maxOffsetX: 0.06,
+    maxOffsetZ: 0.05,
+  });
+  readonly buttPlacement = { dropY: 0.1, backZ: 0.12, sideX: 0.11, radius: 0.085 };
+  readonly buttShape = { volume: 0, lift: 0, projection: 0, width: 0 };
+  readonly eyeBlink = new EyeBlinkSystem();
   private breastBoneLeft: THREE.Bone | null = null;
   private breastBoneRight: THREE.Bone | null = null;
   private breastBonesSearched = false;
   private breastMorphTargetsBuilt = false;
+  private buttMorphTargetsBuilt = false;
+  private buttShapeMorphTargetsBuilt = false;
   private readonly breastMorphMeshes: THREE.SkinnedMesh[] = [];
+  private readonly buttMorphMeshes: THREE.SkinnedMesh[] = [];
+  private readonly buttShapeMorphMeshes: THREE.SkinnedMesh[] = [];
+  private readonly buttJiggleMorphOffsets = new WeakMap<THREE.SkinnedMesh, number>();
+  private readonly buttShapeMorphOffsets = new WeakMap<THREE.SkinnedMesh, number>();
   private readonly breastBaseQuaternions = new WeakMap<THREE.Bone, THREE.Quaternion>();
   private lastBreastCollisionModel: BreastCollisionModel | null = null;
+  private lastButtCollisionModel: ButtCollisionModel | null = null;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -313,14 +354,18 @@ export class AnimatedCharacterSceneRig {
     this.buildBoneSdfBlueprints();
     this.updateBoneSdfs();
     this.buildBoneSdfDebugVisuals();
-    // Build breast morph targets now that bones are positioned.
+    // Build morph targets now that bones are positioned.
     this.buildBreastMorphTargetsIfNeeded();
+    this.buildButtMorphTargetsIfNeeded();
+    this.buildButtShapeMorphTargetsIfNeeded();
+    this.initEyeBlink();
   }
 
   update(delta: number): void {
     this.mixer?.update(delta * this.animationSpeed);
     this.updateBoneSdfs(delta);
     this.syncBoneSdfDebugVisuals();
+    this.eyeBlink.update(delta);
     this.frameCount += 1;
   }
 
@@ -366,6 +411,45 @@ export class AnimatedCharacterSceneRig {
     }
     this.activeAction = nextAction;
     this.activeClipName = clipNames[kind];
+  }
+
+  /**
+   * Load an arbitrary FBX animation by URL and play it on the character.
+   * Retargets the animation tracks to the character skeleton automatically.
+   */
+  async loadAndPlayAnimation(url: string, fadeDuration = 0.6, loop = true): Promise<string> {
+    if (!this.mixer || !this.loadedRoot) {
+      throw new Error('Character not loaded');
+    }
+
+    const loader = new FBXLoader();
+    const animRoot = await loadFbxQuietly(loader, url);
+    if (!animRoot.animations || animRoot.animations.length === 0) {
+      throw new Error('No animation clips in FBX');
+    }
+
+    const sourceClip = animRoot.animations[0]!;
+    const clipName = sourceClip.name || url.split('/').pop()?.replace('.fbx', '') || 'Custom';
+    const retargeted = this.retargetClipTracks(sourceClip, animRoot, clipName);
+
+    if (retargeted.tracks.length === 0) {
+      throw new Error('No compatible tracks after retargeting');
+    }
+
+    const action = this.mixer.clipAction(retargeted, this.loadedRoot);
+    action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1);
+    if (!loop) {
+      action.clampWhenFinished = true;
+    }
+    action.reset().setEffectiveWeight(1).play();
+
+    if (this.activeAction) {
+      this.activeAction.crossFadeTo(action, Math.max(0.01, fadeDuration), false);
+    }
+    this.activeAction = action;
+    this.activeClipName = clipName;
+
+    return clipName;
   }
 
   setXrayVisible(visible: boolean): void {
@@ -539,12 +623,26 @@ export class AnimatedCharacterSceneRig {
     return this.breastSim;
   }
 
+  getButtPhysics(): BreastPhysicsSimulator {
+    return this.buttSim;
+  }
+
   getBreastMorphInfo(): { meshCount: number; morphTargetsBuilt: boolean; morphCount: number; influences: number[][] } {
     return {
       meshCount: this.breastMorphMeshes.length,
       morphTargetsBuilt: this.breastMorphTargetsBuilt,
       morphCount: 12,
       influences: this.breastMorphMeshes.map((mesh) => [...(mesh.morphTargetInfluences ?? [])]),
+    };
+  }
+
+  getButtMorphInfo(): { meshCount: number; morphTargetsBuilt: boolean; shapeTargetsBuilt: boolean; morphCount: number; influences: number[][] } {
+    return {
+      meshCount: this.buttMorphMeshes.length,
+      morphTargetsBuilt: this.buttMorphTargetsBuilt,
+      shapeTargetsBuilt: this.buttShapeMorphTargetsBuilt,
+      morphCount: 16,
+      influences: this.buttMorphMeshes.map((mesh) => [...(mesh.morphTargetInfluences ?? [])]),
     };
   }
 
@@ -604,6 +702,30 @@ export class AnimatedCharacterSceneRig {
     };
   }
 
+  getButtWorldCenters(): { left: THREE.Vector3; right: THREE.Vector3 } | null {
+    const model = this.lastButtCollisionModel ?? this.buildButtCollisionModel(0, false);
+    if (!model) {
+      return null;
+    }
+    const left = model.sides.find((side) => side.sideName === 'left');
+    const right = model.sides.find((side) => side.sideName === 'right');
+    if (!left || !right) {
+      return null;
+    }
+    return {
+      left: left.center.clone(),
+      right: right.center.clone(),
+    };
+  }
+
+  getBlinkInfo(): { amount: number; initialized: boolean; config: EyeBlinkConfig } {
+    return {
+      amount: this.eyeBlink.getBlinkAmount(),
+      initialized: this.eyeBlink.isInitialized(),
+      config: { ...this.eyeBlink.config },
+    };
+  }
+
   private breastAlignmentSideReport(
     model: BreastCollisionModel,
     sideName: BreastSideName,
@@ -624,6 +746,13 @@ export class AnimatedCharacterSceneRig {
       offsetLength: side.offset.length(),
       sdfCenterError,
     };
+  }
+
+  private initEyeBlink(): void {
+    if (!this.loadedRoot) return;
+    const headBone = this.findBone(['head']);
+    if (!headBone) return;
+    this.eyeBlink.init(this.loadedRoot, headBone, getSkinnedVertexWorldPosition);
   }
 
   private collectCharacterObjects(root: THREE.Object3D): void {
@@ -795,6 +924,70 @@ export class AnimatedCharacterSceneRig {
     };
   }
 
+  private buildButtCollisionModel(
+    delta: number,
+    stepPhysics: boolean,
+    xAxisOverride?: THREE.Vector3,
+    frontAxisOverride?: THREE.Vector3,
+    shoulderWidthOverride?: number,
+  ): ButtCollisionModel | null {
+    const hips = this.findBoneWorldPosition(['hips']);
+    const leftShoulder = this.findBoneWorldPosition(['leftshoulder', 'leftarm']);
+    const rightShoulder = this.findBoneWorldPosition(['rightshoulder', 'rightarm']);
+    if (!hips || !leftShoulder || !rightShoulder) {
+      return null;
+    }
+
+    const xAxis = xAxisOverride?.clone() ?? rightShoulder.clone().sub(leftShoulder);
+    xAxis.y = 0;
+    if (xAxis.lengthSq() < 0.0001) {
+      xAxis.set(1, 0, 0);
+    }
+    xAxis.normalize();
+
+    const frontAxis = frontAxisOverride?.clone() ?? UP.clone().cross(xAxis);
+    if (frontAxis.lengthSq() < 0.0001) {
+      frontAxis.set(0, 0, 1);
+    }
+    frontAxis.normalize();
+
+    const shoulderWidth = shoulderWidthOverride ?? leftShoulder.distanceTo(rightShoulder);
+    if (stepPhysics) {
+      this.buttSim.step(hips.dot(xAxis), hips.y, hips.dot(frontAxis), delta);
+    }
+
+    const sideOffset = THREE.MathUtils.clamp(shoulderWidth * this.buttPlacement.sideX, 0.045, 0.08);
+    const base = hips
+      .clone()
+      .addScaledVector(frontAxis, -this.buttPlacement.backZ)
+      .addScaledVector(UP, -this.buttPlacement.dropY);
+
+    const sides = ([['left', -1], ['right', 1]] as const).map(([sideName, sign]) => {
+      const spring = sideName === 'left' ? this.buttSim.left : this.buttSim.right;
+      const restCenter = base.clone().addScaledVector(xAxis, sign * sideOffset);
+      const offset = new THREE.Vector3()
+        .addScaledVector(UP, spring.offsetY)
+        .addScaledVector(xAxis, spring.offsetX)
+        .addScaledVector(frontAxis, spring.offsetZ);
+      const center = restCenter.clone().add(offset);
+      return {
+        sideName,
+        center,
+        restCenter,
+        offset,
+        capsules: buildButtCapsulesForSide(sideName, restCenter, frontAxis, shoulderWidth, this.buttPlacement.radius),
+      };
+    });
+
+    return {
+      shoulderWidth,
+      xAxis,
+      frontAxis,
+      sides,
+      capsules: sides.flatMap((side) => side.capsules),
+    };
+  }
+
   private addSoftChestJiggleSdfs(delta: number): void {
     const model = this.buildBreastCollisionModel(delta, true);
     if (!model) {
@@ -807,43 +1000,55 @@ export class AnimatedCharacterSceneRig {
       this.pushBoneCapsule(capsule.name, 'chest', capsule.start, capsule.end, capsule.radius);
     }
 
-    const hips = this.findBoneWorldPosition(['hips']);
-    if (hips) {
-      const buttBase = hips.clone().addScaledVector(model.frontAxis, -THREE.MathUtils.clamp(model.shoulderWidth * 0.16, 0.07, 0.12));
-      const buttRadius = THREE.MathUtils.clamp(model.shoulderWidth * 0.085, 0.045, 0.07);
-      const buttSideOffset = THREE.MathUtils.clamp(model.shoulderWidth * 0.11, 0.045, 0.08);
-      for (const [sideName, sign] of [['left', -1], ['right', 1]] as const) {
-        const center = buttBase.clone().addScaledVector(model.xAxis, sign * buttSideOffset);
-        const start = center.clone().addScaledVector(UP, -0.018);
-        const end = center.clone().addScaledVector(UP, 0.018);
-        this.boneCapsules.push({
-          id: this.boneCapsules.length,
-          name: `soft-butt-${sideName}`,
-          parentName: 'hips',
-          start,
-          end,
-          radius: buttRadius,
-          length: start.distanceTo(end),
-        });
-        const thighCenter = center
-          .clone()
-          .addScaledVector(model.frontAxis, -THREE.MathUtils.clamp(model.shoulderWidth * 0.035, 0.015, 0.03))
-          .addScaledVector(UP, -THREE.MathUtils.clamp(model.shoulderWidth * 0.18, 0.075, 0.13));
-        const thighStart = thighCenter.clone().addScaledVector(UP, -0.055);
-        const thighEnd = thighCenter.clone().addScaledVector(UP, 0.035);
-        this.boneCapsules.push({
-          id: this.boneCapsules.length,
-          name: `soft-butt-leg-${sideName}`,
-          parentName: 'hips',
-          start: thighStart,
-          end: thighEnd,
-          radius: THREE.MathUtils.clamp(model.shoulderWidth * 0.08, 0.045, 0.068),
-          length: thighStart.distanceTo(thighEnd),
-        });
-      }
+    const buttModel = this.buildButtCollisionModel(delta, true, model.xAxis, model.frontAxis, model.shoulderWidth);
+    if (buttModel) {
+      this.lastButtCollisionModel = buttModel;
+      this.applyButtDeformation(buttModel);
     }
+    this.addStaticButtSdfs(model.xAxis, model.frontAxis, model.shoulderWidth);
+
     this.addSoftLegRailSdfs(model.xAxis, model.frontAxis, model.shoulderWidth);
     this.addSoftHandSdfs(model.xAxis, model.frontAxis, model.shoulderWidth);
+  }
+
+  private addStaticButtSdfs(xAxis: THREE.Vector3, frontAxis: THREE.Vector3, shoulderWidth: number): void {
+    const hips = this.findBoneWorldPosition(['hips']);
+    if (!hips) {
+      return;
+    }
+
+    const buttBase = hips.clone().addScaledVector(frontAxis, -THREE.MathUtils.clamp(shoulderWidth * 0.16, 0.07, 0.12));
+    const buttRadius = THREE.MathUtils.clamp(shoulderWidth * 0.085, 0.045, 0.07);
+    const buttSideOffset = THREE.MathUtils.clamp(shoulderWidth * 0.11, 0.045, 0.08);
+    for (const [sideName, sign] of [['left', -1], ['right', 1]] as const) {
+      const center = buttBase.clone().addScaledVector(xAxis, sign * buttSideOffset);
+      const start = center.clone().addScaledVector(UP, -0.018);
+      const end = center.clone().addScaledVector(UP, 0.018);
+      this.boneCapsules.push({
+        id: this.boneCapsules.length,
+        name: `soft-butt-${sideName}`,
+        parentName: 'hips',
+        start,
+        end,
+        radius: buttRadius,
+        length: start.distanceTo(end),
+      });
+      const thighCenter = center
+        .clone()
+        .addScaledVector(frontAxis, -THREE.MathUtils.clamp(shoulderWidth * 0.035, 0.015, 0.03))
+        .addScaledVector(UP, -THREE.MathUtils.clamp(shoulderWidth * 0.18, 0.075, 0.13));
+      const thighStart = thighCenter.clone().addScaledVector(UP, -0.055);
+      const thighEnd = thighCenter.clone().addScaledVector(UP, 0.035);
+      this.boneCapsules.push({
+        id: this.boneCapsules.length,
+        name: `soft-butt-leg-${sideName}`,
+        parentName: 'hips',
+        start: thighStart,
+        end: thighEnd,
+        radius: THREE.MathUtils.clamp(shoulderWidth * 0.08, 0.045, 0.068),
+        length: thighStart.distanceTo(thighEnd),
+      });
+    }
   }
 
   private addSoftHandSdfs(xAxis: THREE.Vector3, frontAxis: THREE.Vector3, shoulderWidth: number): void {
@@ -1147,6 +1352,243 @@ export class AnimatedCharacterSceneRig {
       for (let index = 0; index < 12; index++) {
         inf[index] = influences[index] ?? 0;
       }
+    }
+  }
+
+  private applyButtDeformation(model: ButtCollisionModel): void {
+    this.buildButtMorphTargetsIfNeeded(model);
+    this.syncButtMorphInfluences(model);
+    this.buildButtShapeMorphTargetsIfNeeded(model);
+    this.syncButtShapeMorphInfluences();
+  }
+
+  private buildButtMorphTargetsIfNeeded(model = this.lastButtCollisionModel ?? this.buildButtCollisionModel(0, false)): void {
+    if (this.buttMorphTargetsBuilt || !this.loadedRoot || !model) {
+      return;
+    }
+    this.buttMorphTargetsBuilt = true;
+
+    const morphDisplacement = 0.045;
+    const influenceRadius = 0.13;
+    const morphCount = 12;
+
+    this.loadedRoot.traverse((object) => {
+      if (!(object instanceof THREE.SkinnedMesh)) return;
+
+      const geometry = object.geometry;
+      const positionAttr = geometry.getAttribute('position');
+      if (!positionAttr) return;
+
+      const vertexCount = positionAttr.count;
+      const morphArrays = Array.from({ length: morphCount }, () => new Float32Array(vertexCount * 3));
+      let hasAnyWeight = false;
+
+      const normalMatrix = new THREE.Matrix3().setFromMatrix4(object.bindMatrixInverse);
+      const localUp = new THREE.Vector3(0, 1, 0).applyMatrix3(normalMatrix).normalize();
+      const localRight = new THREE.Vector3(1, 0, 0).applyMatrix3(normalMatrix).normalize();
+      const localForward = new THREE.Vector3(0, 0, 1).applyMatrix3(normalMatrix).normalize();
+
+      const worldPos = new THREE.Vector3();
+      for (let index = 0; index < vertexCount; index++) {
+        getSkinnedVertexWorldPosition(object, index, worldPos);
+        for (const [sideIndex, side] of model.sides.entries()) {
+          const dist = worldPos.distanceTo(side.restCenter);
+          if (dist >= influenceRadius) continue;
+          const t = dist / influenceRadius;
+          const weight = (1 - t * t) * (1 - t * t);
+          if (weight < 0.001) continue;
+
+          hasAnyWeight = true;
+          const displacement = morphDisplacement * weight;
+          const baseOffset = sideIndex * 6;
+          const attrIndex = index * 3;
+
+          morphArrays[baseOffset]![attrIndex] += localUp.x * displacement;
+          morphArrays[baseOffset]![attrIndex + 1] += localUp.y * displacement;
+          morphArrays[baseOffset]![attrIndex + 2] += localUp.z * displacement;
+          morphArrays[baseOffset + 1]![attrIndex] -= localUp.x * displacement;
+          morphArrays[baseOffset + 1]![attrIndex + 1] -= localUp.y * displacement;
+          morphArrays[baseOffset + 1]![attrIndex + 2] -= localUp.z * displacement;
+          morphArrays[baseOffset + 2]![attrIndex] += localRight.x * displacement;
+          morphArrays[baseOffset + 2]![attrIndex + 1] += localRight.y * displacement;
+          morphArrays[baseOffset + 2]![attrIndex + 2] += localRight.z * displacement;
+          morphArrays[baseOffset + 3]![attrIndex] -= localRight.x * displacement;
+          morphArrays[baseOffset + 3]![attrIndex + 1] -= localRight.y * displacement;
+          morphArrays[baseOffset + 3]![attrIndex + 2] -= localRight.z * displacement;
+          morphArrays[baseOffset + 4]![attrIndex] += localForward.x * displacement;
+          morphArrays[baseOffset + 4]![attrIndex + 1] += localForward.y * displacement;
+          morphArrays[baseOffset + 4]![attrIndex + 2] += localForward.z * displacement;
+          morphArrays[baseOffset + 5]![attrIndex] -= localForward.x * displacement;
+          morphArrays[baseOffset + 5]![attrIndex + 1] -= localForward.y * displacement;
+          morphArrays[baseOffset + 5]![attrIndex + 2] -= localForward.z * displacement;
+        }
+      }
+
+      if (!hasAnyWeight) return;
+
+      const existing = geometry.morphAttributes.position ?? [];
+      const offset = object.morphTargetInfluences?.length ?? existing.length;
+      geometry.morphAttributes.position = [
+        ...existing,
+        ...morphArrays.map((array) => {
+          const attr = new THREE.Float32BufferAttribute(array, 3);
+          attr.name = 'buttJiggleMorph';
+          return attr;
+        }),
+      ];
+      geometry.morphTargetsRelative = true;
+
+      const newInfluences = new Array(offset + morphCount).fill(0);
+      if (object.morphTargetInfluences) {
+        for (let index = 0; index < offset; index++) {
+          newInfluences[index] = object.morphTargetInfluences[index] ?? 0;
+        }
+      }
+      object.morphTargetInfluences = newInfluences;
+      object.updateMorphTargets();
+
+      this.buttJiggleMorphOffsets.set(object, offset);
+      this.buttMorphMeshes.push(object);
+    });
+  }
+
+  private syncButtMorphInfluences(model = this.lastButtCollisionModel ?? this.buildButtCollisionModel(0, false)): void {
+    if (this.buttMorphMeshes.length === 0 || !model) return;
+
+    const influences = buttMorphInfluencesForModel(model);
+    for (const mesh of this.buttMorphMeshes) {
+      const offset = this.buttJiggleMorphOffsets.get(mesh);
+      const meshInfluences = mesh.morphTargetInfluences;
+      if (offset === undefined || !meshInfluences || meshInfluences.length < offset + 12) continue;
+      for (let index = 0; index < 12; index++) {
+        meshInfluences[offset + index] = influences[index] ?? 0;
+      }
+    }
+  }
+
+  private buildButtShapeMorphTargetsIfNeeded(model = this.lastButtCollisionModel ?? this.buildButtCollisionModel(0, false)): void {
+    if (this.buttShapeMorphTargetsBuilt || !this.loadedRoot || !model) {
+      return;
+    }
+    this.buttShapeMorphTargetsBuilt = true;
+
+    const hips = this.findBoneWorldPosition(['hips']);
+    const spine = this.findBoneWorldPosition(['spine']);
+    const leftUpLeg = this.findBoneWorldPosition(['leftupleg']);
+    const rightUpLeg = this.findBoneWorldPosition(['rightupleg']);
+    const zones: Array<{ center: THREE.Vector3; radius: number; strength: number; side: 'left' | 'right' | 'center' }> = [
+      { center: model.sides[0]!.restCenter, radius: 0.16, strength: 1.0, side: 'left' },
+      { center: model.sides[1]!.restCenter, radius: 0.16, strength: 1.0, side: 'right' },
+    ];
+    if (leftUpLeg) {
+      zones.push({ center: leftUpLeg.clone().addScaledVector(model.frontAxis, -0.04), radius: 0.14, strength: 0.5, side: 'left' });
+    }
+    if (rightUpLeg) {
+      zones.push({ center: rightUpLeg.clone().addScaledVector(model.frontAxis, -0.04), radius: 0.14, strength: 0.5, side: 'right' });
+    }
+    if (hips && spine) {
+      zones.push({ center: hips.clone().lerp(spine, 0.3).addScaledVector(model.frontAxis, -0.06), radius: 0.14, strength: 0.35, side: 'center' });
+    }
+
+    const shapeDisplacement = 0.08;
+    const morphCount = 4;
+
+    this.loadedRoot.traverse((object) => {
+      if (!(object instanceof THREE.SkinnedMesh)) return;
+
+      const geometry = object.geometry;
+      const positionAttr = geometry.getAttribute('position');
+      if (!positionAttr) return;
+
+      const vertexCount = positionAttr.count;
+      const morphArrays = Array.from({ length: morphCount }, () => new Float32Array(vertexCount * 3));
+      let hasAnyWeight = false;
+
+      const normalMatrix = new THREE.Matrix3().setFromMatrix4(object.bindMatrixInverse);
+      const localUp = new THREE.Vector3(0, 1, 0).applyMatrix3(normalMatrix).normalize();
+      const localRight = new THREE.Vector3(1, 0, 0).applyMatrix3(normalMatrix).normalize();
+      const localForward = new THREE.Vector3(0, 0, 1).applyMatrix3(normalMatrix).normalize();
+
+      const worldPos = new THREE.Vector3();
+      for (let index = 0; index < vertexCount; index++) {
+        getSkinnedVertexWorldPosition(object, index, worldPos);
+
+        let bestWeight = 0;
+        let bestSide: 'left' | 'right' | 'center' = 'center';
+        let bestCenter: THREE.Vector3 | null = null;
+        for (const zone of zones) {
+          const dist = worldPos.distanceTo(zone.center);
+          if (dist >= zone.radius) continue;
+          const t = dist / zone.radius;
+          const weight = (1 - t * t) * (1 - t * t) * zone.strength;
+          if (weight > bestWeight) {
+            bestWeight = weight;
+            bestSide = zone.side;
+            bestCenter = zone.center;
+          }
+        }
+        if (bestWeight < 0.001 || !bestCenter) continue;
+
+        hasAnyWeight = true;
+        const displacement = shapeDisplacement * bestWeight;
+        const attrIndex = index * 3;
+        const radial = worldPos.clone().sub(bestCenter);
+        if (radial.lengthSq() > 0.00001) radial.normalize();
+        else radial.set(0, 0, -1);
+        const localRadial = radial.applyMatrix3(normalMatrix).normalize();
+
+        morphArrays[0]![attrIndex] += localRadial.x * displacement;
+        morphArrays[0]![attrIndex + 1] += localRadial.y * displacement;
+        morphArrays[0]![attrIndex + 2] += localRadial.z * displacement;
+        morphArrays[1]![attrIndex] += localUp.x * displacement * 0.6;
+        morphArrays[1]![attrIndex + 1] += localUp.y * displacement * 0.6;
+        morphArrays[1]![attrIndex + 2] += localUp.z * displacement * 0.6;
+        morphArrays[2]![attrIndex] -= localForward.x * displacement;
+        morphArrays[2]![attrIndex + 1] -= localForward.y * displacement;
+        morphArrays[2]![attrIndex + 2] -= localForward.z * displacement;
+        const sideSign = bestSide === 'left' ? -1 : bestSide === 'right' ? 1 : 0;
+        morphArrays[3]![attrIndex] += localRight.x * displacement * 0.5 * sideSign;
+        morphArrays[3]![attrIndex + 1] += localRight.y * displacement * 0.5 * sideSign;
+        morphArrays[3]![attrIndex + 2] += localRight.z * displacement * 0.5 * sideSign;
+      }
+
+      if (!hasAnyWeight) return;
+
+      const existing = geometry.morphAttributes.position ?? [];
+      const offset = object.morphTargetInfluences?.length ?? existing.length;
+      geometry.morphAttributes.position = [
+        ...existing,
+        ...morphArrays.map((array) => {
+          const attr = new THREE.Float32BufferAttribute(array, 3);
+          attr.name = 'buttShapeMorph';
+          return attr;
+        }),
+      ];
+      geometry.morphTargetsRelative = true;
+
+      const newInfluences = new Array(offset + morphCount).fill(0);
+      if (object.morphTargetInfluences) {
+        for (let index = 0; index < offset; index++) {
+          newInfluences[index] = object.morphTargetInfluences[index] ?? 0;
+        }
+      }
+      object.morphTargetInfluences = newInfluences;
+      object.updateMorphTargets();
+
+      this.buttShapeMorphOffsets.set(object, offset);
+      this.buttShapeMorphMeshes.push(object);
+    });
+  }
+
+  private syncButtShapeMorphInfluences(): void {
+    for (const mesh of this.buttShapeMorphMeshes) {
+      const offset = this.buttShapeMorphOffsets.get(mesh);
+      const influences = mesh.morphTargetInfluences;
+      if (offset === undefined || !influences || influences.length < offset + 4) continue;
+      influences[offset] = this.buttShape.volume;
+      influences[offset + 1] = this.buttShape.lift;
+      influences[offset + 2] = this.buttShape.projection;
+      influences[offset + 3] = this.buttShape.width;
     }
   }
 
@@ -1987,9 +2429,61 @@ function buildBreastCapsulesForSide(
   ];
 }
 
+function buildButtCapsulesForSide(
+  sideName: BreastSideName,
+  center: THREE.Vector3,
+  frontAxis: THREE.Vector3,
+  shoulderWidth: number,
+  radiusScale: number,
+): BreastCollisionPrimitive[] {
+  const cheekRadius = THREE.MathUtils.clamp(shoulderWidth * radiusScale, 0.03, 0.14);
+  const thighRadius = THREE.MathUtils.clamp(shoulderWidth * 0.08, 0.045, 0.068);
+  const start = center.clone().addScaledVector(UP, -0.018);
+  const end = center.clone().addScaledVector(UP, 0.018);
+  const thighCenter = center
+    .clone()
+    .addScaledVector(frontAxis, -THREE.MathUtils.clamp(shoulderWidth * 0.035, 0.015, 0.03))
+    .addScaledVector(UP, -THREE.MathUtils.clamp(shoulderWidth * 0.18, 0.075, 0.13));
+  const thighStart = thighCenter.clone().addScaledVector(UP, -0.055);
+  const thighEnd = thighCenter.clone().addScaledVector(UP, 0.035);
+
+  return [
+    {
+      name: `soft-butt-${sideName}`,
+      start,
+      end,
+      radius: Math.max(0.001, cheekRadius - BONE_SDF_CLOTH_SKIN),
+    },
+    {
+      name: `soft-butt-leg-${sideName}`,
+      start: thighStart,
+      end: thighEnd,
+      radius: Math.max(0.001, thighRadius - BONE_SDF_CLOTH_SKIN),
+    },
+  ];
+}
+
 function breastMorphInfluencesForModel(model: BreastCollisionModel): number[] {
   const influences = new Array(12).fill(0);
   const scale = 1.0 / 0.055;
+  for (const [sideIndex, side] of model.sides.entries()) {
+    const y = side.offset.y * scale;
+    const x = side.offset.dot(model.xAxis) * scale;
+    const z = side.offset.dot(model.frontAxis) * scale;
+    const base = sideIndex * 6;
+    influences[base] = y > 0 ? y : 0;
+    influences[base + 1] = y < 0 ? -y : 0;
+    influences[base + 2] = x > 0 ? x : 0;
+    influences[base + 3] = x < 0 ? -x : 0;
+    influences[base + 4] = z > 0 ? z : 0;
+    influences[base + 5] = z < 0 ? -z : 0;
+  }
+  return influences;
+}
+
+function buttMorphInfluencesForModel(model: ButtCollisionModel): number[] {
+  const influences = new Array(12).fill(0);
+  const scale = 1.0 / 0.045;
   for (const [sideIndex, side] of model.sides.entries()) {
     const y = side.offset.y * scale;
     const x = side.offset.dot(model.xAxis) * scale;

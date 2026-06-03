@@ -16,7 +16,7 @@ test.describe('developer dashboard', () => {
 
     await expect(dashboard).toBeAttached();
     await expect(toggle).toHaveText('Open');
-    await expect(links).toHaveCount(6);
+    await expect(links).toHaveCount(7);
 
     await expect
       .poll(() =>
@@ -52,6 +52,7 @@ test.describe('developer dashboard', () => {
       '/?mode=character',
       '/?mode=character-sdf',
       '/?mode=garment',
+      '/?mode=animations',
     ]);
 
     expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
