@@ -10,7 +10,7 @@ import {
   type FsmStateId,
 } from '../animations/characterAnimationProfile.ts';
 import type { AnimatedCharacterSceneRig } from './AnimatedCharacter.ts';
-import { wrapAngleRad } from './rigForwardMeasure.ts';
+import { shortestAngleDelta, wrapAngleRad } from './rigForwardMeasure.ts';
 
 export type CharacterControllerState = FsmStateId;
 
@@ -28,6 +28,8 @@ export interface FacingDebugSnapshot {
   readonly intentMeshYaw: number;
   /** `wrap(intentMeshYaw - meshForwardYaw)` — ~±90° when meshBindYaw path used wrongly. */
   readonly meshAlignErrorDeg: number | null;
+  /** Walk: locked target from first frame of this input direction (see facingTurnAudit). */
+  readonly walkLockedTargetYaw: number | null;
 }
 
 export interface CharacterControllerOptions {
@@ -48,6 +50,10 @@ export class CharacterController {
   /** Last opponent world position from `update` — used to re-snap facing when attack clip starts. */
   private readonly lastOpponent = new THREE.Vector3();
   private hasLastOpponent = false;
+  /** Locked WASD direction for walk. */
+  private hasLockedWalkDir = false;
+  private lockedWalkDirX = 0;
+  private lockedWalkDirZ = 0;
   private facingDebug: FacingDebugSnapshot = {
     desiredYaw: 0,
     actualYaw: 0,
@@ -57,6 +63,7 @@ export class CharacterController {
     meshForwardYaw: null,
     intentMeshYaw: 0,
     meshAlignErrorDeg: null,
+    walkLockedTargetYaw: null,
   };
 
   constructor(
@@ -87,7 +94,62 @@ export class CharacterController {
         void this.fsm.trigger('attackDone');
       }
     });
-    this.facingYaw = this.root.rotation.y;
+    this.facingYaw = wrapAngleRad(this.root.rotation.y);
+    this.root.rotation.y = this.facingYaw;
+  }
+
+  private applyFacingYaw(yaw: number): void {
+    this.facingYaw = wrapAngleRad(yaw);
+    this.root.rotation.y = this.facingYaw;
+  }
+
+  /**
+   * Walk only: fixed root from velocity + meshBindYaw.
+   * Do not use bone measure here — it includes root.y and stride motion, which
+   * creates a feedback loop (rotate → measure changes → target flips → wobble).
+   */
+  private walkRootYawFromVelocity(dx: number, dz: number): number {
+    const { meshBindYaw } = this.facingParams();
+    return wrapAngleRad(Math.atan2(dx, dz) + (meshBindYaw ?? DEFAULT_MESH_BIND_YAW));
+  }
+
+  private clearWalkFacingLock(): void {
+    this.hasLockedWalkDir = false;
+  }
+
+  /**
+   * Walk: lock WASD direction; each frame align root so bone forward → intent (green ≈ orange).
+   */
+  private walkFacingTargetForDirection(dx: number, dz: number): number {
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-6) {
+      return this.facingYaw;
+    }
+    const nx = dx / len;
+    const nz = dz / len;
+    const dirChanged = !this.hasLockedWalkDir
+      || Math.hypot(nx - this.lockedWalkDirX, nz - this.lockedWalkDirZ) > 0.2;
+    if (dirChanged) {
+      this.hasLockedWalkDir = true;
+      this.lockedWalkDirX = nx;
+      this.lockedWalkDirZ = nz;
+    }
+    const intentMeshYaw = this.meshIntentYawFromDirection(this.lockedWalkDirX, this.lockedWalkDirZ);
+    const meshYaw = this.rig.measureForwardYaw();
+    if (meshYaw !== null) {
+      return wrapAngleRad(this.facingYaw + wrapAngleRad(intentMeshYaw - meshYaw));
+    }
+    return this.walkRootYawFromVelocity(this.lockedWalkDirX, this.lockedWalkDirZ);
+  }
+
+  /** Idle / attack / spawn: steer root until bone forward matches intent. */
+  private rootYawToMatchMeshIntent(dx: number, dz: number): number {
+    const intentMeshYaw = this.meshIntentYawFromDirection(dx, dz);
+    const meshYaw = this.rig.measureForwardYaw();
+    if (meshYaw === null) {
+      return this.walkRootYawFromVelocity(dx, dz);
+    }
+    return wrapAngleRad(this.facingYaw + wrapAngleRad(intentMeshYaw - meshYaw));
   }
 
   getProfile(): CharacterAnimationProfile {
@@ -121,25 +183,6 @@ export class CharacterController {
   /** Where the mesh should point on XZ (green arrow). */
   private meshIntentYawFromDirection(dx: number, dz: number): number {
     return Math.atan2(dx, dz);
-  }
-
-  /**
-   * Walk only: root.y so velocity matches walk stride (meshBindYaw ≈ −90°).
-   * Do not use for idle/attack/spawn look-at — clips need mesh-aligned root.
-   */
-  private walkRootYawFromVelocity(dx: number, dz: number): number {
-    const { meshBindYaw } = this.facingParams();
-    return Math.atan2(dx, dz) + (meshBindYaw ?? DEFAULT_MESH_BIND_YAW);
-  }
-
-  /** Steer root.y until bone forward matches mesh intent. */
-  private rootYawToMatchMeshIntent(dx: number, dz: number): number {
-    const intentMeshYaw = this.meshIntentYawFromDirection(dx, dz);
-    const meshYaw = this.rig.measureForwardYaw();
-    if (meshYaw === null) {
-      return this.walkRootYawFromVelocity(dx, dz);
-    }
-    return this.facingYaw + wrapAngleRad(intentMeshYaw - meshYaw);
   }
 
   private meshAlignErrorDeg(intentMeshYaw: number, meshForwardYaw: number | null): number | null {
@@ -180,7 +223,7 @@ export class CharacterController {
       intentDirX = normalized.x;
       intentDirZ = normalized.y;
       intentMeshYaw = Math.atan2(intentDirX, intentDirZ);
-      desiredYaw = this.walkRootYawFromVelocity(normalized.x, normalized.y);
+      desiredYaw = this.walkFacingTargetForDirection(normalized.x, normalized.y);
     } else if (opponent && state === 'idle') {
       mode = 'idle';
       const position = this.getWorldPosition(this.tmpTarget);
@@ -204,6 +247,7 @@ export class CharacterController {
       meshForwardYaw,
       intentMeshYaw,
       meshAlignErrorDeg: this.meshAlignErrorDeg(intentMeshYaw, meshForwardYaw),
+      walkLockedTargetYaw: mode === 'walk' ? desiredYaw : null,
     };
   }
 
@@ -225,11 +269,11 @@ export class CharacterController {
 
   private turnTowardYaw(desiredYaw: number, delta: number): void {
     const turnSpeed = this.fsm.getProfile().parameters.turnSpeed;
-    let deltaYaw = desiredYaw - this.facingYaw;
-    while (deltaYaw > Math.PI) deltaYaw -= Math.PI * 2;
-    while (deltaYaw < -Math.PI) deltaYaw += Math.PI * 2;
-    this.facingYaw += THREE.MathUtils.clamp(deltaYaw, -turnSpeed * delta, turnSpeed * delta);
-    this.root.rotation.y = this.facingYaw;
+    const deltaYaw = shortestAngleDelta(this.facingYaw, desiredYaw);
+    this.applyFacingYaw(
+      this.facingYaw
+        + THREE.MathUtils.clamp(deltaYaw, -turnSpeed * delta, turnSpeed * delta),
+    );
   }
 
   /** Instant mesh-aligned facing (attack start, spawn sync). */
@@ -240,8 +284,7 @@ export class CharacterController {
     if (dx * dx + dz * dz < 1e-6) {
       return;
     }
-    this.facingYaw = this.rootYawToMatchMeshIntent(dx, dz);
-    this.root.rotation.y = this.facingYaw;
+    this.applyFacingYaw(this.rootYawToMatchMeshIntent(dx, dz));
   }
 
   faceToward(target: THREE.Vector3, delta: number): void {
@@ -305,7 +348,7 @@ export class CharacterController {
     if (state === 'attack') {
       this.refreshFacingDebug(options.opponent, moveLength, params.moveThreshold);
       if (options.opponent) {
-        this.snapFaceToward(options.opponent);
+        this.faceToward(options.opponent, delta);
       }
       return;
     }
@@ -318,12 +361,13 @@ export class CharacterController {
       }
       const normalized = this.moveInput.clone().divideScalar(moveLength);
       this.turnTowardYaw(
-        this.walkRootYawFromVelocity(normalized.x, normalized.y),
+        this.walkFacingTargetForDirection(normalized.x, normalized.y),
         delta,
       );
       this.root.position.x += normalized.x * params.walkSpeed * delta;
       this.root.position.z += normalized.y * params.walkSpeed * delta;
     } else if (state === 'walk') {
+      this.clearWalkFacingLock();
       void this.fsm.trigger('moveStop');
     } else if (options.opponent && state === 'idle') {
       this.faceToward(options.opponent, delta);

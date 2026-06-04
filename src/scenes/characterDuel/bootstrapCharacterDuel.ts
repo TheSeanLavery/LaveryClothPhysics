@@ -20,6 +20,15 @@ import {
 import { CHARACTER_DUEL_CONFIG, type DuelControlMode } from './characterDuelConfig.ts';
 import { resolveProfileFacingParameters } from '../../animations/characterAnimationProfile.ts';
 import {
+  auditFacingSuite,
+  type FacingAlignmentSample,
+} from '../../character/facingAlignmentAudit.ts';
+import {
+  auditFacingTurn,
+  type FacingSample,
+  type FacingTurnVerdict,
+} from '../../character/facingTurnAudit.ts';
+import {
   meshBindYawFromMeasuredForward,
 } from '../../character/rigForwardMeasure.ts';
 
@@ -271,6 +280,95 @@ export async function bootstrapCharacterDuel(
     const controller = fighter === 'B' ? duel.controllerB : duel.controllerA;
     return controller.getFacingDebug();
   };
+
+  window.__duelAuditFacingTurn = async (options: {
+    fighter?: 'A' | 'B';
+    key: string;
+    expectedIntentMeshYawRad: number;
+    durationMs?: number;
+    sampleIntervalMs?: number;
+    maxTurnErrorRad?: number;
+    maxTotalTurnRad?: number;
+  }): Promise<{
+    samples: FacingSample[];
+    verdict: FacingTurnVerdict;
+  }> => {
+    const fighter = options.fighter ?? 'A';
+    const durationMs = options.durationMs ?? 1_200;
+    const sampleIntervalMs = options.sampleIntervalMs ?? 50;
+    const read = (): FacingAlignmentSample => readFacingAlignmentSample(fighter);
+    const samples: FacingSample[] = [read()];
+    duel.handleKeyDown(options.key);
+    const start = performance.now();
+    while (performance.now() - start < durationMs) {
+      await new Promise((resolve) => setTimeout(resolve, sampleIntervalMs));
+      samples.push({ ...read(), tMs: performance.now() - start });
+    }
+    duel.handleKeyUp(options.key);
+    const verdict = auditFacingTurn(samples, options.expectedIntentMeshYawRad, {
+      maxTurnErrorRad: options.maxTurnErrorRad,
+      maxTotalTurnRad: options.maxTotalTurnRad,
+    });
+    return { samples, verdict };
+  };
+
+  const readFacingAlignmentSample = (fighter: 'A' | 'B'): FacingAlignmentSample => {
+    const d = (fighter === 'B' ? duel.controllerB : duel.controllerA).getFacingDebug();
+    return {
+      tMs: 0,
+      yawRad: d.actualYaw,
+      desiredYawRad: d.desiredYaw,
+      intentMeshYawRad: d.intentMeshYaw,
+      mode: d.mode,
+      meshForwardYawRad: d.meshForwardYaw,
+      meshAlignErrorDeg: d.meshAlignErrorDeg,
+    };
+  };
+
+  window.__duelAuditFacingSuite = async (options: {
+    fighter?: 'A' | 'B';
+    walkKey: string;
+    expectedWalkIntentMeshYawRad: number;
+    idleSettleMs?: number;
+    walkDurationMs?: number;
+    sampleIntervalMs?: number;
+  }) => {
+    const fighter = options.fighter ?? 'A';
+    const idleSettleMs = options.idleSettleMs ?? 600;
+    const walkDurationMs = options.walkDurationMs ?? 1_600;
+    const sampleIntervalMs = options.sampleIntervalMs ?? 40;
+
+    const idleSamples: FacingAlignmentSample[] = [];
+    const idleStart = performance.now();
+    while (performance.now() - idleStart < idleSettleMs) {
+      await new Promise((resolve) => setTimeout(resolve, sampleIntervalMs));
+      idleSamples.push({ ...readFacingAlignmentSample(fighter), tMs: performance.now() - idleStart });
+    }
+
+    const walkSamples: FacingAlignmentSample[] = [readFacingAlignmentSample(fighter)];
+    duel.handleKeyDown(options.walkKey);
+    const walkStart = performance.now();
+    while (performance.now() - walkStart < walkDurationMs) {
+      await new Promise((resolve) => setTimeout(resolve, sampleIntervalMs));
+      walkSamples.push({ ...readFacingAlignmentSample(fighter), tMs: performance.now() - walkStart });
+    }
+    duel.handleKeyUp(options.walkKey);
+
+    const verdict = auditFacingSuite({
+      idleSamples,
+      walkSamples,
+      expectedWalkIntentMeshYawRad: options.expectedWalkIntentMeshYawRad,
+      idleMaxAlignErrorDeg: 25,
+      walkMaxAlignErrorDeg: 32,
+      turnOptions: {
+        maxTurnErrorRad: 0.55,
+        maxTotalTurnRad: Math.PI + 0.25,
+        maxSignFlips: 2,
+      },
+    });
+    return { idleSamples, walkSamples, verdict };
+  };
+
   window.__duelSetFacingDebugVisible = (visible: boolean) => {
     duel.setFacingDebugVisible(visible);
   };

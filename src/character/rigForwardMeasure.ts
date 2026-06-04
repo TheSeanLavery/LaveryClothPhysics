@@ -68,6 +68,17 @@ export function wrapAngleRad(angle: number): number {
   return a;
 }
 
+/** Signed shortest rotation from `fromRad` to `toRad` (always in [-π, π]). */
+export function shortestAngleDelta(fromRad: number, toRad: number): number {
+  return Math.atan2(Math.sin(toRad - fromRad), Math.cos(toRad - fromRad));
+}
+
+/** `toRad` plus a multiple of 2π closest to `baseRad` — avoids long-path turns. */
+export function nearestEquivalentAngleRad(baseRad: number, toRad: number): number {
+  const base = wrapAngleRad(baseRad);
+  return base + shortestAngleDelta(base, toRad);
+}
+
 /** `root.rotation.y` so visual forward matches world direction (dx, dz) on XZ. */
 export function meshBindYawFromMeasuredForward(measuredForwardYawRad: number): number {
   return -measuredForwardYawRad;

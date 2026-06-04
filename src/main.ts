@@ -137,6 +137,30 @@ declare global {
     __characterClothReadbackStats?: () => ReturnType<ClothSimulation['getReadbackStats']>;
     __duelStats?: () => CharacterDuelStats;
     __duelFacingDebug?: (fighter?: 'A' | 'B') => import('./character/CharacterController.ts').FacingDebugSnapshot;
+    __duelAuditFacingTurn?: (options: {
+      fighter?: 'A' | 'B';
+      key: string;
+      expectedIntentMeshYawRad: number;
+      durationMs?: number;
+      sampleIntervalMs?: number;
+      maxTurnErrorRad?: number;
+      maxTotalTurnRad?: number;
+    }) => Promise<{
+      samples: import('./character/facingTurnAudit.ts').FacingSample[];
+      verdict: import('./character/facingTurnAudit.ts').FacingTurnVerdict;
+    }>;
+    __duelAuditFacingSuite?: (options: {
+      fighter?: 'A' | 'B';
+      walkKey: string;
+      expectedWalkIntentMeshYawRad: number;
+      idleSettleMs?: number;
+      walkDurationMs?: number;
+      sampleIntervalMs?: number;
+    }) => Promise<{
+      idleSamples: import('./character/facingAlignmentAudit.ts').FacingAlignmentSample[];
+      walkSamples: import('./character/facingAlignmentAudit.ts').FacingAlignmentSample[];
+      verdict: import('./character/facingAlignmentAudit.ts').FacingSuiteVerdict;
+    }>;
     __duelSetFacingDebugVisible?: (visible: boolean) => void;
     __duelSetControlMode?: (mode: DuelControlMode) => void;
     __duelGetControlMode?: () => DuelControlMode;
