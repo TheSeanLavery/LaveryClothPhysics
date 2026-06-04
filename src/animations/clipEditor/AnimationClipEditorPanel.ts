@@ -18,6 +18,9 @@ export interface AnimationClipEditorTarget {
   getMixer(): THREE.AnimationMixer | null;
   getLoadedRoot(): THREE.Object3D | null;
   getBones(): readonly THREE.Bone[];
+  /** When set, clip playback animates the invisible target rig. */
+  getAnimationRoot?(): THREE.Object3D | null;
+  getAnimationBones?(): readonly THREE.Bone[];
   getSourceFile(): string | null;
   setSourceFile?(file: string): void;
 }
@@ -239,8 +242,8 @@ export function createAnimationClipEditorPanel(
   function ensurePlayer(): CharacterAnimationPlayer | null {
     const target = resolveTarget();
     const mixer = target.getMixer();
-    const loadedRoot = target.getLoadedRoot();
-    const bones = target.getBones();
+    const loadedRoot = target.getAnimationRoot?.() ?? target.getLoadedRoot();
+    const bones = target.getAnimationBones?.() ?? target.getBones();
     if (!mixer || !loadedRoot || bones.length === 0) {
       return null;
     }

@@ -35,7 +35,7 @@ import {
 import {
   meshBindYawFromMeasuredForward,
 } from '../../character/rigForwardMeasure.ts';
-import { createDuelFloatingControls } from './duelFloatingControls.ts';
+import { registerDuelDevMenu } from '../../dev/registerDuelDevMenu.ts';
 import { createDuelHealthBars } from './duelHealthBars.ts';
 
 export async function bootstrapCharacterDuel(
@@ -212,7 +212,7 @@ export async function bootstrapCharacterDuel(
   cloth.setGrabModeEnabled(false);
   cloth.setShootModeEnabled(false);
 
-  createDuelFloatingControls({ cloth, duel, toolbar });
+  registerDuelDevMenu({ cloth, duel, toolbar });
   const healthBars = createDuelHealthBars();
 
   async function persistDuelAnimationSetup(): Promise<void> {
@@ -294,6 +294,12 @@ export async function bootstrapCharacterDuel(
   window.__duelFacingDebug = (fighter: 'A' | 'B' = 'A') => {
     const controller = fighter === 'B' ? duel.controllerB : duel.controllerA;
     return controller.getFacingDebug();
+  };
+  const duelRigForFighter = (fighter: 'A' | 'B') => (fighter === 'B' ? duel.rigB : duel.rigA);
+  window.__duelPhysicsPoseStats = (fighter: 'A' | 'B' = 'A') => duelRigForFighter(fighter).getPhysicsPoseStats();
+  window.__duelPhysicsPoseConfig = (fighter: 'A' | 'B' = 'A') => duelRigForFighter(fighter).getPhysicsPoseConfig();
+  window.__duelPhysicsPoseSnapDisplay = (fighter: 'A' | 'B' = 'A') => {
+    duelRigForFighter(fighter).getPhysicsPoseRig().snapDisplayToTarget();
   };
 
   window.__duelAuditFacingTurn = async (options: {

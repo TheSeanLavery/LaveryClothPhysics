@@ -501,6 +501,8 @@ export function createAnimationFsmPanel(options: AnimationFsmPanelOptions): Anim
     getMixer: () => getTarget().controller.rig.getMixer(),
     getLoadedRoot: () => getTarget().controller.rig.getLoadedRoot(),
     getBones: () => getTarget().controller.rig.getBones(),
+    getAnimationRoot: () => getTarget().controller.rig.getAnimationRoot(),
+    getAnimationBones: () => getTarget().controller.rig.getAnimationBones(),
     getSourceFile: () => editorSourceFile,
     setSourceFile: (file: string) => {
       editorSourceFile = file;

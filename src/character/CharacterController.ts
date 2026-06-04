@@ -74,11 +74,12 @@ export class CharacterController {
   ) {
     this.root = rig.root;
     const mixer = rig.getMixer();
-    const loadedRoot = rig.getLoadedRoot();
-    if (!mixer || !loadedRoot) {
-      throw new Error('CharacterController requires a loaded rig with mixer');
+    const animationRoot = rig.getAnimationRoot();
+    const animationBones = rig.getAnimationBones();
+    if (!mixer || !animationRoot || animationBones.length === 0) {
+      throw new Error('CharacterController requires a loaded rig with animation target');
     }
-    this.player = new CharacterAnimationPlayer(mixer, loadedRoot, rig.getBones(), { fadeDuration: 0.45 });
+    this.player = new CharacterAnimationPlayer(mixer, animationRoot, animationBones, { fadeDuration: 0.45 });
     rig.muteEmbeddedAnimations();
     this.fsm = new CharacterAnimationStateMachine(profile, {
       rig,

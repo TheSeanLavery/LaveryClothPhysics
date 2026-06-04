@@ -12,7 +12,10 @@ test.describe('Character duel scene', () => {
     await expect(page.locator('#overlay h1')).toHaveText('Character Duel');
     await expect(page.locator('[data-testid="duel-controls"]')).toBeVisible();
     await expect(page.locator('[data-testid="duel-shirt-controls"]')).toBeVisible();
-    await expect(page.locator('[data-testid="duel-panels-toggle-btn"]')).toBeVisible();
+    await expect(page.locator('[data-testid="dev-menu-btn"]')).toBeVisible();
+    const poseStatsA = await page.evaluate(() => window.__duelPhysicsPoseStats?.('A'));
+    expect(poseStatsA?.enabled).toBe(true);
+    expect(poseStatsA?.pairCount ?? 0).toBeGreaterThan(20);
     await expect(page.locator('[data-testid="duel-animation-fsm-panel"]')).toBeVisible();
     await expect(page.locator('[data-testid="animation-fsm-edit-clip"]')).toBeVisible();
     await expect(page.locator('[data-testid="duel-facing-debug-btn"]')).toBeVisible();

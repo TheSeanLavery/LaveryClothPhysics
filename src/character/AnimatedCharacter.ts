@@ -10,6 +10,12 @@ import {
 } from '../cloth/patternAssembly';
 import { BreastPhysicsSimulator } from './breastPhysics';
 import {
+  cloneAnimationTargetSkeleton,
+  PhysicsPoseRig,
+  type PhysicsPoseRigConfig,
+  type PhysicsPoseRigStats,
+} from './physicsPoseRig';
+import {
   buildCharacterSdfBlueprints,
   compileCharacterSdfCapsulesFromBlueprints,
   compileFallbackCharacterSdfCapsules,
@@ -239,6 +245,9 @@ export class AnimatedCharacterSceneRig {
   private danceAction: THREE.AnimationAction | null = null;
   private activeAction: THREE.AnimationAction | null = null;
   private loadedRoot: THREE.Object3D | null = null;
+  private targetRig: THREE.Group | null = null;
+  private targetBones: THREE.Bone[] = [];
+  private readonly physicsPoseRig = new PhysicsPoseRig();
   private animationClipCount = 0;
   private retargetedTrackCount = 0;
   private activeClipName: string | null = null;
@@ -308,7 +317,10 @@ export class AnimatedCharacterSceneRig {
     this.normalizeCharacter(root);
     this.root.add(root);
 
-    this.mixer = new THREE.AnimationMixer(root);
+    this.setupAnimationTargetRig();
+
+    const animationRoot = this.targetRig ?? root;
+    this.mixer = new THREE.AnimationMixer(animationRoot);
 
     const tposeRoot = await loadFbxQuietly(loader, this.tposeAnimationUrl);
     const idleRoot = await loadFbxQuietly(loader, this.idleAnimationUrl);
@@ -318,7 +330,7 @@ export class AnimatedCharacterSceneRig {
 
     if (tposeRoot.animations.length > 0) {
       const clip = this.retargetClipTracks(tposeRoot.animations[0]!, tposeRoot, 'T-Pose retargeted');
-      this.tposeAction = this.mixer.clipAction(clip, root);
+      this.tposeAction = this.mixer.clipAction(clip, animationRoot);
       this.tposeAction.reset().play();
       this.activeAction = this.tposeAction;
       this.activeClipName = 'T-Pose';
@@ -327,7 +339,7 @@ export class AnimatedCharacterSceneRig {
 
     if (idleRoot.animations.length > 0) {
       const clip = this.retargetClipTracks(idleRoot.animations[0]!, idleRoot, 'Idle retargeted');
-      this.idleAction = this.mixer.clipAction(clip, root);
+      this.idleAction = this.mixer.clipAction(clip, animationRoot);
       this.idleAction.enabled = true;
       this.idleAction.setEffectiveWeight(0);
       if (!this.tposeAction) {
@@ -339,7 +351,7 @@ export class AnimatedCharacterSceneRig {
 
     if (danceRoot.animations.length > 0) {
       const clip = this.retargetClipTracks(danceRoot.animations[0]!, danceRoot, 'Dancing Twerk retargeted');
-      this.danceAction = this.mixer.clipAction(clip, root);
+      this.danceAction = this.mixer.clipAction(clip, animationRoot);
       this.danceAction.enabled = true;
       this.danceAction.setEffectiveWeight(0);
       if (!this.tposeAction && !this.idleAction) {
@@ -367,10 +379,14 @@ export class AnimatedCharacterSceneRig {
   }
 
   update(delta: number): void {
-    this.mixer?.update(delta * this.animationSpeed);
-    this.updateBoneSdfs(delta);
+    const step = delta * this.animationSpeed;
+    this.mixer?.update(step);
+    this.targetRig?.updateMatrixWorld(true);
+    this.physicsPoseRig.step(step);
+    this.loadedRoot?.updateMatrixWorld(true);
+    this.updateBoneSdfs(step);
     this.syncBoneSdfDebugVisuals();
-    this.eyeBlink.update(delta);
+    this.eyeBlink.update(step);
     this.frameCount += 1;
   }
 
@@ -442,7 +458,7 @@ export class AnimatedCharacterSceneRig {
    * Retargets the animation tracks to the character skeleton automatically.
    */
   async loadAndPlayAnimation(url: string, fadeDuration = 0.6, loop = true): Promise<string> {
-    if (!this.mixer || !this.loadedRoot) {
+    if (!this.mixer || !this.targetRig) {
       throw new Error('Character not loaded');
     }
 
@@ -460,7 +476,7 @@ export class AnimatedCharacterSceneRig {
       throw new Error('No compatible tracks after retargeting');
     }
 
-    const action = this.mixer.clipAction(retargeted, this.loadedRoot);
+    const action = this.mixer.clipAction(retargeted, this.targetRig);
     action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1);
     if (!loop) {
       action.clampWhenFinished = true;
@@ -656,8 +672,36 @@ export class AnimatedCharacterSceneRig {
     return this.loadedRoot;
   }
 
+  /** Invisible rig driven by AnimationMixer (animation intent). */
+  getAnimationRoot(): THREE.Object3D | null {
+    return this.targetRig;
+  }
+
+  getAnimationBones(): readonly THREE.Bone[] {
+    return this.targetBones;
+  }
+
+  /** Visible rig + skinned mesh; also used for cloth bone SDFs. */
   getBones(): readonly THREE.Bone[] {
     return this.bones;
+  }
+
+  getPhysicsPoseRig(): PhysicsPoseRig {
+    return this.physicsPoseRig;
+  }
+
+  getPhysicsPoseConfig(): PhysicsPoseRigConfig {
+    return this.physicsPoseRig.config;
+  }
+
+  getPhysicsPoseStats(): PhysicsPoseRigStats {
+    return this.physicsPoseRig.getStats();
+  }
+
+  setPhysicsPoseTargetRigVisible(visible: boolean): void {
+    if (this.targetRig) {
+      this.targetRig.visible = visible;
+    }
   }
 
   /** Visual forward yaw (radians) from current bone pose — used by mesh-bind audit. */
@@ -851,13 +895,28 @@ export class AnimatedCharacterSceneRig {
     return boneBounds;
   }
 
+  private setupAnimationTargetRig(): void {
+    if (this.bones.length === 0) {
+      return;
+    }
+    const { targetRoot, targetBones, pairs } = cloneAnimationTargetSkeleton(this.bones);
+    this.targetRig = targetRoot;
+    this.targetBones = targetBones;
+    this.root.add(targetRoot);
+    targetRoot.updateMatrixWorld(true);
+    this.physicsPoseRig.bind(pairs);
+    this.physicsPoseRig.snapDisplayToTarget();
+    this.loadedRoot?.updateMatrixWorld(true);
+  }
+
   private retargetClipTracks(
     sourceClip: THREE.AnimationClip,
     animationRoot: THREE.Object3D,
     fallbackName = 'Dancing Twerk retargeted',
   ): THREE.AnimationClip {
     const targetBoneNamesByKey = new Map<string, string>();
-    for (const bone of this.bones) {
+    const bonesForRetarget = this.targetBones.length > 0 ? this.targetBones : this.bones;
+    for (const bone of bonesForRetarget) {
       targetBoneNamesByKey.set(normalizeBoneName(bone.name), bone.name);
     }
 

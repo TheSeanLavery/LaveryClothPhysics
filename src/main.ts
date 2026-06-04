@@ -30,7 +30,7 @@ import {
   type CharacterReproSaveResult,
 } from './app/characterReproRecorder';
 import { FabricPlanePreview, createFabricPlaneControls } from './debug/FabricPlanePreview';
-import { createGarmentStudioControls } from './garments/GarmentStudioControls';
+import { registerCharacterDevMenu } from './dev/registerCharacterDevMenu.ts';
 import {
   createGarmentPresetEnvelope,
   type GarmentGeneratorParamsByType,
@@ -110,6 +110,15 @@ declare global {
       name?: string,
     ) => Promise<GarmentAssemblyStats>;
     __characterClothStats?: () => ReturnType<ClothSimulation['getStats']>;
+    __characterPhysicsPoseStats?: () => {
+      enabled: boolean;
+      pairCount: number;
+      maxTargetDisplayAngleRad: number;
+      maxTargetDisplayAngleDeg: number;
+      lastStepSec: number;
+    };
+    __characterPhysicsPoseConfig?: () => Record<string, number | boolean>;
+    __characterPhysicsPoseSnapDisplay?: () => void;
     __characterTearProtectionReport?: () => {
       active: boolean;
       restoreThreshold: number;
@@ -137,6 +146,15 @@ declare global {
     };
     __characterClothReadbackStats?: () => ReturnType<ClothSimulation['getReadbackStats']>;
     __duelStats?: () => CharacterDuelStats;
+    __duelPhysicsPoseStats?: (fighter?: 'A' | 'B') => {
+      enabled: boolean;
+      pairCount: number;
+      maxTargetDisplayAngleRad: number;
+      maxTargetDisplayAngleDeg: number;
+      lastStepSec: number;
+    };
+    __duelPhysicsPoseConfig?: (fighter?: 'A' | 'B') => Record<string, number | boolean>;
+    __duelPhysicsPoseSnapDisplay?: (fighter?: 'A' | 'B') => void;
     __duelShirtHealth?: () => { fighterA: number; fighterB: number };
     __duelFacingDebug?: (fighter?: 'A' | 'B') => import('./character/CharacterController.ts').FacingDebugSnapshot;
     __duelAuditFacingTurn?: (options: {
@@ -554,103 +572,30 @@ async function bootstrapCharacterPreview(
   statusEl.textContent = 'running (animated character cloth)';
   backendEl.textContent = `backend: ${cloth.renderer.backend.constructor.name} (character cloth)`;
   particlesEl.textContent = `character cloth particles: ${cloth.getStats().particleCount}`;
-  const characterGui = createClothControls(cloth, {
-    title: 'Animated Character Cloth',
-    testId: 'character-controls',
-    collisionUi: 'boneSdf',
-  });
   let garmentGenerateQueue = Promise.resolve<GarmentAssemblyStats>(garmentFlow.getStats());
-  const characterGeneratorControls = createGarmentStudioControls({
-    title: 'Character Clothing Generator',
-    testId: 'character-garment-generator-controls',
-    position: 'left',
-    initialPreset: garmentFlow.getActivePreset(),
-    showServerFixture: false,
-    showExport: true,
-    onGenerate: (preset) => {
+  const characterDevMenu = registerCharacterDevMenu({
+    cloth,
+    rig,
+    toolbar,
+    initialGarmentPreset: garmentFlow.getActivePreset(),
+    onGarmentGenerate: (preset) => {
       garmentGenerateQueue = garmentGenerateQueue.then(() => garmentFlow.loadPreset(preset)).catch((error: unknown) => {
         console.error(error);
         throw error;
       });
       return garmentGenerateQueue;
     },
+    onGarmentFitDebugChange: (visible) => garmentFlow.setFitDebugVisible(visible),
   });
-  characterGeneratorControls.gui.open();
-  const garmentDebugState = { fitDebugVisible: false };
-  characterGeneratorControls.gui
-    .add(garmentDebugState, 'fitDebugVisible')
-    .name('Show fit debug')
-    .onChange((visible: boolean) => {
-      garmentFlow.setFitDebugVisible(visible);
-    });
   const reloadCurrentCharacterGarment = (): Promise<GarmentAssemblyStats> => {
     garmentGenerateQueue = garmentGenerateQueue.then(() =>
-      garmentFlow.loadPreset(characterGeneratorControls.getCurrentPreset()),
+      garmentFlow.loadPreset(characterDevMenu.garmentControls.getCurrentPreset()),
     ).catch((error: unknown) => {
       console.error(error);
       throw error;
     });
     return garmentGenerateQueue;
   };
-
-  // --- Breast physics GUI ---
-  const breastGui = characterGui.addFolder('Breast physics');
-  const bp = rig.getBreastPhysics();
-  const bpConfig = bp.config;
-  breastGui.add(bpConfig, 'stiffnessY', 10, 200, 1).name('Stiffness Y');
-  breastGui.add(bpConfig, 'stiffnessX', 10, 200, 1).name('Stiffness X');
-  breastGui.add(bpConfig, 'stiffnessZ', 10, 200, 1).name('Stiffness Z');
-  breastGui.add(bpConfig, 'dampingY', 0.5, 20, 0.1).name('Damping Y');
-  breastGui.add(bpConfig, 'dampingX', 0.5, 20, 0.1).name('Damping X');
-  breastGui.add(bpConfig, 'dampingZ', 0.5, 20, 0.1).name('Damping Z');
-  breastGui.add(bpConfig, 'responseY', 0.01, 0.5, 0.005).name('Response Y');
-  breastGui.add(bpConfig, 'responseX', 0.01, 0.5, 0.005).name('Response X');
-  breastGui.add(bpConfig, 'responseZ', 0.01, 0.5, 0.005).name('Response Z');
-  breastGui.add(bpConfig, 'maxOffsetY', 0.01, 0.2, 0.005).name('Max offset Y');
-  breastGui.add(bpConfig, 'maxOffsetX', 0.01, 0.2, 0.005).name('Max offset X');
-  breastGui.add(bpConfig, 'maxOffsetZ', 0.01, 0.2, 0.005).name('Max offset Z');
-  breastGui.add({ slap: () => bp.applyImpulse('both', 0, 1.0, -1.5) }, 'slap').name('Test slap');
-  breastGui.add({ reset: () => bp.reset() }, 'reset').name('Reset springs');
-
-  // --- Butt physics GUI ---
-  const buttGui = characterGui.addFolder('Butt physics');
-  const buttPlacement = rig.buttPlacement;
-  buttGui.add(buttPlacement, 'dropY', 0, 0.25, 0.005).name('Drop');
-  buttGui.add(buttPlacement, 'backZ', 0.04, 0.25, 0.005).name('Back offset');
-  buttGui.add(buttPlacement, 'sideX', 0.05, 0.2, 0.005).name('Side spread');
-  buttGui.add(buttPlacement, 'radius', 0.04, 0.2, 0.005).name('Capsule size');
-  const buttShape = rig.buttShape;
-  buttGui.add(buttShape, 'volume', 0, 3, 0.05).name('Volume');
-  buttGui.add(buttShape, 'lift', -1, 2, 0.05).name('Lift');
-  buttGui.add(buttShape, 'projection', 0, 0.4, 0.01).name('Projection');
-  buttGui.add(buttShape, 'width', -2, 2, 0.05).name('Width');
-  const buttPhysics = rig.getButtPhysics();
-  const buttConfig = buttPhysics.config;
-  buttGui.add(buttConfig, 'stiffnessY', 10, 200, 1).name('Stiffness Y');
-  buttGui.add(buttConfig, 'stiffnessX', 10, 200, 1).name('Stiffness X');
-  buttGui.add(buttConfig, 'stiffnessZ', 10, 200, 1).name('Stiffness Z');
-  buttGui.add(buttConfig, 'dampingY', 0.5, 20, 0.1).name('Damping Y');
-  buttGui.add(buttConfig, 'dampingX', 0.5, 20, 0.1).name('Damping X');
-  buttGui.add(buttConfig, 'dampingZ', 0.5, 20, 0.1).name('Damping Z');
-  buttGui.add(buttConfig, 'responseY', 0.01, 0.5, 0.005).name('Response Y');
-  buttGui.add(buttConfig, 'responseX', 0.01, 0.5, 0.005).name('Response X');
-  buttGui.add(buttConfig, 'responseZ', 0.01, 0.5, 0.005).name('Response Z');
-  buttGui.add(buttConfig, 'maxOffsetY', 0.01, 0.2, 0.005).name('Max offset Y');
-  buttGui.add(buttConfig, 'maxOffsetX', 0.01, 0.2, 0.005).name('Max offset X');
-  buttGui.add(buttConfig, 'maxOffsetZ', 0.01, 0.2, 0.005).name('Max offset Z');
-  buttGui.add({ slap: () => buttPhysics.applyImpulse('both', 0, 1.0, 1.5) }, 'slap').name('Test slap');
-  buttGui.add({ reset: () => buttPhysics.reset() }, 'reset').name('Reset springs');
-
-  // --- Eye blink GUI ---
-  const eyeGui = characterGui.addFolder('Eye blink');
-  const eyeConfig = rig.eyeBlink.config;
-  eyeGui.add(eyeConfig, 'enabled').name('Auto-blink');
-  eyeGui.add(eyeConfig, 'minInterval', 0.5, 10, 0.1).name('Min interval');
-  eyeGui.add(eyeConfig, 'maxInterval', 1, 15, 0.1).name('Max interval');
-  eyeGui.add(eyeConfig, 'blinkDuration', 0.05, 0.5, 0.01).name('Blink speed');
-  eyeGui.add(eyeConfig, 'doubleBlinkChance', 0, 1, 0.05).name('Double-blink chance');
-  eyeGui.add(eyeConfig, 'manualClose', 0, 1, 0.01).name('Manual close');
-  eyeGui.add({ blink: () => rig.eyeBlink.triggerBlink() }, 'blink').name('Blink now');
 
   // --- Animation browser panel (toggled via toolbar button) ---
   // Ratings are saved to data/animationRatings.json via the dev server.
@@ -915,6 +860,11 @@ async function bootstrapCharacterPreview(
     }
   };
   window.__characterStats = () => rig.getStats();
+  window.__characterPhysicsPoseStats = () => rig.getPhysicsPoseStats();
+  window.__characterPhysicsPoseConfig = () => rig.getPhysicsPoseConfig();
+  window.__characterPhysicsPoseSnapDisplay = () => {
+    rig.getPhysicsPoseRig().snapDisplayToTarget();
+  };
   window.__characterBoneSdfs = () => rig.getBoneSdfSummary();
   window.__characterBoneSdfFitReport = () => rig.getBoneSdfFitReport();
   window.__characterBoneSdfMeshCoverageReport = () => rig.getBoneSdfMeshCoverageReport();
@@ -929,10 +879,10 @@ async function bootstrapCharacterPreview(
     garmentDebugState.fitDebugVisible = visible;
     garmentFlow.setFitDebugVisible(visible);
   };
-  window.__characterGarmentGetPreset = () => characterGeneratorControls.getCurrentPreset();
+  window.__characterGarmentGetPreset = () => characterDevMenu.garmentControls.getCurrentPreset();
   window.__characterGarmentGenerate = async (garmentType, params, name) => {
     const preset = createGarmentPresetEnvelope(name ?? `Character ${garmentType}`, garmentType, params);
-    await characterGeneratorControls.applyPreset(preset);
+    await characterDevMenu.garmentControls.applyPreset(preset);
     return garmentFlow.getStats();
   };
   window.__characterClothStats = () => cloth.getStats();
