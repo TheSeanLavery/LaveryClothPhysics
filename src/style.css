@@ -254,3 +254,36 @@ body.shoot-mode canvas {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+.duel-health-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 12;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.duel-health-bar {
+  position: absolute;
+  width: 72px;
+  transform: translateZ(0);
+}
+
+.duel-health-bar__track {
+  height: 7px;
+  border-radius: 4px;
+  background: rgb(8 12 20 / 72%);
+  border: 1px solid rgb(120 150 210 / 28%);
+  overflow: hidden;
+}
+
+.duel-health-bar__fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #3ecf6e, #7ee787);
+  transition: width 120ms linear;
+}
+
+.duel-health-bar[data-testid='duel-health-bar-b'] .duel-health-bar__fill {
+  background: linear-gradient(90deg, #4fa3ff, #6eb5ff);
+}

@@ -42,6 +42,16 @@ export interface CharacterAnimationProfile {
     readonly walkSpeed: number;
     readonly turnSpeed: number;
     readonly attackRange: number;
+    /** Multiplier on attackRange for AI walk-to-engage (default 0.85). */
+    readonly attackEngageFactor?: number;
+    /** Root distance below which AI backs off (default 0.75). */
+    readonly attackMinSeparation?: number;
+    /** Root spacing to stop step-in / lunge (defaults to ~0.9 × attackRange). */
+    readonly attackStrikeDistance?: number;
+    /** Meters to step toward target when an attack clip starts (duel). */
+    readonly attackStepMeters?: number;
+    /** Root slide speed toward opponent while in attack state (duel). */
+    readonly attackLungeSpeed?: number;
     readonly attackCooldownSeconds: number;
     readonly moveThreshold: number;
     /** Crossfade seconds when entering each FSM state (clip binding may override). */

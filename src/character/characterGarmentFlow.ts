@@ -891,9 +891,13 @@ function restLengthEdgesFromVertices(
   });
 }
 
+export interface CharacterGarmentOptionsHost {
+  readonly options: CharacterTShirtGenerationOptions;
+}
+
 export function createCharacterGarmentControls(
   gui: GUI,
-  flow: CharacterGarmentFlow,
+  host: CharacterGarmentOptionsHost,
   rebuild: () => void,
 ): void {
   const folder = gui.addFolder('T-shirt generation');
@@ -904,7 +908,7 @@ export function createCharacterGarmentControls(
     step: number,
     label: string,
   ): void => {
-    folder.add(flow.options, property, min, max, step).name(label).onFinishChange(rebuild);
+    folder.add(host.options, property, min, max, step).name(label).onFinishChange(rebuild);
   };
 
   addSlider('bodyWidth', 0.2, 0.9, 0.01, 'Body width');
@@ -919,7 +923,7 @@ export function createCharacterGarmentControls(
 
   folder.add({
     reset: () => {
-      Object.assign(flow.options, DEFAULT_CHARACTER_T_SHIRT_OPTIONS);
+      Object.assign(host.options, DEFAULT_CHARACTER_T_SHIRT_OPTIONS);
       folder.controllersRecursive().forEach((controller) => controller.updateDisplay());
       rebuild();
     },

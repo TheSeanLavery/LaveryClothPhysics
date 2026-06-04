@@ -136,6 +136,7 @@ declare global {
     };
     __characterClothReadbackStats?: () => ReturnType<ClothSimulation['getReadbackStats']>;
     __duelStats?: () => CharacterDuelStats;
+    __duelShirtHealth?: () => { fighterA: number; fighterB: number };
     __duelFacingDebug?: (fighter?: 'A' | 'B') => import('./character/CharacterController.ts').FacingDebugSnapshot;
     __duelAuditFacingTurn?: (options: {
       fighter?: 'A' | 'B';

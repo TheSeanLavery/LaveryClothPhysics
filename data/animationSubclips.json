@@ -48,7 +48,16 @@
       "label": "StepForward mixamo",
       "sourceFile": "rokoko-mixamo/StepForward_mixamo.fbx",
       "start": 6,
-      "end": 6.416666666666666,
+      "end": 12.699999999999994,
+      "loop": true,
+      "fps": 30,
+      "loopBlendSec": 0.15
+    },
+    "weird-zombie": {
+      "label": "weirdzombie",
+      "sourceFile": "rokoko-mixamo/ZombieAttack_Walking_mixamo.fbx",
+      "start": 3,
+      "end": 6.199999999999999,
       "loop": true,
       "fps": 30,
       "loopBlendSec": 0.15

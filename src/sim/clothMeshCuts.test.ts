@@ -7,6 +7,7 @@ import {
   collectRequiredStrandThreadEdgeIds,
   rebuildClothIndicesFromEdgeState,
   rebuildClothIndicesFromSdfEdgeState,
+  rebuildParticleRenderIndices,
   severCellsWithSingleNeighbor,
   triangleCrossesBrokenStructuralEdge,
   type SimEdgeLookup,
@@ -521,6 +522,51 @@ test('requires strand threads when no visible render triangle covers an active e
 
   const required = collectRequiredStrandThreadEdgeIds(structural, edgeActive, () => false, options);
   assert.deepEqual(required, [keepId]);
+});
+
+test('rebuildParticleRenderIndices drops triangles spanning disconnected components', () => {
+  const simGridCoords = new Float32Array([
+    0, 0,
+    1, 0,
+    0, 0,
+    1, 0,
+  ]);
+  const baseIndices = new Uint32Array([0, 1, 2, 1, 3, 2]);
+  const triangleEdgeIds = new Int32Array([-1, -1, -1, -1, -1, -1]);
+  const edgeActive = new Uint32Array([1]);
+  const components = new Uint32Array([10, 20, 10, 20]);
+
+  const visible = rebuildParticleRenderIndices(
+    baseIndices,
+    simGridCoords,
+    triangleEdgeIds,
+    edgeActive,
+    components,
+  );
+
+  assert.equal(visible.length, 0);
+});
+
+test('rebuildParticleRenderIndices keeps intact same-component triangles', () => {
+  const simGridCoords = new Float32Array([
+    0, 0,
+    1, 0,
+    0, 0,
+  ]);
+  const baseIndices = new Uint32Array([0, 1, 2]);
+  const triangleEdgeIds = new Int32Array([-1, -1, -1]);
+  const edgeActive = new Uint32Array([1]);
+  const components = new Uint32Array([3, 3, 3]);
+
+  const visible = rebuildParticleRenderIndices(
+    baseIndices,
+    simGridCoords,
+    triangleEdgeIds,
+    edgeActive,
+    components,
+  );
+
+  assert.deepEqual(visible, baseIndices);
 });
 
 test('ignores outer rim bridges when collecting strand thread edges', () => {

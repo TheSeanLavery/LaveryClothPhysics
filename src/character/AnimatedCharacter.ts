@@ -280,6 +280,7 @@ export class AnimatedCharacterSceneRig {
   private readonly breastBaseQuaternions = new WeakMap<THREE.Bone, THREE.Quaternion>();
   private lastBreastCollisionModel: BreastCollisionModel | null = null;
   private lastButtCollisionModel: ButtCollisionModel | null = null;
+  private boneSdfRadiusScale = 1;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -505,6 +506,10 @@ export class AnimatedCharacterSceneRig {
     };
   }
 
+  setBoneSdfRadiusScale(scale: number): void {
+    this.boneSdfRadiusScale = Math.max(0.5, Math.min(1.5, scale));
+  }
+
   getBoneSdfSummary(): Array<{
     id: number;
     name: string;
@@ -514,11 +519,12 @@ export class AnimatedCharacterSceneRig {
     start: [number, number, number];
     end: [number, number, number];
   }> {
+    const radiusScale = this.boneSdfRadiusScale;
     return this.boneCapsules.map((capsule) => ({
       id: capsule.id,
       name: capsule.name,
       parentName: capsule.parentName,
-      radius: capsule.radius,
+      radius: capsule.radius * radiusScale,
       length: capsule.length,
       start: vectorTuple(capsule.start),
       end: vectorTuple(capsule.end),

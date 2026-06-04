@@ -5,8 +5,25 @@ import {
   VISIBLE_CHARACTER_MODEL_URL,
 } from '../../character/AnimatedCharacter.ts';
 import { DEFAULT_CHARACTER_T_SHIRT_OPTIONS } from '../../character/shirtDressing.ts';
+import type { CharacterAnimationProfile } from '../../animations/characterAnimationProfile.ts';
 
 export type DuelControlMode = 'pvp' | 'ai-ai';
+
+export function applyDuelCombatProfile(profile: CharacterAnimationProfile): CharacterAnimationProfile {
+  const combat = CHARACTER_DUEL_CONFIG.combat;
+  return {
+    ...profile,
+    parameters: {
+      ...profile.parameters,
+      attackRange: combat.attackRange,
+      attackEngageFactor: combat.attackEngageFactor,
+      attackMinSeparation: combat.attackMinSeparation,
+      attackStrikeDistance: combat.attackStrikeDistance,
+      attackStepMeters: combat.attackStepMeters,
+      attackLungeSpeed: combat.attackLungeSpeed,
+    },
+  };
+}
 
 /** Framed on fighters (torso height); applied before first boot render. */
 export const DUEL_CAMERA = {
@@ -21,12 +38,25 @@ export const CHARACTER_DUEL_CONFIG = {
   danceAnimationUrl: MIXAMO_DANCING_TWERK_URL,
   spawnSeparation: 2.4,
   arenaRadius: 4.5,
+  /**
+   * AI melee tuning (applied over animation profile params in duel).
+   * attackRange is root-to-root “close enough to strike” for in-place Mixamo attacks (~0.7 m).
+   */
+  combat: {
+    attackRange: 0.78,
+    attackEngageFactor: 1.0,
+    /** Ideal root spacing when trading hits (stop lunge / step here). */
+    attackStrikeDistance: 0.58,
+    attackMinSeparation: 0.5,
+    attackStepMeters: 0.1,
+    attackLungeSpeed: 1.1,
+  },
   shirtOptions: { ...DEFAULT_CHARACTER_T_SHIRT_OPTIONS },
   cloth: {
     gravity: 0.000025,
     clothThickness: 0.003,
     selfCollision: true,
     mannequinCollision: false,
-    tearStretchThreshold: 999,
+    tearStretchThreshold: 4,
   },
 } as const;

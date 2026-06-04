@@ -10,13 +10,21 @@
         "stanceYawOffset": 0.1373583624998512,
         "walkSpeed": 1.35,
         "turnSpeed": 8,
-        "attackRange": 1.35,
+        "attackRange": 0.78,
         "attackCooldownSeconds": 1.1,
         "moveThreshold": 0.08,
         "clipFadeTpose": 0.4,
         "clipFadeIdle": 0.55,
         "clipFadeWalk": 0.5,
-        "clipFadeAttack": 0.32
+        "clipFadeAttack": 0.32,
+        "dressPoseFadeSec": 0,
+        "dressPoseSettleSec": 0.35,
+        "dressBlendToIdleSec": 0.85,
+        "attackEngageFactor": 1,
+        "attackMinSeparation": 0.5,
+        "attackStrikeDistance": 0.58,
+        "attackStepMeters": 0.1,
+        "attackLungeSpeed": 1.1
       },
       "states": {
         "tpose": {
@@ -57,8 +65,8 @@
           },
           "clips": [
             {
-              "name": "walk_1",
-              "subclipId": "walk-1",
+              "name": "StepForward mixamo",
+              "subclipId": "stepforward-mixamo",
               "file": "rokoko-mixamo/StepForward_mixamo.fbx",
               "loop": true,
               "fadeIn": 0.5
@@ -74,8 +82,9 @@
           "pick": "random",
           "clips": [
             {
-              "name": "Fight 01 — Jab",
-              "subclipId": "fight-01-jab",
+              "name": "Roundhouse Kick",
+              "subclipId": "roundhouse-kick",
+              "file": "rokoko-mixamo/RoundHouseKick_mixamo.fbx",
               "loop": false,
               "fadeIn": 0.32
             },
@@ -156,13 +165,21 @@
         "stanceYawOffset": 0.1373583624998512,
         "walkSpeed": 1.2,
         "turnSpeed": 7,
-        "attackRange": 1.5,
+        "attackRange": 0.78,
         "attackCooldownSeconds": 0.95,
         "moveThreshold": 0.08,
         "clipFadeTpose": 0.4,
         "clipFadeIdle": 0.55,
         "clipFadeWalk": 0.5,
-        "clipFadeAttack": 0.32
+        "clipFadeAttack": 0.32,
+        "dressPoseFadeSec": 0,
+        "dressPoseSettleSec": 0.35,
+        "dressBlendToIdleSec": 0.85,
+        "attackEngageFactor": 1,
+        "attackMinSeparation": 0.5,
+        "attackStrikeDistance": 0.58,
+        "attackStepMeters": 0.1,
+        "attackLungeSpeed": 1.1
       },
       "states": {
         "tpose": {

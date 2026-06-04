@@ -34,6 +34,10 @@ Any new endpoint (`src/app/routes.ts`, `src/scenes/*`, bootstrap in `src/main.ts
 3. Run the sim in the animation loop until settled and during interaction
 4. Add Playwright coverage that asserts sim/garment stats (vertex counts, clearance, or `getStats()`), not only that a mesh is visible
 
+## GPU readbacks
+
+See **gpu-cloth-no-readback**: sim state stays on GPU; gameplay must not read vertex/edge buffers. UI may read tiny scalars (e.g. duel HP floats) on a throttled interval.
+
 ## Production quality bar
 
 - Match existing conventions in `src/main.ts` character/garment bootstraps

@@ -1057,6 +1057,45 @@ export function buildClothSdfRenderMesh(
   };
 }
 
+export function rebuildParticleRenderIndices(
+  baseIndices: Uint32Array,
+  simGridCoordArray: Float32Array,
+  triangleEdgeIds: Int32Array,
+  edgeActive: Uint32Array,
+  components: Uint32Array,
+): Uint32Array {
+  const nextIndices: number[] = [];
+  const simVertexForRenderIndex = (index: number): number =>
+    Math.round(simGridCoordArray[index * 2] ?? 0);
+
+  for (let i = 0; i < baseIndices.length; i += 3) {
+    const i0 = baseIndices[i]!;
+    const i1 = baseIndices[i + 1]!;
+    const i2 = baseIndices[i + 2]!;
+    const v0 = simVertexForRenderIndex(i0);
+    const v1 = simVertexForRenderIndex(i1);
+    const v2 = simVertexForRenderIndex(i2);
+    const sameComponent = components[v0] === components[v1] && components[v0] === components[v2];
+    if (!sameComponent) {
+      continue;
+    }
+
+    let intact = true;
+    for (let e = 0; e < 3; e++) {
+      const edgeId = triangleEdgeIds[i + e]!;
+      if (edgeId >= 0 && edgeActive[edgeId] === 0) {
+        intact = false;
+        break;
+      }
+    }
+    if (intact) {
+      nextIndices.push(i0, i1, i2);
+    }
+  }
+
+  return new Uint32Array(nextIndices);
+}
+
 export function countBrokenEdges(edgeActive: Uint32Array): number {
   let count = 0;
   for (let i = 0; i < edgeActive.length; i++) {

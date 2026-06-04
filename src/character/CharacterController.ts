@@ -313,11 +313,29 @@ export class CharacterController {
     return this.attackCooldown <= 0 && this.fsm.getState() !== 'attack';
   }
 
+  private combatSpacing(params: CharacterAnimationProfile['parameters']): {
+    engageRange: number;
+    strikeDistance: number;
+    minSeparation: number;
+  } {
+    const engageRange = params.attackRange * (params.attackEngageFactor ?? 0.85);
+    const minSeparation = params.attackMinSeparation ?? 0.75;
+    const strikeDistance = Math.max(
+      minSeparation,
+      params.attackStrikeDistance ?? params.attackRange * 0.9,
+    );
+    return { engageRange, strikeDistance, minSeparation };
+  }
+
   async playAttackToward(target: THREE.Vector3): Promise<boolean> {
     const params = this.fsm.getProfile().parameters;
     if (!this.canAttackNow()) {
       return false;
     }
+    const position = this.getWorldPosition(this.tmpTarget);
+    const dx = target.x - position.x;
+    const dz = target.z - position.z;
+    const dist = Math.hypot(dx, dz);
     this.snapFaceToward(target);
     this.moveInput.set(0, 0);
     let started = await this.fsm.trigger('attack');
@@ -328,6 +346,13 @@ export class CharacterController {
     if (started) {
       this.snapFaceToward(target);
       this.attackCooldown = params.attackCooldownSeconds;
+      const stepMeters = params.attackStepMeters ?? 0;
+      if (stepMeters > 0 && dist > 1e-6) {
+        const { strikeDistance } = this.combatSpacing(params);
+        const step = Math.min(stepMeters, Math.max(0, dist - strikeDistance));
+        this.root.position.x += (dx / dist) * step;
+        this.root.position.z += (dz / dist) * step;
+      }
     }
     return started;
   }
@@ -359,8 +384,28 @@ export class CharacterController {
 
     if (state === 'attack') {
       this.refreshFacingDebug(options.opponent, moveLength, params.moveThreshold);
-      if (options.opponent) {
-        this.faceToward(options.opponent, delta);
+      const attackTarget = options.opponent ?? (this.hasLastOpponent ? this.lastOpponent : null);
+      if (attackTarget) {
+        this.faceToward(attackTarget, delta);
+        const lungeSpeed = params.attackLungeSpeed ?? 0;
+        if (lungeSpeed > 0) {
+          const position = this.getWorldPosition(this.tmpTarget);
+          const dx = attackTarget.x - position.x;
+          const dz = attackTarget.z - position.z;
+          const dist = Math.hypot(dx, dz);
+          if (dist > 1e-6) {
+            const { strikeDistance, minSeparation } = this.combatSpacing(params);
+            if (dist < minSeparation) {
+              const push = Math.min(minSeparation - dist, lungeSpeed * delta);
+              this.root.position.x -= (dx / dist) * push;
+              this.root.position.z -= (dz / dist) * push;
+            } else if (dist > strikeDistance) {
+              const step = Math.min(dist - strikeDistance, lungeSpeed * delta);
+              this.root.position.x += (dx / dist) * step;
+              this.root.position.z += (dz / dist) * step;
+            }
+          }
+        }
       }
       return;
     }
@@ -388,32 +433,41 @@ export class CharacterController {
 
   private updateAiInput(delta: number, opponent: THREE.Vector3 | undefined, boundsRadius: number): void {
     const params = this.fsm.getProfile().parameters;
-    this.aiWanderTimer -= delta;
-    if (this.aiWanderTimer <= 0) {
-      this.aiWanderTimer = 1.2 + Math.random() * 1.8;
-      const angle = Math.random() * Math.PI * 2;
-      this.aiMoveBias.set(Math.sin(angle), Math.cos(angle));
-    }
-
-    if (opponent && this.attackCooldown <= 0) {
-      void this.playAttackToward(opponent);
-    }
-
+    const { engageRange, minSeparation } = this.combatSpacing(params);
     const position = this.getWorldPosition(this.tmpTarget);
-    let moveX = this.aiMoveBias.x;
-    let moveZ = this.aiMoveBias.y;
+
+    let moveX = 0;
+    let moveZ = 0;
 
     if (opponent) {
       const toOpponentX = opponent.x - position.x;
       const toOpponentZ = opponent.z - position.z;
       const dist = Math.hypot(toOpponentX, toOpponentZ);
-      if (dist > params.attackRange * 0.85) {
-        moveX = toOpponentX / Math.max(dist, 0.001);
-        moveZ = toOpponentZ / Math.max(dist, 0.001);
-      } else if (dist < 0.75) {
-        moveX = -toOpponentX / Math.max(dist, 0.001);
-        moveZ = -toOpponentZ / Math.max(dist, 0.001);
+      const towardX = toOpponentX / Math.max(dist, 0.001);
+      const towardZ = toOpponentZ / Math.max(dist, 0.001);
+
+      if (dist > engageRange) {
+        moveX = towardX;
+        moveZ = towardZ;
+      } else if (dist < minSeparation) {
+        moveX = -towardX;
+        moveZ = -towardZ;
+      } else {
+        moveX = 0;
+        moveZ = 0;
+        if (this.canAttackNow()) {
+          void this.playAttackToward(opponent);
+        }
       }
+    } else {
+      this.aiWanderTimer -= delta;
+      if (this.aiWanderTimer <= 0) {
+        this.aiWanderTimer = 1.2 + Math.random() * 1.8;
+        const angle = Math.random() * Math.PI * 2;
+        this.aiMoveBias.set(Math.sin(angle), Math.cos(angle));
+      }
+      moveX = this.aiMoveBias.x;
+      moveZ = this.aiMoveBias.y;
     }
 
     const distFromCenter = Math.hypot(position.x, position.z);

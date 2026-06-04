@@ -8,7 +8,6 @@ import {
 import { CharacterController } from '../../character/CharacterController.ts';
 import { resolveClipFadeDuration } from '../../animations/characterAnimationProfile.ts';
 import type { FsmStateId } from '../../animations/characterAnimationProfile.ts';
-import type { DuelControlMode } from './characterDuelConfig.ts';
 import {
   dressTShirtOnRig,
   SHIRT_DRESS_POSE_SETTLE_SEC,
@@ -28,7 +27,11 @@ import {
   getDefaultCharacterDuelAnimationSetup,
   type CharacterDuelAnimationSetup,
 } from './characterDuelAnimation.ts';
-import { CHARACTER_DUEL_CONFIG } from './characterDuelConfig.ts';
+import {
+  applyDuelCombatProfile,
+  CHARACTER_DUEL_CONFIG,
+  type DuelControlMode,
+} from './characterDuelConfig.ts';
 
 export interface CharacterDuelLoadOptions {
   readonly setup?: CharacterDuelAnimationSetup;
@@ -56,6 +59,7 @@ export class CharacterDuelScene {
   private phase: CharacterDuelStats['phase'] = 'loading';
   private controlMode: DuelControlMode = 'pvp';
   private mergedVertexCount = 0;
+  private fighterAVertexCount = 0;
   private mergedShirtAssembly: ClothAssembly | null = null;
   private readonly keysDown = new Set<string>();
   private readonly moveA = new THREE.Vector2();
@@ -182,10 +186,10 @@ export class CharacterDuelScene {
         void this.queueShirtRedressOnTpose();
       }
     };
-    this.controllerA = new CharacterController(this.rigA, setup.fighterA.profile, {
+    this.controllerA = new CharacterController(this.rigA, applyDuelCombatProfile(setup.fighterA.profile), {
       onStateEntered: onTposeEntered,
     });
-    this.controllerB = new CharacterController(this.rigB, setup.fighterB.profile, {
+    this.controllerB = new CharacterController(this.rigB, applyDuelCombatProfile(setup.fighterB.profile), {
       onStateEntered: onTposeEntered,
     });
 
@@ -262,10 +266,12 @@ export class CharacterDuelScene {
 
       const assemblyA = dressTShirtOnRig(this.rigA, CHARACTER_DUEL_CONFIG.shirtOptions);
       const assemblyB = dressTShirtOnRig(this.rigB, CHARACTER_DUEL_CONFIG.shirtOptions);
+      this.fighterAVertexCount = assemblyA.vertices.length;
       const merged = mergeClothAssemblies([assemblyA, assemblyB]);
       this.mergedShirtAssembly = merged;
       this.mergedVertexCount = merged.vertices.length;
       await this.cloth.loadClothAssembly(merged);
+      this.cloth.setDuelShirtHealthPartition(this.fighterAVertexCount);
       this.cloth.clothMesh.visible = true;
       await warmupCharacterClothCollision(
         this.cloth,
@@ -274,6 +280,12 @@ export class CharacterDuelScene {
         () => this.stepBootFrame(1 / 60),
       );
       await this.waitForMergedShirtSimSettle();
+      this.syncDuelClothCollisionAndHealth();
+      await this.cloth.calibrateDuelShirtHealthFromDress(
+        merged,
+        this.rigA.getBoneSdfSummary(),
+        this.rigB.getBoneSdfSummary(),
+      );
     } finally {
       this.isRedressingShirts = false;
     }
@@ -311,13 +323,17 @@ export class CharacterDuelScene {
       this.rigB.update(delta);
     }
     this.syncFacingDebugArrows();
-    this.cloth.setBoneSdfCapsules(mergeBoneSdfCapsules([
-      this.rigA.getBoneSdfSummary(),
-      this.rigB.getBoneSdfSummary(),
-    ]));
+    this.syncDuelClothCollisionAndHealth();
     if (this.mergedVertexCount > 0) {
       this.cloth.update(delta);
     }
+  }
+
+  private syncDuelClothCollisionAndHealth(): void {
+    const capsulesA = this.rigA.getBoneSdfSummary();
+    const capsulesB = this.rigB.getBoneSdfSummary();
+    this.cloth.setBoneSdfCapsules(mergeBoneSdfCapsules([capsulesA, capsulesB]));
+    this.cloth.updateDuelShirtHealthCapsuleSplit(capsulesA.length);
   }
 
   private async waitForBootRenderReady(
@@ -368,6 +384,22 @@ export class CharacterDuelScene {
 
   getControlMode(): DuelControlMode {
     return this.controlMode;
+  }
+
+  getShirtHealth(): { fighterA: number; fighterB: number } {
+    return this.cloth.getDuelShirtHealth();
+  }
+
+  getShirtHealthDebug(): {
+    health: { fighterA: number; fighterB: number };
+    fighterAVertexCount: number;
+    note: string;
+  } {
+    return {
+      health: this.getShirtHealth(),
+      fighterAVertexCount: this.fighterAVertexCount,
+      note: 'HP from GPU attachment counts; UI readback is 8 bytes per interval only',
+    };
   }
 
   getStats(): CharacterDuelStats {
@@ -435,10 +467,7 @@ export class CharacterDuelScene {
       this.rigA.update(delta);
       this.rigB.update(delta);
       this.syncFacingDebugArrows();
-      this.cloth.setBoneSdfCapsules(mergeBoneSdfCapsules([
-        this.rigA.getBoneSdfSummary(),
-        this.rigB.getBoneSdfSummary(),
-      ]));
+      this.syncDuelClothCollisionAndHealth();
       return;
     }
 
@@ -469,11 +498,7 @@ export class CharacterDuelScene {
     }
 
     this.syncFacingDebugArrows();
-
-    this.cloth.setBoneSdfCapsules(mergeBoneSdfCapsules([
-      this.rigA.getBoneSdfSummary(),
-      this.rigB.getBoneSdfSummary(),
-    ]));
+    this.syncDuelClothCollisionAndHealth();
   }
 
   private readPvpInput(): void {

@@ -1,5 +1,6 @@
 import GUI from 'lil-gui';
 import type { InextensibleFlagSimulation } from '../sim/InextensibleFlagSimulation';
+import { embedGuiInDock } from './ControlsDock.ts';
 import { cloneFlagSettings } from '../sim/settingsPreset';
 import {
   deleteFlagSettingsPreset,
@@ -13,6 +14,8 @@ export interface InextensibleFlagControlsOptions {
   title?: string;
   testId?: string;
   collisionUi?: 'mannequin' | 'boneSdf';
+  /** Mount inside a {@link createControlsDock} shell instead of fixed viewport positioning. */
+  container?: HTMLElement;
 }
 
 function refreshGuiControllers(gui: GUI): void {
@@ -45,14 +48,22 @@ export function createInextensibleFlagControls(
   sim: InextensibleFlagSimulation,
   options: InextensibleFlagControlsOptions = {},
 ): GUI {
-  const gui = new GUI({ title: options.title ?? 'Inextensible Flag', width: 320 });
+  const gui = new GUI({
+    title: options.title ?? 'Inextensible Flag',
+    width: 320,
+    container: options.container,
+  });
   gui.domElement.setAttribute('data-testid', options.testId ?? 'flag-controls');
-  gui.domElement.style.position = 'fixed';
-  gui.domElement.style.top = '12px';
-  gui.domElement.style.right = '12px';
-  gui.domElement.style.zIndex = '20';
-  gui.domElement.style.maxHeight = 'calc(100vh - 24px)';
-  gui.domElement.style.overflow = 'auto';
+  if (options.container) {
+    embedGuiInDock(gui.domElement);
+  } else {
+    gui.domElement.style.position = 'fixed';
+    gui.domElement.style.top = '12px';
+    gui.domElement.style.right = '12px';
+    gui.domElement.style.zIndex = '20';
+    gui.domElement.style.maxHeight = 'calc(100vh - 24px)';
+    gui.domElement.style.overflow = 'auto';
+  }
 
   const settings = sim.settings;
   const sync = () => sim.applySettings();

@@ -75,6 +75,19 @@ import {
   type SyncClothConnectivityOptions,
   type ClothGraphEdge,
 } from './clothComponents';
+import type { BoneSdfCapsuleSample } from '../character/shirtDressing.ts';
+import { SHIRT_SDF_CLEARANCE } from '../character/shirtDressing.ts';
+import {
+  applyDuelTearPenalties,
+  buildParticleFighterMask,
+  captureDuelShirtHealthBaseline,
+  computeDuelShirtHealthFromAttachment,
+  countBrokenStructuralPerFighter,
+  DUEL_SHIRT_ATTACH_BAND,
+  type DuelShirtAttachmentBaseline,
+  type DuelShirtHealthBaseline,
+  type DuelShirtHealthSnapshot,
+} from './duelShirtHealth';
 import type { StrandThreadAuditResult } from '../testing/strandThreadAudit';
 import {
   buildClothRenderQuads,
@@ -85,6 +98,7 @@ import {
   createSimEdgeLookup,
   rebuildClothIndicesFromEdgeState,
   rebuildClothIndicesFromSdfEdgeState,
+  rebuildParticleRenderIndices,
   triangleCrossesBrokenStructuralEdge,
   type ClothRenderQuad,
   type ClothRenderTriangle,
@@ -408,6 +422,33 @@ export class InextensibleFlagSimulation {
   private strandThreadReadbackPending = false;
   private lastStrandThreadEdgeIds: number[] = [];
   private lastSyncedEdgeActive: Uint32Array | null = null;
+  private duelFighterAVertexCount: number | null = null;
+  private duelParticleFighterMask: Uint8Array | null = null;
+  private duelShirtHealthBaseline: DuelShirtHealthBaseline | null = null;
+  private duelShirtAttachmentBaseline: DuelShirtAttachmentBaseline | null = null;
+  private duelShirtCapsulesA: BoneSdfCapsuleSample[] = [];
+  private duelShirtCapsulesB: BoneSdfCapsuleSample[] = [];
+  private duelShirtClearance = SHIRT_SDF_CLEARANCE;
+  private duelLastBrokenStructural = { fighterA: 0, fighterB: 0 };
+  private duelTearPenalty = { fighterA: 0, fighterB: 0 };
+  private duelShirtHealthPrimed = false;
+  private duelShirtHealthCalibrated = false;
+  private duelShirtHealthGraceFrames = 0;
+  private duelShirtHealth: DuelShirtHealthSnapshot = { fighterA: 1, fighterB: 1 };
+  private duelParticleCountA = 0;
+  private duelParticleCountB = 0;
+  private duelCapsuleCountA = 0;
+  private duelParticleFighterBuffer: ReturnType<typeof instancedArray> | null = null;
+  private duelParticleAttachBuffer: ReturnType<typeof instancedArray> | null = null;
+  private duelHealthCountBuffer: ReturnType<typeof instancedArray> | null = null;
+  private duelHealthDressBuffer: ReturnType<typeof instancedArray> | null = null;
+  private measureDuelParticleAttachment!: ReturnType<ReturnType<typeof Fn>['compute']>;
+  private reduceDuelParticleAttachment!: ReturnType<ReturnType<typeof Fn>['compute']>;
+  private duelCapsuleCountAUniform!: ReturnType<typeof uniform>;
+  private duelAttachClearanceUniform!: ReturnType<typeof uniform>;
+  private duelAttachBandUniform!: ReturnType<typeof uniform>;
+  private duelShirtHealthReadbackPending = false;
+  private readonly duelShirtHealthGpuInterval = 12;
   private readonly activeClothTopologyRefreshInterval = 3;
   private readonly idleClothTopologyRefreshInterval = 12;
   private readonly tearReadbackIdleThreshold = 2.5;
@@ -1382,6 +1423,7 @@ export class InextensibleFlagSimulation {
     this.clothEdges.length = 0;
     this.clothVertexColumns.length = 0;
     this.assemblyRenderVertexSimIds = [];
+    this.clearDuelShirtHealthTracking();
     this.particleRenderBaseIndices = null;
     this.particleRenderTriangleEdgeIds = null;
     this.simHorizontalEdgeIds.length = 0;
@@ -1631,6 +1673,7 @@ export class InextensibleFlagSimulation {
     }
 
     this.renderer.compute(this.syncEdgeVisualForRender);
+    this.scheduleDuelShirtHealthGpu();
     if (this.shouldScheduleClothTopologyReadback()) {
       void this.refreshClothTopologyFromGpu();
     }
@@ -1719,6 +1762,245 @@ export class InextensibleFlagSimulation {
     return new Promise((resolve) => {
       requestAnimationFrame(() => resolve());
     });
+  }
+
+  /** Duel-only: map merged assembly vertices to fighters; health updates on topology readback. */
+  setDuelShirtHealthPartition(
+    fighterAVertexCount: number,
+    clearance = SHIRT_SDF_CLEARANCE,
+  ): void {
+    if (fighterAVertexCount <= 0 || this.assemblyRenderVertexSimIds.length === 0) {
+      this.clearDuelShirtHealthTracking();
+      return;
+    }
+    this.duelFighterAVertexCount = fighterAVertexCount;
+    this.duelCapsuleCountA = 0;
+    this.duelShirtClearance = clearance;
+    this.duelShirtAttachmentBaseline = null;
+    this.duelShirtHealthCalibrated = false;
+    if (this.duelCapsuleCountAUniform) {
+      this.duelCapsuleCountAUniform.value = this.duelCapsuleCountA;
+    }
+    if (this.duelAttachClearanceUniform) {
+      this.duelAttachClearanceUniform.value = clearance;
+    }
+    this.rebuildDuelShirtHealthPartition();
+  }
+
+  /** After shirt settle: GPU attachment counts at dress = 100% HP (one small readback). */
+  async calibrateDuelShirtHealthFromDress(
+    _baseAssembly: ClothAssembly,
+    _capsulesA: readonly BoneSdfCapsuleSample[],
+    _capsulesB: readonly BoneSdfCapsuleSample[],
+  ): Promise<void> {
+    if (this.duelFighterAVertexCount === null || !this.duelParticleFighterMask) {
+      return;
+    }
+    const counts = await this.runDuelShirtHealthGpuAndReadCounts();
+    this.duelShirtAttachmentBaseline = {
+      attachedA: Math.max(counts.attachedA, 1),
+      totalA: Math.max(this.duelParticleCountA, 1),
+      attachedB: Math.max(counts.attachedB, 1),
+      totalB: Math.max(this.duelParticleCountB, 1),
+    };
+    if (this.duelHealthDressBuffer) {
+      const dressAttr = this.duelHealthDressBuffer.value as StorageInstancedBufferAttribute;
+      const dressArray = dressAttr.array as Float32Array;
+      dressArray[0] = this.duelShirtAttachmentBaseline.attachedA;
+      dressArray[1] = this.duelShirtAttachmentBaseline.attachedB;
+      dressAttr.needsUpdate = true;
+    }
+    this.duelShirtHealth = { fighterA: 1, fighterB: 1 };
+    this.duelTearPenalty = { fighterA: 0, fighterB: 0 };
+    const edgeAttr = this.edgeActiveBuffer.value as StorageInstancedBufferAttribute;
+    const edgeActive = new Uint32Array(edgeAttr.array as Uint32Array);
+    this.duelLastBrokenStructural = countBrokenStructuralPerFighter(
+      edgeActive,
+      this.structuralGraphEdges,
+      this.duelParticleFighterMask,
+    );
+    this.duelShirtHealthPrimed = true;
+    this.duelShirtHealthCalibrated = true;
+    this.duelShirtHealthGraceFrames = 4;
+  }
+
+  getDuelShirtHealth(): DuelShirtHealthSnapshot {
+    return this.duelShirtHealth;
+  }
+
+  /** Upload fighter A capsule count after bone SDF merge (capsules A occupy buffer prefix). */
+  updateDuelShirtHealthCapsuleSplit(capsuleCountA: number): void {
+    if (this.duelFighterAVertexCount === null) {
+      return;
+    }
+    this.duelCapsuleCountA = Math.min(capsuleCountA, MAX_BONE_SDF_CAPSULES);
+    if (this.duelCapsuleCountAUniform) {
+      this.duelCapsuleCountAUniform.value = this.duelCapsuleCountA;
+    }
+  }
+
+  private clearDuelShirtHealthTracking(): void {
+    this.duelFighterAVertexCount = null;
+    this.duelParticleFighterMask = null;
+    this.duelShirtHealthBaseline = null;
+    this.duelShirtAttachmentBaseline = null;
+    this.duelParticleCountA = 0;
+    this.duelParticleCountB = 0;
+    this.duelCapsuleCountA = 0;
+    this.duelLastBrokenStructural = { fighterA: 0, fighterB: 0 };
+    this.duelTearPenalty = { fighterA: 0, fighterB: 0 };
+    this.duelShirtHealthPrimed = false;
+    this.duelShirtHealthCalibrated = false;
+    this.duelShirtHealth = { fighterA: 1, fighterB: 1 };
+  }
+
+  private rebuildDuelShirtHealthPartition(): void {
+    const fighterAVertexCount = this.duelFighterAVertexCount;
+    if (fighterAVertexCount === null || this.assemblyRenderVertexSimIds.length === 0) {
+      return;
+    }
+    const particleMask = buildParticleFighterMask(
+      {
+        fighterAVertexCount,
+        renderVertexToParticle: this.assemblyRenderVertexSimIds,
+      },
+      this.clothVertices.length,
+    );
+    this.duelParticleFighterMask = particleMask;
+    let countA = 0;
+    let countB = 0;
+    for (let i = 0; i < particleMask.length; i += 1) {
+      if (particleMask[i] === 0) {
+        countA += 1;
+      } else {
+        countB += 1;
+      }
+    }
+    this.duelParticleCountA = countA;
+    this.duelParticleCountB = countB;
+    if (this.duelParticleFighterBuffer) {
+      const attr = this.duelParticleFighterBuffer.value as StorageInstancedBufferAttribute;
+      (attr.array as Uint32Array).set(particleMask);
+      attr.needsUpdate = true;
+    }
+    this.duelShirtHealthBaseline = captureDuelShirtHealthBaseline(
+      this.structuralGraphEdges,
+      particleMask,
+    );
+    this.duelShirtHealth = { fighterA: 1, fighterB: 1 };
+    this.duelLastBrokenStructural = { fighterA: 0, fighterB: 0 };
+    this.duelTearPenalty = { fighterA: 0, fighterB: 0 };
+    this.duelShirtHealthPrimed = false;
+  }
+
+  /** Tear chips only — uses edge CPU mirror when topology already read edgeActive (no position readback). */
+  private updateDuelTearPenaltyFromEdges(rawEdgeActive: Uint32Array): void {
+    const particleMask = this.duelParticleFighterMask;
+    if (!particleMask || !this.duelShirtHealthCalibrated || this.duelShirtHealthGraceFrames > 0) {
+      return;
+    }
+    const broken = countBrokenStructuralPerFighter(
+      rawEdgeActive,
+      this.structuralGraphEdges,
+      particleMask,
+    );
+    if (!this.duelShirtHealthPrimed) {
+      this.duelLastBrokenStructural = broken;
+      this.duelShirtHealthPrimed = true;
+      return;
+    }
+    const tearUpdate = applyDuelTearPenalties(
+      broken,
+      this.duelLastBrokenStructural,
+      this.duelTearPenalty.fighterA,
+      this.duelTearPenalty.fighterB,
+    );
+    this.duelLastBrokenStructural = tearUpdate.lastBroken;
+    this.duelTearPenalty = { fighterA: tearUpdate.penaltyA, fighterB: tearUpdate.penaltyB };
+  }
+
+  private applyDuelShirtHealthFromGpuCounts(attachedA: number, attachedB: number): void {
+    const dress = this.duelShirtAttachmentBaseline;
+    if (!dress) {
+      return;
+    }
+    this.duelShirtHealth = computeDuelShirtHealthFromAttachment(
+      {
+        attachedA,
+        totalA: this.duelParticleCountA,
+        attachedB,
+        totalB: this.duelParticleCountB,
+      },
+      dress,
+      this.duelTearPenalty.fighterA,
+      this.duelTearPenalty.fighterB,
+    );
+  }
+
+  private runDuelShirtHealthGpu(): void {
+    if (
+      this.duelFighterAVertexCount === null
+      || !this.duelParticleFighterBuffer
+      || !this.duelParticleAttachBuffer
+      || !this.duelHealthCountBuffer
+      || this.boneSdfCapsuleCount <= 0
+    ) {
+      return;
+    }
+    const countAttr = this.duelHealthCountBuffer.value as StorageInstancedBufferAttribute;
+    const countArray = countAttr.array as Float32Array;
+    countArray[0] = 0;
+    countArray[1] = 0;
+    countAttr.needsUpdate = true;
+    this.renderer.compute(this.measureDuelParticleAttachment);
+    this.renderer.compute(this.reduceDuelParticleAttachment);
+  }
+
+  private async runDuelShirtHealthGpuAndReadCounts(): Promise<{
+    attachedA: number;
+    attachedB: number;
+  }> {
+    this.runDuelShirtHealthGpu();
+    if (!this.duelHealthCountBuffer) {
+      return { attachedA: 0, attachedB: 0 };
+    }
+    const attr = this.duelHealthCountBuffer.value as StorageInstancedBufferAttribute;
+    const buffer = await this.renderer.getArrayBufferAsync(attr);
+    const counts = new Float32Array(buffer);
+    return { attachedA: counts[0] ?? 0, attachedB: counts[1] ?? 0 };
+  }
+
+  private scheduleDuelShirtHealthGpu(): void {
+    if (
+      this.duelFighterAVertexCount === null
+      || !this.duelShirtHealthCalibrated
+      || this.frameCount % this.duelShirtHealthGpuInterval !== 0
+      || this.duelShirtHealthReadbackPending
+    ) {
+      return;
+    }
+    this.runDuelShirtHealthGpu();
+    void this.readDuelShirtHealthUi();
+  }
+
+  private async readDuelShirtHealthUi(): Promise<void> {
+    if (!this.duelHealthCountBuffer || this.duelFighterAVertexCount === null) {
+      return;
+    }
+    this.duelShirtHealthReadbackPending = true;
+    try {
+      const attr = this.duelHealthCountBuffer.value as StorageInstancedBufferAttribute;
+      const buffer = await this.renderer.getArrayBufferAsync(attr);
+      const counts = new Float32Array(buffer);
+      if (this.duelShirtHealthGraceFrames > 0) {
+        this.duelShirtHealthGraceFrames -= 1;
+        this.duelShirtHealth = { fighterA: 1, fighterB: 1 };
+        return;
+      }
+      this.applyDuelShirtHealthFromGpuCounts(counts[0] ?? 0, counts[1] ?? 0);
+    } finally {
+      this.duelShirtHealthReadbackPending = false;
+    }
   }
 
   getStats(): InextensibleFlagSimulationStats {
@@ -2459,6 +2741,14 @@ export class InextensibleFlagSimulation {
     this.grabScreenDistBuffer = instancedArray(new Float32Array(vertexCount), 'float');
     this.grabTargetBuffer = instancedArray(new Uint32Array([0xffffffff, 0]), 'uint');
     this.grabOffsetNdcBuffer = instancedArray(new Float32Array(2), 'float');
+
+    this.duelParticleFighterBuffer = instancedArray(new Uint32Array(vertexCount).fill(1), 'uint');
+    this.duelParticleAttachBuffer = instancedArray(new Uint32Array(vertexCount).fill(0), 'uint');
+    this.duelHealthCountBuffer = instancedArray(new Float32Array(2), 'float').setPBO(true);
+    this.duelHealthDressBuffer = instancedArray(new Float32Array(2), 'float');
+    this.duelCapsuleCountAUniform = uniform(0);
+    this.duelAttachClearanceUniform = uniform(SHIRT_SDF_CLEARANCE);
+    this.duelAttachBandUniform = uniform(DUEL_SHIRT_ATTACH_BAND);
   }
 
   private setupEdgeBuffers(): void {
@@ -3197,41 +3487,32 @@ export class InextensibleFlagSimulation {
     return { indices, simGridCoords: this.clothSimGridCoords };
   }
 
+  private refreshParticleRenderTopologyFromCpu(): void {
+    if (!this.particleRenderBaseIndices || !this.particleRenderTriangleEdgeIds || !this.clothSimGridCoords) {
+      return;
+    }
+
+    const edgeActive = new Uint32Array(this.clothEdges.length).fill(1);
+    const { edgeActive: syncedEdgeActive, components } = this.syncClothConnectivityFromEdgeState(edgeActive);
+    const indices = this.rebuildParticleRenderIndices(syncedEdgeActive, components);
+    this.applyClothIndexBuffer(indices);
+    this.lastBrokenEdgeCount = countBrokenEdges(syncedEdgeActive);
+    this.lastConnectivitySignature = this.connectivitySignature(syncedEdgeActive, components);
+    this.lastSyncedEdgeActive = syncedEdgeActive;
+  }
+
   private rebuildParticleRenderIndices(edgeActive: Uint32Array, components: Uint32Array): Uint32Array {
     if (!this.particleRenderBaseIndices || !this.particleRenderTriangleEdgeIds || !this.clothSimGridCoords) {
       return new Uint32Array();
     }
 
-    const nextIndices: number[] = [];
-    const simVertexForRenderIndex = (index: number): number =>
-      Math.round(this.clothSimGridCoords![index * 2] ?? 0);
-
-    for (let i = 0; i < this.particleRenderBaseIndices.length; i += 3) {
-      const i0 = this.particleRenderBaseIndices[i]!;
-      const i1 = this.particleRenderBaseIndices[i + 1]!;
-      const i2 = this.particleRenderBaseIndices[i + 2]!;
-      const v0 = simVertexForRenderIndex(i0);
-      const v1 = simVertexForRenderIndex(i1);
-      const v2 = simVertexForRenderIndex(i2);
-      const sameComponent = components[v0] === components[v1] && components[v0] === components[v2];
-      if (!sameComponent) {
-        continue;
-      }
-
-      let intact = true;
-      for (let e = 0; e < 3; e++) {
-        const edgeId = this.particleRenderTriangleEdgeIds[i + e]!;
-        if (edgeId >= 0 && edgeActive[edgeId] === 0) {
-          intact = false;
-          break;
-        }
-      }
-      if (intact) {
-        nextIndices.push(i0, i1, i2);
-      }
-    }
-
-    return new Uint32Array(nextIndices);
+    return rebuildParticleRenderIndices(
+      this.particleRenderBaseIndices,
+      this.clothSimGridCoords,
+      this.particleRenderTriangleEdgeIds,
+      edgeActive,
+      components,
+    );
   }
 
   private restoreClothFullTopology(): void {
@@ -3273,6 +3554,9 @@ export class InextensibleFlagSimulation {
     if (this.frameCount % topologyRefreshInterval !== 0) {
       return false;
     }
+    if (this.particleRenderBaseIndices) {
+      return true;
+    }
     if (
       !this.settings.renderStrandThreads &&
       this.lastBrokenEdgeCount === 0 &&
@@ -3306,9 +3590,11 @@ export class InextensibleFlagSimulation {
       const activeAttr = this.edgeActiveBuffer.value as StorageInstancedBufferAttribute;
       const buffer = await this.renderer.getArrayBufferAsync(activeAttr);
       const edgeActive = new Uint32Array(buffer);
+      const rawEdgeActiveForHealth = new Uint32Array(edgeActive);
       const { edgeActive: syncedEdgeActive, components } =
         this.syncClothConnectivityFromEdgeState(edgeActive);
       this.lastSyncedEdgeActive = syncedEdgeActive;
+      this.updateDuelTearPenaltyFromEdges(rawEdgeActiveForHealth);
       const signature = this.connectivitySignature(syncedEdgeActive, components);
       if (signature === this.lastConnectivitySignature) {
         this.topologyReadbacksCompleted += 1;
@@ -4599,6 +4885,86 @@ export class InextensibleFlagSimulation {
       .setName('Apply BB Cloth Vertex Impulses');
 
     const edgeVisualBuffer = this.edgeVisualBuffer;
+    const duelParticleFighterBuffer = this.duelParticleFighterBuffer;
+    const duelParticleAttachBuffer = this.duelParticleAttachBuffer;
+    const duelHealthCountBuffer = this.duelHealthCountBuffer;
+    const duelCapsuleCountAUniform = this.duelCapsuleCountAUniform;
+    const duelAttachClearanceUniform = this.duelAttachClearanceUniform;
+    const duelAttachBandUniform = this.duelAttachBandUniform;
+
+    if (duelParticleFighterBuffer && duelParticleAttachBuffer && duelHealthCountBuffer) {
+      this.measureDuelParticleAttachment = Fn(() => {
+        const fighter = duelParticleFighterBuffer.element(instanceIndex);
+        const position = vertexPositionBuffer.element(instanceIndex).xyz;
+        const minDistance = float(1e9).toVar('duelAttachMinDist');
+        const capStart = select(fighter.equal(uint(0)), uint(0), duelCapsuleCountAUniform);
+        const capEnd = select(
+          fighter.equal(uint(0)),
+          duelCapsuleCountAUniform,
+          uint(MAX_BONE_SDF_CAPSULES),
+        );
+
+        Loop({ start: capStart, end: capEnd, type: 'uint', condition: '<' }, ({ i }) => {
+          const currentEndRadius = boneSdfEndRadiusBuffer.element(i);
+          const radius = currentEndRadius.w;
+
+          If(radius.greaterThan(float(0.0001)), () => {
+            const currentStart = boneSdfStartBuffer.element(i);
+            const currentA = currentStart.xyz;
+            const currentB = currentEndRadius.xyz;
+            const segment = currentB.sub(currentA);
+            const segmentLenSq = segment.dot(segment).max(float(0.000001));
+            const capsuleT = position
+              .sub(currentA)
+              .dot(segment)
+              .div(segmentLenSq)
+              .clamp(float(0), float(1));
+            const closest = currentA.add(segment.mul(capsuleT));
+            const offset = position.sub(closest);
+            const len = offset.length().max(float(0.000001));
+            const distance = len.sub(radius);
+
+            If(distance.lessThan(minDistance), () => {
+              minDistance.assign(distance);
+            });
+          });
+        });
+
+        const attachThreshold = duelAttachClearanceUniform.add(duelAttachBandUniform);
+        const attached = minDistance.lessThanEqual(attachThreshold);
+        duelParticleAttachBuffer.element(instanceIndex).assign(select(attached, uint(1), uint(0)));
+      })()
+        .compute(vertexCount)
+        .setName('Measure Duel Particle Attachment');
+
+      const vertexCountVar = uint(vertexCount);
+      this.reduceDuelParticleAttachment = Fn(() => {
+        If(instanceIndex.notEqual(uint(0)), () => {
+          Return();
+        });
+
+        const sumA = float(0).toVar('duelAttachSumA');
+        const sumB = float(0).toVar('duelAttachSumB');
+
+        Loop({ start: uint(0), end: vertexCountVar, type: 'uint', condition: '<' }, ({ i }) => {
+          const idx = uint(i);
+          const attached = duelParticleAttachBuffer.element(idx).equal(uint(1));
+          const fighter = duelParticleFighterBuffer.element(idx);
+
+          If(attached.and(fighter.equal(uint(0))), () => {
+            sumA.addAssign(float(1));
+          });
+          If(attached.and(fighter.equal(uint(1))), () => {
+            sumB.addAssign(float(1));
+          });
+        });
+
+        duelHealthCountBuffer.element(uint(0)).assign(sumA);
+        duelHealthCountBuffer.element(uint(1)).assign(sumB);
+      })()
+        .compute(1)
+        .setName('Reduce Duel Particle Attachment');
+    }
 
     this.syncEdgeVisualForRender = Fn(() => {
       edgeVisualBuffer.element(instanceIndex).assign(edgeActiveBuffer.element(instanceIndex));
@@ -4704,6 +5070,7 @@ export class InextensibleFlagSimulation {
       simShearDownEdgeIdBuffer: this.simShearDownEdgeIdBuffer,
       simShearUpEdgeIdBuffer: this.simShearUpEdgeIdBuffer,
       simGridSizeYUniform: this.simGridSizeYUniform,
+      particleSurfacePositions: this.topologyMode === 'assembly',
     });
 
     return clothMaterial;
@@ -4810,6 +5177,7 @@ export class InextensibleFlagSimulation {
     this.particleRenderBaseIndices = new Uint32Array(indices);
     this.particleRenderTriangleEdgeIds = this.buildParticleRenderTriangleEdgeIds(indices, simGridCoordArray);
     this.lastBrokenEdgeCount = 0;
+    this.refreshParticleRenderTopologyFromCpu();
 
     const mesh = new THREE.Mesh(geometry, clothMaterial);
     const bounds = new THREE.Box3();

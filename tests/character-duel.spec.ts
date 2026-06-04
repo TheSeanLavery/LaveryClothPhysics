@@ -11,9 +11,23 @@ test.describe('Character duel scene', () => {
     });
     await expect(page.locator('#overlay h1')).toHaveText('Character Duel');
     await expect(page.locator('[data-testid="duel-controls"]')).toBeVisible();
+    await expect(page.locator('[data-testid="duel-shirt-controls"]')).toBeVisible();
+    await expect(page.locator('[data-testid="duel-panels-toggle-btn"]')).toBeVisible();
     await expect(page.locator('[data-testid="duel-animation-fsm-panel"]')).toBeVisible();
     await expect(page.locator('[data-testid="animation-fsm-edit-clip"]')).toBeVisible();
     await expect(page.locator('[data-testid="duel-facing-debug-btn"]')).toBeVisible();
+    await expect(page.locator('[data-testid="duel-health-layer"]')).toBeVisible();
+    await expect(page.locator('[data-testid="duel-health-bar-a"]')).toBeVisible();
+    await expect(page.locator('[data-testid="duel-health-bar-b"]')).toBeVisible();
+    await expect
+      .poll(
+        async () => {
+          const health = await page.evaluate(() => window.__duelShirtHealth?.());
+          return Math.min(health?.fighterA ?? 0, health?.fighterB ?? 0);
+        },
+        { timeout: 45_000 },
+      )
+      .toBeGreaterThan(0.85);
     await expect(page.locator('[data-testid="duel-bones-a-btn"]')).toBeVisible();
     await expect(page.locator('[data-testid="duel-bones-b-btn"]')).toBeVisible();
     expect(await page.evaluate(() => window.__duelGetBonesVisible?.('A'))).toBe(false);

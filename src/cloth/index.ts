@@ -131,6 +131,7 @@ export function createClothControls(
     title: options.title ?? 'Cloth Simulation',
     testId: options.testId ?? 'cloth-controls',
     collisionUi: options.collisionUi,
+    container: options.container,
   });
 }
 

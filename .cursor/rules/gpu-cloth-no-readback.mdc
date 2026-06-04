@@ -1,0 +1,40 @@
+---
+description: Cloth sim stays on GPU—no CPU readbacks of sim state; UI may read tiny scalars only
+alwaysApply: true
+---
+
+# GPU cloth: no sim readbacks
+
+Cloth simulation state **must not cross the GPU→CPU boundary** during gameplay. The solver, connectivity, attachment, and duel metrics run on **GPU compute** only.
+
+## Never do
+
+- `getArrayBufferAsync` on **vertex positions**, **edge buffers**, or **full assembly** reconstruction for gameplay logic
+- Per-frame CPU loops over thousands of particles, vertices, or edges copied from GPU
+- `readCurrentClothAssembly()` (or equivalent) on the hot path for UI, health, or combat
+- `await` health or topology work inside the frame loop in a way that stalls on large buffer readbacks
+- “Fix it on CPU” shortcuts when GPU data is wrong—fix the compute shader or uniforms
+
+## Allowed (minimal)
+
+- **UI scalars only**: read back ≤16 bytes per frame interval (e.g. two `float` health values) for DOM/HUD—not cloth meshes or buffers
+- **One-time boot/dress** tooling in tests or dev-only debug, clearly gated—not every frame in duel/character modes
+- CPU use of **static topology** captured at load (edge graph, fighter masks, dress baseline counts)—not live sim positions
+
+## Required pattern
+
+1. **Compute** on GPU (TSL / `renderer.compute`) using existing storage buffers (`vertexPositionBuffer`, `edgeActiveBuffer`, bone SDF buffers, etc.)
+2. **Reduce** on GPU (per-particle pass + single-invocation sum, or future atomics)—never sum on CPU from a full particle readback
+3. **Display**: optional throttled read of a small `duelHealthResult` (or similar) buffer; default every 12+ sim frames, not every topology tick
+4. **Topology / tear**: prefer GPU edge state; legacy edge readback for mesh indices is being minimized—do not add new readbacks on top of it
+
+## When adding features (health, tears, attachment)
+
+- Ask: “Can this be a few floats out of a result buffer?”
+- If yes → GPU compute + tiny readback
+- If no → redesign (sample on GPU, hierarchical reduce, or shader-driven render)—do not read all particles
+
+## References
+
+- `docs/gpu-readback-audit.md` — measured stall sources
+- `src/sim/InextensibleFlagSimulation.ts` — duel shirt health GPU path (`runDuelShirtHealthGpu`, `readDuelShirtHealthUi`)

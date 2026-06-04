@@ -1,5 +1,4 @@
 import {
-  createClothControls,
   createClothSimulation,
   type ClothSimulation,
 } from '../../cloth';
@@ -36,6 +35,8 @@ import {
 import {
   meshBindYawFromMeasuredForward,
 } from '../../character/rigForwardMeasure.ts';
+import { createDuelFloatingControls } from './duelFloatingControls.ts';
+import { createDuelHealthBars } from './duelHealthBars.ts';
 
 export async function bootstrapCharacterDuel(
   statusEl: HTMLElement,
@@ -211,11 +212,8 @@ export async function bootstrapCharacterDuel(
   cloth.setGrabModeEnabled(false);
   cloth.setShootModeEnabled(false);
 
-  createClothControls(cloth, {
-    title: 'Character Duel Cloth',
-    testId: 'duel-controls',
-    collisionUi: 'boneSdf',
-  });
+  createDuelFloatingControls({ cloth, duel, toolbar });
+  const healthBars = createDuelHealthBars();
 
   async function persistDuelAnimationSetup(): Promise<void> {
     const setup = buildCharacterDuelAnimationSetup(
@@ -291,6 +289,8 @@ export async function bootstrapCharacterDuel(
   window.addEventListener('keyup', onKeyUp, true);
 
   window.__duelStats = () => duel.getStats();
+  window.__duelShirtHealth = () => duel.getShirtHealth();
+  window.__duelShirtHealthDebug = () => duel.getShirtHealthDebug();
   window.__duelFacingDebug = (fighter: 'A' | 'B' = 'A') => {
     const controller = fighter === 'B' ? duel.controllerB : duel.controllerA;
     return controller.getFacingDebug();
@@ -509,6 +509,15 @@ export async function bootstrapCharacterDuel(
     last = now;
     duel.update(delta);
     cloth.update(delta);
+    const shirtHealth = duel.getShirtHealth();
+    healthBars.update({
+      camera: cloth.camera,
+      renderer: cloth.renderer,
+      rigA: duel.rigA,
+      rigB: duel.rigB,
+      healthA: shirtHealth.fighterA,
+      healthB: shirtHealth.fighterB,
+    });
     cloth.render();
     updateStatus(cloth);
     requestAnimationFrame(tick);

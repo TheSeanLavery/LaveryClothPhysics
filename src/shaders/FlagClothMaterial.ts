@@ -42,6 +42,8 @@ export interface MatteCottonFlagMaterialOptions {
   simShearDownEdgeIdBuffer?: ReturnType<typeof import('three/tsl').instancedArray>;
   simShearUpEdgeIdBuffer?: ReturnType<typeof import('three/tsl').instancedArray>;
   simGridSizeYUniform?: ReturnType<typeof uniform>;
+  /** Garment/assembly topology: simGridCoord.x is a particle id, not a grid axis. */
+  particleSurfacePositions?: boolean;
 }
 
 export interface MatteCottonFlagMaterialUniforms {
@@ -151,12 +153,35 @@ export function configureMatteCottonFlagMaterial(
     : null;
 
   const tearMinDistanceVarying = tearShading ? varyingProperty('float', 'vTearMinDist') : null;
+  const particleSurface = options.particleSurfacePositions === true;
 
   // One neighbor sample pass per vertex: position, world normal, fly tangent, view normal.
   const emitSurfaceVaryings = Fn(() => {
     const simCoord = attribute('simGridCoord');
     const simGridX = simCoord.x;
     const simGridY = simCoord.y;
+
+    if (particleSurface) {
+      const posC = sampleSimPosition(simGridX, simGridY);
+      const facetNormal = cross(positionView.dFdx(), positionView.dFdy()).normalize();
+      const flyTangentRaw = positionView.dFdx().normalize();
+      const flyBitangentRaw = positionView.dFdy();
+      const flyNormal = cross(flyTangentRaw, flyBitangentRaw)
+        .div(cross(flyTangentRaw, flyBitangentRaw).length().max(1e-4))
+        .normalize();
+      const flyTangent = flyTangentRaw.sub(flyNormal.mul(flyNormal.dot(flyTangentRaw))).normalize();
+
+      facetNormal.toVarying('vFlagNormal');
+      flyTangent.toVarying('vFabricTangent');
+      transformNormalToView(facetNormal).normalize().toVarying('vFlagNormalViewSmoothed');
+
+      if (tearShading) {
+        tearShading.computeTearMinDistance().toVarying('vTearMinDist');
+      }
+
+      return posC;
+    }
+
     const step = normalSampleStep;
     const maxX = float(gridMaxXUniform);
     const maxY = float(gridMaxYUniform);
