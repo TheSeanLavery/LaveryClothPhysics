@@ -392,6 +392,7 @@ export async function bootstrapCharacterDuel(
   window.__duelFighterAPosition = () => duel.getStats().positionA;
   window.__duelFighterBPosition = () => duel.getStats().positionB;
   window.__duelClothStats = () => cloth.getStats();
+  window.__duelClothReadbackStats = () => cloth.getReadbackStats();
   window.__duelClothSettings = () => ({
     selfCollision: cloth.settings.selfCollision,
     mannequinCollision: cloth.settings.mannequinCollision,

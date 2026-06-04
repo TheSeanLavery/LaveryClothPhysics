@@ -7,6 +7,7 @@ import {
   collectRequiredStrandThreadEdgeIds,
   rebuildClothIndicesFromEdgeState,
   rebuildClothIndicesFromSdfEdgeState,
+  buildGpuParticleRenderSurface,
   rebuildParticleRenderIndices,
   severCellsWithSingleNeighbor,
   triangleCrossesBrokenStructuralEdge,
@@ -522,6 +523,26 @@ test('requires strand threads when no visible render triangle covers an active e
 
   const required = collectRequiredStrandThreadEdgeIds(structural, edgeActive, () => false, options);
   assert.deepEqual(required, [keepId]);
+});
+
+test('buildGpuParticleRenderSurface unshares corners for shader topology cull', () => {
+  const simGridCoords = new Float32Array([0, 0, 1, 0, 0, 0]);
+  const fabricUvs = new Float32Array([0, 0, 1, 0, 0.5, 1]);
+  const baseIndices = new Uint32Array([0, 1, 2]);
+  const triangleEdgeIds = new Int32Array([3, 4, -1]);
+
+  const surface = buildGpuParticleRenderSurface(
+    baseIndices,
+    simGridCoords,
+    fabricUvs,
+    triangleEdgeIds,
+  );
+
+  assert.equal(surface.indices.length, 3);
+  assert.deepEqual(surface.indices, new Uint32Array([0, 1, 2]));
+  assert.equal(surface.simGridCoords.length / 2, 3);
+  assert.equal(surface.particleTriEdge0[0], 3);
+  assert.equal(surface.particleTriSimV1[2], 0);
 });
 
 test('rebuildParticleRenderIndices drops triangles spanning disconnected components', () => {

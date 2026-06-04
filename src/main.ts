@@ -22,6 +22,7 @@ import {
 import { setupDeveloperDashboard } from './app/devDashboard';
 import { getAppMode } from './app/routes';
 import { bootstrapCharacterDuel } from './scenes/characterDuel/bootstrapCharacterDuel.ts';
+import { bootstrapClothRenderTest } from './scenes/clothRenderTest/bootstrapClothRenderTest.ts';
 import type { CharacterDuelStats } from './scenes/characterDuel/bootstrapCharacterDuel.ts';
 import type { DuelControlMode } from './scenes/characterDuel/characterDuelConfig.ts';
 import {
@@ -168,6 +169,7 @@ declare global {
     __duelFighterAPosition?: () => [number, number, number];
     __duelFighterBPosition?: () => [number, number, number];
     __duelClothStats?: () => ReturnType<ClothSimulation['getStats']>;
+    __duelClothReadbackStats?: () => ReturnType<ClothSimulation['getReadbackStats']>;
     __duelClothSettings?: () => Pick<
       ClothSimulationSettings,
       'selfCollision' | 'mannequinCollision' | 'gravity'
@@ -2175,6 +2177,11 @@ async function bootstrap(): Promise<void> {
 
   if (mode === 'animations') {
     await bootstrapAnimationBrowser(statusEl, backendEl, particlesEl);
+    return;
+  }
+
+  if (mode === 'cloth-cube') {
+    await bootstrapClothRenderTest(statusEl, backendEl, particlesEl);
     return;
   }
 

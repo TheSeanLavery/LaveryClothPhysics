@@ -26,7 +26,7 @@ Cloth simulation state **must not cross the GPU→CPU boundary** during gameplay
 1. **Compute** on GPU (TSL / `renderer.compute`) using existing storage buffers (`vertexPositionBuffer`, `edgeActiveBuffer`, bone SDF buffers, etc.)
 2. **Reduce** on GPU (per-particle pass + single-invocation sum, or future atomics)—never sum on CPU from a full particle readback
 3. **Display**: optional throttled read of a small `duelHealthResult` (or similar) buffer; default every 12+ sim frames, not every topology tick
-4. **Topology / tear**: prefer GPU edge state; legacy edge readback for mesh indices is being minimized—do not add new readbacks on top of it
+4. **Topology / tear**: duel assembly has **no** `refreshClothTopologyFromGpu` / edge readback / CPU connectivity rebuild; render uses dress-time index buffer; `syncEdgeVisualForRender` keeps edge state on GPU; health uses GPU reduce + 16-byte UI readback only
 
 ## When adding features (health, tears, attachment)
 

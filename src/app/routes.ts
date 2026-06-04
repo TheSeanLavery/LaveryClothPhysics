@@ -6,7 +6,8 @@ export type AppMode =
   | 'character-duel'
   | 'character-sdf'
   | 'garment'
-  | 'animations';
+  | 'animations'
+  | 'cloth-cube';
 
 export interface AppModeLink {
   mode: AppMode;
@@ -75,7 +76,8 @@ export function getAppMode(search = window.location.search): AppMode {
     mode === 'character-duel' ||
     mode === 'character-sdf' ||
     mode === 'garment' ||
-    mode === 'animations'
+    mode === 'animations' ||
+    mode === 'cloth-cube'
   ) {
     return mode;
   }

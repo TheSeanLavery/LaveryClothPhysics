@@ -25,7 +25,10 @@
     "test:self-collision": "playwright test --config playwright.self-collision.config.ts",
     "test:random-tear": "playwright test --config playwright.random-tear.config.ts",
     "test:tube": "playwright test --config playwright.tube.config.ts",
-    "test:garment-studio": "playwright test tests/garment-studio.spec.ts --headed"
+    "test:garment-studio": "playwright test tests/garment-studio.spec.ts --headed",
+    "test:duel": "playwright test tests/duel-boot-fast.spec.ts tests/duel-shirt-health.spec.ts --headed",
+    "test:duel:fast": "playwright test tests/duel-boot-fast.spec.ts --headed",
+    "test:cloth-cube": "playwright test --config playwright.cloth-cube.config.ts"
   },
   "type": "module",
   "keywords": [],

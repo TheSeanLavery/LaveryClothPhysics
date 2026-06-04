@@ -55,6 +55,7 @@ import {
   configureMatteCottonFlagMaterial,
   updateMatteCottonFlagMaterial,
 } from '../shaders/FlagClothMaterial';
+import { createPropagateVertexComponentsCompute } from '../shaders/propagateVertexComponentsCompute';
 import { createEdgeAwareSimSurfaceSampler } from '../shaders/clothEdgeAwareSurface';
 import {
   createSimGridDebugOverlay,
@@ -79,6 +80,7 @@ import type { BoneSdfCapsuleSample } from '../character/shirtDressing.ts';
 import { SHIRT_SDF_CLEARANCE } from '../character/shirtDressing.ts';
 import {
   applyDuelTearPenalties,
+  edgeFighterFromMask,
   buildParticleFighterMask,
   captureDuelShirtHealthBaseline,
   computeDuelShirtHealthFromAttachment,
@@ -98,6 +100,7 @@ import {
   createSimEdgeLookup,
   rebuildClothIndicesFromEdgeState,
   rebuildClothIndicesFromSdfEdgeState,
+  buildGpuParticleRenderSurface,
   rebuildParticleRenderIndices,
   triangleCrossesBrokenStructuralEdge,
   type ClothRenderQuad,
@@ -257,6 +260,18 @@ declare global {
     __flagSimAuditVisibleWorldGeometry?: (
       options?: VisibleWorldGeometryAuditOptions,
     ) => Promise<VisibleWorldGeometryAuditReport | null>;
+    __clothRenderTest?: () => {
+      frameCount: number;
+      particleCount: number;
+      edgeCount: number;
+      brokenEdgeCount: number;
+    };
+    __clothRenderTestDiagnostics?: () => Promise<FlagRenderDiagnostics | null>;
+    __clothRenderTestBreakEdges?: (edgeIds: readonly number[]) => number;
+    __clothRenderTestBreakCenterRing?: () => number;
+    __clothRenderTestAuditVisible?: (
+      options?: VisibleWorldGeometryAuditOptions,
+    ) => Promise<VisibleWorldGeometryAuditReport | null>;
     __fabricPlaneSetDebugView?: (mode: 'shaded' | 'uv' | 'normalMap' | 'albedo') => void;
   }
 }
@@ -414,7 +429,7 @@ export class InextensibleFlagSimulation {
   private particleRenderTriangleEdgeIds: Int32Array | null = null;
   private clothTopologyReadbackPending = false;
   private healthReadbackPending = false;
-  private lastBrokenEdgeCount = 0;
+  lastBrokenEdgeCount = 0;
   private lastConnectivitySignature = '';
   private bbVisualRefreshPending = false;
   private strandThreadMesh: THREE.InstancedMesh | null = null;
@@ -442,6 +457,9 @@ export class InextensibleFlagSimulation {
   private duelParticleAttachBuffer: ReturnType<typeof instancedArray> | null = null;
   private duelHealthCountBuffer: ReturnType<typeof instancedArray> | null = null;
   private duelHealthDressBuffer: ReturnType<typeof instancedArray> | null = null;
+  private duelStructuralEdgeIdsBuffer: ReturnType<typeof instancedArray> | null = null;
+  private duelStructuralEdgeFighterBuffer: ReturnType<typeof instancedArray> | null = null;
+  private duelStructuralEdgeCountUniform!: ReturnType<typeof uniform>;
   private measureDuelParticleAttachment!: ReturnType<ReturnType<typeof Fn>['compute']>;
   private reduceDuelParticleAttachment!: ReturnType<ReturnType<typeof Fn>['compute']>;
   private duelCapsuleCountAUniform!: ReturnType<typeof uniform>;
@@ -477,6 +495,7 @@ export class InextensibleFlagSimulation {
   private vertexGridBuffer!: ReturnType<typeof instancedArray>;
   private vertexComponentBuffer!: ReturnType<typeof instancedArray>;
   private selfCollisionExclusionBuffer!: ReturnType<typeof instancedArray>;
+  private selfCollisionDenseExclusions = true;
   private springVertexIdBuffer!: ReturnType<typeof instancedArray>;
   private springRestLengthBuffer!: ReturnType<typeof instancedArray>;
   private edgeKindBuffer!: ReturnType<typeof instancedArray>;
@@ -518,6 +537,10 @@ export class InextensibleFlagSimulation {
   private breakEdgesByStrain!: ReturnType<ReturnType<typeof Fn>['compute']>;
   private cascadeBrokenEdgeLinks!: ReturnType<ReturnType<typeof Fn>['compute']>;
   private syncEdgeVisualForRender!: ReturnType<ReturnType<typeof Fn>['compute']>;
+  private initVertexComponentLabels!: ReturnType<ReturnType<typeof Fn>['compute']>;
+  private propagateVertexComponentLabels!: ReturnType<ReturnType<typeof Fn>['compute']>;
+  private readonly vertexComponentPropagationPasses = 24;
+  private readonly vertexComponentPropagationInterval = 12;
   private integrateBbs!: ReturnType<ReturnType<typeof Fn>['compute']>;
   private resolveClothAgainstBbs!: ReturnType<ReturnType<typeof Fn>['compute']>;
   private resolveBbClothContacts!: ReturnType<ReturnType<typeof Fn>['compute']>;
@@ -1627,7 +1650,7 @@ export class InextensibleFlagSimulation {
             this.renderer.compute(this.resolveBoneSdfCollision);
           }
         }
-        if (this.settings.selfCollision) {
+        if (this.shouldRunSelfCollision()) {
           this.renderer.compute(this.resolveSelfCollision);
         }
       }
@@ -1663,7 +1686,7 @@ export class InextensibleFlagSimulation {
               this.renderer.compute(this.resolveBoneSdfCollision);
             }
           }
-          if (this.settings.selfCollision) {
+          if (this.shouldRunSelfCollision()) {
             this.renderer.compute(this.resolveSelfCollision);
           }
         }
@@ -1672,6 +1695,9 @@ export class InextensibleFlagSimulation {
       }
     }
 
+    if (this.shouldPropagateVertexComponentsGpu()) {
+      this.runVertexComponentPropagationGpu();
+    }
     this.renderer.compute(this.syncEdgeVisualForRender);
     this.scheduleDuelShirtHealthGpu();
     if (this.shouldScheduleClothTopologyReadback()) {
@@ -1683,7 +1709,11 @@ export class InextensibleFlagSimulation {
 
     this.frameCount += 1;
 
-    if (!this.renderValidated && this.frameCount === 180) {
+    if (
+      !this.renderValidated &&
+      this.frameCount === 180 &&
+      this.topologyMode !== 'assembly'
+    ) {
       this.renderValidated = true;
       void this.validateFlagRender();
     }
@@ -1764,7 +1794,7 @@ export class InextensibleFlagSimulation {
     });
   }
 
-  /** Duel-only: map merged assembly vertices to fighters; health updates on topology readback. */
+  /** Duel-only: map merged assembly vertices to fighters; health from GPU attachment + broken-edge reduce. */
   setDuelShirtHealthPartition(
     fighterAVertexCount: number,
     clearance = SHIRT_SDF_CLEARANCE,
@@ -1887,23 +1917,45 @@ export class InextensibleFlagSimulation {
       this.structuralGraphEdges,
       particleMask,
     );
+    this.uploadDuelStructuralEdgesForGpu(particleMask);
     this.duelShirtHealth = { fighterA: 1, fighterB: 1 };
     this.duelLastBrokenStructural = { fighterA: 0, fighterB: 0 };
     this.duelTearPenalty = { fighterA: 0, fighterB: 0 };
     this.duelShirtHealthPrimed = false;
   }
 
-  /** Tear chips only — uses edge CPU mirror when topology already read edgeActive (no position readback). */
-  private updateDuelTearPenaltyFromEdges(rawEdgeActive: Uint32Array): void {
-    const particleMask = this.duelParticleFighterMask;
-    if (!particleMask || !this.duelShirtHealthCalibrated || this.duelShirtHealthGraceFrames > 0) {
+  private uploadDuelStructuralEdgesForGpu(particleMask: Uint8Array): void {
+    if (!this.duelStructuralEdgeIdsBuffer || !this.duelStructuralEdgeFighterBuffer) {
       return;
     }
-    const broken = countBrokenStructuralPerFighter(
-      rawEdgeActive,
-      this.structuralGraphEdges,
-      particleMask,
-    );
+    const structural = this.structuralGraphEdges;
+    const idsAttr = this.duelStructuralEdgeIdsBuffer.value as StorageInstancedBufferAttribute;
+    const fighterAttr = this.duelStructuralEdgeFighterBuffer.value as StorageInstancedBufferAttribute;
+    const ids = idsAttr.array as Uint32Array;
+    const fighters = fighterAttr.array as Uint32Array;
+    let count = 0;
+    for (const edge of structural) {
+      const fighter = edgeFighterFromMask(edge, particleMask);
+      if (fighter < 0) {
+        continue;
+      }
+      ids[count] = edge.id;
+      fighters[count] = fighter;
+      count += 1;
+    }
+    idsAttr.needsUpdate = true;
+    fighterAttr.needsUpdate = true;
+    this.duelStructuralEdgeCountUniform.value = count;
+  }
+
+  private updateDuelTearPenaltyFromBrokenCounts(brokenA: number, brokenB: number): void {
+    if (!this.duelShirtHealthCalibrated || this.duelShirtHealthGraceFrames > 0) {
+      return;
+    }
+    const broken = {
+      fighterA: Math.max(0, Math.round(brokenA)),
+      fighterB: Math.max(0, Math.round(brokenB)),
+    };
     if (!this.duelShirtHealthPrimed) {
       this.duelLastBrokenStructural = broken;
       this.duelShirtHealthPrimed = true;
@@ -1919,11 +1971,17 @@ export class InextensibleFlagSimulation {
     this.duelTearPenalty = { fighterA: tearUpdate.penaltyA, fighterB: tearUpdate.penaltyB };
   }
 
-  private applyDuelShirtHealthFromGpuCounts(attachedA: number, attachedB: number): void {
+  private applyDuelShirtHealthFromGpuCounts(
+    attachedA: number,
+    attachedB: number,
+    brokenA: number,
+    brokenB: number,
+  ): void {
     const dress = this.duelShirtAttachmentBaseline;
     if (!dress) {
       return;
     }
+    this.updateDuelTearPenaltyFromBrokenCounts(brokenA, brokenB);
     this.duelShirtHealth = computeDuelShirtHealthFromAttachment(
       {
         attachedA,
@@ -1951,6 +2009,8 @@ export class InextensibleFlagSimulation {
     const countArray = countAttr.array as Float32Array;
     countArray[0] = 0;
     countArray[1] = 0;
+    countArray[2] = 0;
+    countArray[3] = 0;
     countAttr.needsUpdate = true;
     this.renderer.compute(this.measureDuelParticleAttachment);
     this.renderer.compute(this.reduceDuelParticleAttachment);
@@ -1997,7 +2057,12 @@ export class InextensibleFlagSimulation {
         this.duelShirtHealth = { fighterA: 1, fighterB: 1 };
         return;
       }
-      this.applyDuelShirtHealthFromGpuCounts(counts[0] ?? 0, counts[1] ?? 0);
+      this.applyDuelShirtHealthFromGpuCounts(
+        counts[0] ?? 0,
+        counts[1] ?? 0,
+        counts[2] ?? 0,
+        counts[3] ?? 0,
+      );
     } finally {
       this.duelShirtHealthReadbackPending = false;
     }
@@ -2736,7 +2801,10 @@ export class InextensibleFlagSimulation {
     this.vertexComponentBuffer = instancedArray(new Uint32Array(vertexCount).fill(0), 'uint').setPBO(
       true,
     );
-    this.selfCollisionExclusionBuffer = instancedArray(this.buildSelfCollisionExclusionArray(), 'uint');
+    const selfCollisionExclusions = this.buildSelfCollisionExclusionArray();
+    this.selfCollisionDenseExclusions =
+      selfCollisionExclusions.length === vertexCount * vertexCount;
+    this.selfCollisionExclusionBuffer = instancedArray(selfCollisionExclusions, 'uint');
     this.springListBuffer = instancedArray(new Uint32Array(springListArray), 'uint').setPBO(true);
     this.grabScreenDistBuffer = instancedArray(new Float32Array(vertexCount), 'float');
     this.grabTargetBuffer = instancedArray(new Uint32Array([0xffffffff, 0]), 'uint');
@@ -2744,8 +2812,18 @@ export class InextensibleFlagSimulation {
 
     this.duelParticleFighterBuffer = instancedArray(new Uint32Array(vertexCount).fill(1), 'uint');
     this.duelParticleAttachBuffer = instancedArray(new Uint32Array(vertexCount).fill(0), 'uint');
-    this.duelHealthCountBuffer = instancedArray(new Float32Array(2), 'float').setPBO(true);
+    this.duelHealthCountBuffer = instancedArray(new Float32Array(4), 'float').setPBO(true);
     this.duelHealthDressBuffer = instancedArray(new Float32Array(2), 'float');
+    const structuralEdgeCapacity = Math.max(this.structuralGraphEdges.length, 1);
+    this.duelStructuralEdgeIdsBuffer = instancedArray(
+      new Uint32Array(structuralEdgeCapacity),
+      'uint',
+    );
+    this.duelStructuralEdgeFighterBuffer = instancedArray(
+      new Uint32Array(structuralEdgeCapacity),
+      'uint',
+    );
+    this.duelStructuralEdgeCountUniform = uniform(0);
     this.duelCapsuleCountAUniform = uniform(0);
     this.duelAttachClearanceUniform = uniform(SHIRT_SDF_CLEARANCE);
     this.duelAttachBandUniform = uniform(DUEL_SHIRT_ATTACH_BAND);
@@ -2819,8 +2897,16 @@ export class InextensibleFlagSimulation {
     this.boneSdfEndRadiusBuffer = instancedArray(new Float32Array(MAX_BONE_SDF_CAPSULES * 4), 'vec4');
   }
 
+  /** WebGPU default max buffer is 256MB; dense N² exclusion tables must stay below this. */
+  private static readonly maxSelfCollisionExclusionBytes = 48 * 1024 * 1024;
+
   private buildSelfCollisionExclusionArray(): Uint32Array {
     const vertexCount = this.clothVertices.length;
+    const denseExclusionBytes = vertexCount * vertexCount * 4;
+    if (denseExclusionBytes > InextensibleFlagSimulation.maxSelfCollisionExclusionBytes) {
+      return new Uint32Array(1);
+    }
+
     if (this.activeTopology?.selfCollisionExclusions.length === vertexCount * vertexCount) {
       return this.activeTopology.selfCollisionExclusions;
     }
@@ -2875,7 +2961,7 @@ export class InextensibleFlagSimulation {
 
     this.dampeningUniform = uniform(s.dampening);
     this.constraintRelaxationUniform = uniform(0.48);
-    this.maxVertexStepUniform = uniform(0.012);
+    this.maxVertexStepUniform = uniform(this.topologyMode === 'assembly' ? 0.008 : 0.012);
     this.maxSubstepTravelUniform = uniform(0.022);
     this.bendStiffnessUniform = uniform(s.bendStiffness);
     this.minCompressionUniform = uniform(s.minCompression);
@@ -3327,11 +3413,116 @@ export class InextensibleFlagSimulation {
     );
   }
 
+  async getParticlePositionExtentsForTest(): Promise<{
+    min: [number, number, number];
+    max: [number, number, number];
+    sample: [number, number, number];
+  } | null> {
+    if (!this.isReady) {
+      return null;
+    }
+    const attr = this.vertexPositionBuffer.value as StorageInstancedBufferAttribute;
+    const buffer = await this.renderer.getArrayBufferAsync(attr);
+    const positions = new Float32Array(buffer);
+    if (positions.length < 3) {
+      return null;
+    }
+    let minX = Infinity;
+    let minY = Infinity;
+    let minZ = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    let maxZ = -Infinity;
+    for (let i = 0; i < positions.length; i += 3) {
+      const x = positions[i]!;
+      const y = positions[i + 1]!;
+      const z = positions[i + 2]!;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      minZ = Math.min(minZ, z);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+      maxZ = Math.max(maxZ, z);
+    }
+    return {
+      min: [minX, minY, minZ],
+      max: [maxX, maxY, maxZ],
+      sample: [positions[0]!, positions[1]!, positions[2]!],
+    };
+  }
+
+  breakEdgeIdsForTest(edgeIds: readonly number[]): number {
+    const activeAttr = this.edgeActiveBuffer.value as StorageInstancedBufferAttribute;
+    const edgeActive = activeAttr.array as Uint32Array;
+    let broken = 0;
+    for (const edgeId of edgeIds) {
+      if (edgeId < 0 || edgeId >= edgeActive.length || edgeActive[edgeId] === 0) {
+        continue;
+      }
+      edgeActive[edgeId] = 0;
+      broken += 1;
+    }
+    activeAttr.needsUpdate = true;
+    const visualAttr = this.edgeVisualBuffer.value as StorageInstancedBufferAttribute;
+    (visualAttr.array as Uint32Array).set(edgeActive);
+    visualAttr.needsUpdate = true;
+    this.lastBrokenEdgeCount = countBrokenEdges(edgeActive);
+    return broken;
+  }
+
+  async auditVisibleTriangleSoupForTest(
+    options: VisibleWorldGeometryAuditOptions = {},
+  ): Promise<VisibleWorldGeometryAuditReport | null> {
+    const simGridAttr = this.clothGeometry.getAttribute('simGridCoord') as
+      | THREE.BufferAttribute
+      | undefined;
+    if (!simGridAttr) {
+      return null;
+    }
+
+    const maxAllowedEdge = options.maxWorldTriangleEdge ?? 0.75;
+    const positionAttr = this.vertexPositionBuffer.value as StorageInstancedBufferAttribute;
+    const positionBuffer = await this.renderer.getArrayBufferAsync(positionAttr);
+    const simPositions = new Float32Array(positionBuffer);
+    const simGridCoords = simGridAttr.array as Float32Array;
+    const drawCount = this.clothGeometry.drawRange.count;
+    const vertexCount =
+      Number.isFinite(drawCount) && drawCount > 0 ? drawCount : simGridAttr.count;
+    const p0 = new THREE.Vector3();
+    const p1 = new THREE.Vector3();
+    const p2 = new THREE.Vector3();
+    let trianglesChecked = 0;
+    let maxWorldTriangleEdge = 0;
+    let overlongWorldTriangles = 0;
+
+    for (let i = 0; i + 2 < vertexCount; i += 3) {
+      p0.copy(this.sampleVisibleVertexNearest(simGridCoords, i, simPositions, positionAttr.itemSize));
+      p1.copy(this.sampleVisibleVertexNearest(simGridCoords, i + 1, simPositions, positionAttr.itemSize));
+      p2.copy(this.sampleVisibleVertexNearest(simGridCoords, i + 2, simPositions, positionAttr.itemSize));
+      const longestEdge = Math.max(p0.distanceTo(p1), p1.distanceTo(p2), p2.distanceTo(p0));
+      maxWorldTriangleEdge = Math.max(maxWorldTriangleEdge, longestEdge);
+      if (longestEdge > maxAllowedEdge) {
+        overlongWorldTriangles += 1;
+      }
+      trianglesChecked += 1;
+    }
+
+    const issues: string[] = [];
+    if (trianglesChecked === 0) {
+      issues.push('no visible triangles to audit');
+    }
+    if (overlongWorldTriangles > 0) {
+      issues.push(`${overlongWorldTriangles} visible triangles exceed world edge ${maxAllowedEdge}`);
+    }
+
+    return { trianglesChecked, maxWorldTriangleEdge, overlongWorldTriangles, issues };
+  }
+
   async auditVisibleWorldGeometryForTest(
     options: VisibleWorldGeometryAuditOptions = {},
   ): Promise<VisibleWorldGeometryAuditReport | null> {
     if (!this.clothGeometry.index) {
-      return null;
+      return this.auditVisibleTriangleSoupForTest(options);
     }
 
     const simGridAttr = this.clothGeometry.getAttribute('simGridCoord') as
@@ -3517,7 +3708,6 @@ export class InextensibleFlagSimulation {
 
   private restoreClothFullTopology(): void {
     if (this.particleRenderBaseIndices) {
-      this.applyClothIndexBuffer(this.particleRenderBaseIndices);
       this.lastBrokenEdgeCount = 0;
       return;
     }
@@ -3554,8 +3744,10 @@ export class InextensibleFlagSimulation {
     if (this.frameCount % topologyRefreshInterval !== 0) {
       return false;
     }
+    // Assembly/duel: no CPU edge readback or connectivity/index rebuild (GPU sim + edgeVisual only).
     if (this.particleRenderBaseIndices) {
-      return true;
+      this.topologyReadbacksSkippedDisabled += 1;
+      return false;
     }
     if (
       !this.settings.renderStrandThreads &&
@@ -3569,6 +3761,9 @@ export class InextensibleFlagSimulation {
   }
 
   private async refreshClothTopologyFromGpu(): Promise<void> {
+    if (this.particleRenderBaseIndices) {
+      return;
+    }
     if (
       !this.isReady ||
       !this.clothSimGridCoords ||
@@ -3590,11 +3785,9 @@ export class InextensibleFlagSimulation {
       const activeAttr = this.edgeActiveBuffer.value as StorageInstancedBufferAttribute;
       const buffer = await this.renderer.getArrayBufferAsync(activeAttr);
       const edgeActive = new Uint32Array(buffer);
-      const rawEdgeActiveForHealth = new Uint32Array(edgeActive);
       const { edgeActive: syncedEdgeActive, components } =
         this.syncClothConnectivityFromEdgeState(edgeActive);
       this.lastSyncedEdgeActive = syncedEdgeActive;
-      this.updateDuelTearPenaltyFromEdges(rawEdgeActiveForHealth);
       const signature = this.connectivitySignature(syncedEdgeActive, components);
       if (signature === this.lastConnectivitySignature) {
         this.topologyReadbacksCompleted += 1;
@@ -4892,6 +5085,10 @@ export class InextensibleFlagSimulation {
     const duelAttachClearanceUniform = this.duelAttachClearanceUniform;
     const duelAttachBandUniform = this.duelAttachBandUniform;
 
+    const duelStructuralEdgeIdsBuffer = this.duelStructuralEdgeIdsBuffer;
+    const duelStructuralEdgeFighterBuffer = this.duelStructuralEdgeFighterBuffer;
+    const duelStructuralEdgeCountUniform = this.duelStructuralEdgeCountUniform;
+
     if (duelParticleFighterBuffer && duelParticleAttachBuffer && duelHealthCountBuffer) {
       this.measureDuelParticleAttachment = Fn(() => {
         const fighter = duelParticleFighterBuffer.element(instanceIndex);
@@ -4961,6 +5158,28 @@ export class InextensibleFlagSimulation {
 
         duelHealthCountBuffer.element(uint(0)).assign(sumA);
         duelHealthCountBuffer.element(uint(1)).assign(sumB);
+
+        if (duelStructuralEdgeIdsBuffer && duelStructuralEdgeFighterBuffer) {
+          const brokenA = float(0).toVar('duelBrokenA');
+          const brokenB = float(0).toVar('duelBrokenB');
+          const structuralCount = uint(duelStructuralEdgeCountUniform);
+
+          Loop({ start: uint(0), end: structuralCount, type: 'uint', condition: '<' }, ({ i }) => {
+            const idx = uint(i);
+            const edgeId = duelStructuralEdgeIdsBuffer.element(idx);
+            If(edgeActiveBuffer.element(edgeId).equal(uint(0)), () => {
+              If(duelStructuralEdgeFighterBuffer.element(idx).equal(uint(0)), () => {
+                brokenA.addAssign(float(1));
+              });
+              If(duelStructuralEdgeFighterBuffer.element(idx).equal(uint(1)), () => {
+                brokenB.addAssign(float(1));
+              });
+            });
+          });
+
+          duelHealthCountBuffer.element(uint(2)).assign(brokenA);
+          duelHealthCountBuffer.element(uint(3)).assign(brokenB);
+        }
       })()
         .compute(1)
         .setName('Reduce Duel Particle Attachment');
@@ -4971,6 +5190,37 @@ export class InextensibleFlagSimulation {
     })()
       .compute(edgeCount)
       .setName('Sync Edge Visual For Render');
+
+    const componentPasses = createPropagateVertexComponentsCompute({
+      vertexCount,
+      edgeCount,
+      vertexComponentBuffer,
+      edgeActiveBuffer,
+      springVertexIdBuffer,
+    });
+    this.initVertexComponentLabels = componentPasses.initVertexComponentLabels;
+    this.propagateVertexComponentLabels = componentPasses.propagateVertexComponentLabels;
+  }
+
+  private shouldRunSelfCollision(): boolean {
+    return this.settings.selfCollision && this.selfCollisionDenseExclusions;
+  }
+
+  private shouldPropagateVertexComponentsGpu(): boolean {
+    // vertexComponentBuffer drives constraint connectivity in distance-correction kernels.
+    // Parallel GPU relabel (init to instanceIndex + min-propagation) overwrites the CPU
+    // union-find from restoreClothConnectivityCpu and leaves most edges with mismatched
+    // labels → structural constraints turn off → assembly shirts explode while settling.
+    // Render tear culling uses edgeVisualBuffer only; keep labels on CPU until we have a
+    // dedicated render-only component buffer or a converged GPU union-find.
+    return false;
+  }
+
+  private runVertexComponentPropagationGpu(): void {
+    this.renderer.compute(this.initVertexComponentLabels);
+    for (let pass = 0; pass < this.vertexComponentPropagationPasses; pass++) {
+      this.renderer.compute(this.propagateVertexComponentLabels);
+    }
   }
 
   private createClothMaterial(): THREE.MeshPhysicalNodeMaterial {
@@ -4994,10 +5244,11 @@ export class InextensibleFlagSimulation {
 
     const gridIndex = Fn(([gridX, gridY]) => gridX.mul(gridStrideY).add(gridY));
 
+    const particleMaxIndexUniform = uniform(Math.max(0, this.clothVertices.length - 1));
     const sampleSimPositionLinear = this.topologyMode === 'assembly'
       ? Fn(([simVertexId]) =>
           vertexPositionBuffer
-            .element(uint(simVertexId).clamp(uint(0), gridMaxXUint))
+            .element(uint(simVertexId).clamp(uint(0), uint(particleMaxIndexUniform)))
             .xyz,
         )
       : createEdgeAwareSimSurfaceSampler({
@@ -5071,6 +5322,10 @@ export class InextensibleFlagSimulation {
       simShearUpEdgeIdBuffer: this.simShearUpEdgeIdBuffer,
       simGridSizeYUniform: this.simGridSizeYUniform,
       particleSurfacePositions: this.topologyMode === 'assembly',
+      particleGpuEdgeCull:
+        this.topologyMode === 'assembly'
+          ? { edgeActiveBuffer: this.edgeVisualBuffer }
+          : undefined,
     });
 
     return clothMaterial;
@@ -5161,23 +5416,42 @@ export class InextensibleFlagSimulation {
       throw new Error('Particle render surface is missing topology buffers');
     }
 
-    const vertexCount = simGridCoordArray.length / 2;
+    const baseIndices = new Uint32Array(indices);
+    this.particleRenderTriangleEdgeIds = this.buildParticleRenderTriangleEdgeIds(
+      indices,
+      simGridCoordArray,
+    );
+    const gpuSurface = buildGpuParticleRenderSurface(
+      baseIndices,
+      simGridCoordArray,
+      fabricUvArray,
+      this.particleRenderTriangleEdgeIds,
+    );
+
+    const vertexCount = gpuSurface.simGridCoords.length / 2;
     const geometry = new THREE.BufferGeometry();
 
     geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(vertexCount * 3), 3));
-    geometry.setAttribute('simGridCoord', new THREE.BufferAttribute(simGridCoordArray, 2));
-    geometry.setAttribute('uv', new THREE.BufferAttribute(fabricUvArray, 2));
-    geometry.setAttribute('fabricUv', new THREE.BufferAttribute(fabricUvArray, 2));
-    geometry.setIndex(indices);
+    geometry.setAttribute('simGridCoord', new THREE.BufferAttribute(gpuSurface.simGridCoords, 2));
+    geometry.setAttribute('uv', new THREE.BufferAttribute(gpuSurface.fabricUvs, 2));
+    geometry.setAttribute('fabricUv', new THREE.BufferAttribute(gpuSurface.fabricUvs, 2));
+    geometry.setAttribute('particleTriEdge0', new THREE.BufferAttribute(gpuSurface.particleTriEdge0, 1));
+    geometry.setAttribute('particleTriEdge1', new THREE.BufferAttribute(gpuSurface.particleTriEdge1, 1));
+    geometry.setAttribute('particleTriEdge2', new THREE.BufferAttribute(gpuSurface.particleTriEdge2, 1));
+    geometry.setAttribute('particleTriSimV0', new THREE.BufferAttribute(gpuSurface.particleTriSimV0, 1));
+    geometry.setAttribute('particleTriSimV1', new THREE.BufferAttribute(gpuSurface.particleTriSimV1, 1));
+    geometry.setAttribute('particleTriSimV2', new THREE.BufferAttribute(gpuSurface.particleTriSimV2, 1));
+    // Non-indexed soup; fragment hides broken-edge + cross-component bridge triangles.
+
     this.clothGeometry = geometry;
-    this.clothSimGridCoords = simGridCoordArray;
-    this.visibleClothSimGridCoords = simGridCoordArray;
-    this.clothRenderQuads = buildClothRenderQuads(indices);
+    this.clothSimGridCoords = gpuSurface.simGridCoords;
+    this.visibleClothSimGridCoords = gpuSurface.simGridCoords;
+    this.clothRenderQuads = buildClothRenderQuads([...gpuSurface.indices]);
     this.simEdgeLookup = undefined;
-    this.particleRenderBaseIndices = new Uint32Array(indices);
-    this.particleRenderTriangleEdgeIds = this.buildParticleRenderTriangleEdgeIds(indices, simGridCoordArray);
+    this.particleRenderBaseIndices = baseIndices;
     this.lastBrokenEdgeCount = 0;
-    this.refreshParticleRenderTopologyFromCpu();
+    this.restoreClothConnectivityCpu();
+    geometry.setDrawRange(0, vertexCount);
 
     const mesh = new THREE.Mesh(geometry, clothMaterial);
     const bounds = new THREE.Box3();

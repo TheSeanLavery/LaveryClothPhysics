@@ -232,7 +232,7 @@ export function computeDuelShirtHealth(
   };
 }
 
-function edgeFighterFromMask(
+export function edgeFighterFromMask(
   edge: ClothGraphEdge,
   particleMask: Uint8Array,
 ): 0 | 1 | -1 {

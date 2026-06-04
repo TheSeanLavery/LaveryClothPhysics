@@ -1096,6 +1096,82 @@ export function rebuildParticleRenderIndices(
   return new Uint32Array(nextIndices);
 }
 
+export interface GpuParticleRenderSurface {
+  readonly simGridCoords: Float32Array;
+  readonly fabricUvs: Float32Array;
+  readonly indices: Uint32Array;
+  readonly particleTriEdge0: Float32Array;
+  readonly particleTriEdge1: Float32Array;
+  readonly particleTriEdge2: Float32Array;
+  readonly particleTriSimV0: Float32Array;
+  readonly particleTriSimV1: Float32Array;
+  readonly particleTriSimV2: Float32Array;
+}
+
+/** Unshared corners so each triangle can carry edge ids for GPU shader culling. */
+export function buildGpuParticleRenderSurface(
+  baseIndices: Uint32Array,
+  simGridCoordArray: Float32Array,
+  fabricUvArray: Float32Array,
+  triangleEdgeIds: Int32Array,
+): GpuParticleRenderSurface {
+  const triCount = baseIndices.length / 3;
+  const vertCount = triCount * 3;
+  const simGridCoords = new Float32Array(vertCount * 2);
+  const fabricUvs = new Float32Array(vertCount * 2);
+  const particleTriEdge0 = new Float32Array(vertCount);
+  const particleTriEdge1 = new Float32Array(vertCount);
+  const particleTriEdge2 = new Float32Array(vertCount);
+  const particleTriSimV0 = new Float32Array(vertCount);
+  const particleTriSimV1 = new Float32Array(vertCount);
+  const particleTriSimV2 = new Float32Array(vertCount);
+  const indices = new Uint32Array(vertCount);
+
+  const simVertexForRenderIndex = (index: number): number =>
+    Math.round(simGridCoordArray[index * 2] ?? 0);
+
+  for (let t = 0; t < triCount; t += 1) {
+    const bi = t * 3;
+    const i0 = baseIndices[bi]!;
+    const i1 = baseIndices[bi + 1]!;
+    const i2 = baseIndices[bi + 2]!;
+    const v0 = simVertexForRenderIndex(i0);
+    const v1 = simVertexForRenderIndex(i1);
+    const v2 = simVertexForRenderIndex(i2);
+    const e0 = triangleEdgeIds[bi]!;
+    const e1 = triangleEdgeIds[bi + 1]!;
+    const e2 = triangleEdgeIds[bi + 2]!;
+
+    for (let c = 0; c < 3; c += 1) {
+      const out = t * 3 + c;
+      indices[out] = out;
+      const src = c === 0 ? i0 : c === 1 ? i1 : i2;
+      simGridCoords[out * 2] = simGridCoordArray[src * 2]!;
+      simGridCoords[out * 2 + 1] = simGridCoordArray[src * 2 + 1]!;
+      fabricUvs[out * 2] = fabricUvArray[src * 2]!;
+      fabricUvs[out * 2 + 1] = fabricUvArray[src * 2 + 1]!;
+      particleTriEdge0[out] = e0;
+      particleTriEdge1[out] = e1;
+      particleTriEdge2[out] = e2;
+      particleTriSimV0[out] = v0;
+      particleTriSimV1[out] = v1;
+      particleTriSimV2[out] = v2;
+    }
+  }
+
+  return {
+    simGridCoords,
+    fabricUvs,
+    indices,
+    particleTriEdge0,
+    particleTriEdge1,
+    particleTriEdge2,
+    particleTriSimV0,
+    particleTriSimV1,
+    particleTriSimV2,
+  };
+}
+
 export function countBrokenEdges(edgeActive: Uint32Array): number {
   let count = 0;
   for (let i = 0; i < edgeActive.length; i++) {

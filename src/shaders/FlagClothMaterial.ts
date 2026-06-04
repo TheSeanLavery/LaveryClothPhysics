@@ -44,6 +44,10 @@ export interface MatteCottonFlagMaterialOptions {
   simGridSizeYUniform?: ReturnType<typeof uniform>;
   /** Garment/assembly topology: simGridCoord.x is a particle id, not a grid axis. */
   particleSurfacePositions?: boolean;
+  /** Hide torn triangles on GPU via edgeVisualBuffer + particleTriEdge* attributes. */
+  particleGpuEdgeCull?: {
+    edgeActiveBuffer: NonNullable<MatteCottonFlagMaterialOptions['edgeActiveBuffer']>;
+  };
 }
 
 export interface MatteCottonFlagMaterialUniforms {
@@ -131,6 +135,7 @@ export function configureMatteCottonFlagMaterial(
   const useWeaveNormals = clothUniforms.fabricNormalStrength.greaterThan(float(0.001));
 
   const hasSimEdgeTearing =
+    !options.particleSurfacePositions &&
     edgeActiveBuffer &&
     simHorizontalEdgeIdBuffer &&
     simVerticalEdgeIdBuffer &&
@@ -154,6 +159,40 @@ export function configureMatteCottonFlagMaterial(
 
   const tearMinDistanceVarying = tearShading ? varyingProperty('float', 'vTearMinDist') : null;
   const particleSurface = options.particleSurfacePositions === true;
+  const particleEdgeCullBuffer = options.particleGpuEdgeCull?.edgeActiveBuffer;
+
+  /** Fragment-only: vertex stage is limited to one storage buffer (vertex positions). */
+  const particleTriangleOpacity = particleEdgeCullBuffer
+    ? Fn(() => {
+        const e0 = attribute('particleTriEdge0');
+        const e1 = attribute('particleTriEdge1');
+        const e2 = attribute('particleTriEdge2');
+        const broken0 = e0
+          .greaterThanEqual(float(0))
+          .and(particleEdgeCullBuffer.element(uint(e0)).equal(uint(0)));
+        const broken1 = e1
+          .greaterThanEqual(float(0))
+          .and(particleEdgeCullBuffer.element(uint(e1)).equal(uint(0)));
+        const broken2 = e2
+          .greaterThanEqual(float(0))
+          .and(particleEdgeCullBuffer.element(uint(e2)).equal(uint(0)));
+        const intact = broken0.not().and(broken1.not()).and(broken2.not());
+        return select(intact, float(1), float(0));
+      })()
+    : null;
+
+  const applyParticleEdgeMask = (colorNode: unknown) => {
+    if (!particleTriangleOpacity) {
+      return colorNode;
+    }
+    if (material) {
+      material.opacityNode = particleTriangleOpacity;
+      material.transparent = true;
+      material.alphaTest = 0.5;
+      material.depthWrite = true;
+    }
+    return colorNode;
+  };
 
   // One neighbor sample pass per vertex: position, world normal, fly tangent, view normal.
   const emitSurfaceVaryings = Fn(() => {
@@ -162,7 +201,7 @@ export function configureMatteCottonFlagMaterial(
     const simGridY = simCoord.y;
 
     if (particleSurface) {
-      const posC = sampleSimPosition(simGridX, simGridY);
+      const posC = sampleSimPosition(simGridX);
       const facetNormal = cross(positionView.dFdx(), positionView.dFdy()).normalize();
       const flyTangentRaw = positionView.dFdx().normalize();
       const flyBitangentRaw = positionView.dFdy();
@@ -174,10 +213,6 @@ export function configureMatteCottonFlagMaterial(
       facetNormal.toVarying('vFlagNormal');
       flyTangent.toVarying('vFabricTangent');
       transformNormalToView(facetNormal).normalize().toVarying('vFlagNormalViewSmoothed');
-
-      if (tearShading) {
-        tearShading.computeTearMinDistance().toVarying('vTearMinDist');
-      }
 
       return posC;
     }
@@ -296,7 +331,7 @@ export function configureMatteCottonFlagMaterial(
     );
     const tornBaked = shadeWithTears(bakedColor, bakedRoughness);
 
-    material.colorNode = applyBridgeSplinterDebug(tornBaked.colorNode);
+    material.colorNode = applyParticleEdgeMask(applyBridgeSplinterDebug(tornBaked.colorNode));
     material.roughnessNode = tornBaked.roughnessOverride ?? bakedRoughness();
     material.color.set(0xffffff);
   } else {
@@ -310,7 +345,7 @@ export function configureMatteCottonFlagMaterial(
     });
     const tornProcedural = shadeWithTears(computeProceduralColor, proceduralRoughness);
 
-    material.colorNode = applyBridgeSplinterDebug(tornProcedural.colorNode);
+    material.colorNode = applyParticleEdgeMask(applyBridgeSplinterDebug(tornProcedural.colorNode));
     material.roughnessNode = tornProcedural.roughnessOverride ?? proceduralRoughness();
   }
 

@@ -1,30 +1,25 @@
 import { expect, test } from '@playwright/test';
 import { attachConsoleCapture, formatCapturedConsole } from './helpers/consoleCapture';
+import {
+  expectDuelShirtHealthReady,
+  waitForDuelRunning,
+} from './helpers/duelBootProbe';
 
 /**
- * Fail fast: duel shirt HP must be full right after load (not stuck at 0 from edge readback).
+ * Duel shirt HP must be full after load; uses fast boot probe (no 45s blind wait).
  */
 test.describe('Duel shirt health', () => {
   test('starts near full HP after character duel boots', async ({ page }) => {
+    test.setTimeout(35_000);
+
     const consoleCapture = attachConsoleCapture(page);
-
     await page.goto('/?mode=character-duel');
-    await expect(page.locator('[data-testid="sim-status"]')).toHaveText(/running \(character duel/, {
-      timeout: 45_000,
-    });
 
-    await expect
-      .poll(
-        async () => {
-          const health = await page.evaluate(() => window.__duelShirtHealth?.());
-          return Math.min(health?.fighterA ?? 0, health?.fighterB ?? 0);
-        },
-        { timeout: 8_000, intervals: [100, 250, 500, 1000] },
-      )
-      .toBeGreaterThan(0.85);
+    await waitForDuelRunning(page, { maxBootMs: 28_000, stallMs: 10_000 });
+    await expectDuelShirtHealthReady(page, 0.85);
 
     const barA = page.locator('[data-testid="duel-health-bar-a"]');
-    await expect(barA).toHaveAttribute('data-health', /0\.8[5-9]|0\.9|1\.0/);
+    await expect(barA).toHaveAttribute('data-health', /0\.8[5-9]|0\.9|1\.0/, { timeout: 3_000 });
 
     expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
   });

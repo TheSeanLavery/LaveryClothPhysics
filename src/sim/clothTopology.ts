@@ -295,8 +295,21 @@ export function buildAssemblyClothTopology(assembly: ClothAssembly): ClothTopolo
       renderVertexToParticle,
       assembly,
     },
-    selfCollisionExclusions: buildGraphDistanceExclusions(particles.length, constraints, 2),
+    selfCollisionExclusions: buildSelfCollisionExclusionsForTopology(particles.length, constraints, 2),
   };
+}
+
+const MAX_SELF_COLLISION_EXCLUSION_BYTES = 48 * 1024 * 1024;
+
+function buildSelfCollisionExclusionsForTopology(
+  vertexCount: number,
+  constraints: readonly ClothTopologyConstraint[],
+  maxDepth: number,
+): Uint32Array {
+  if (vertexCount * vertexCount * 4 > MAX_SELF_COLLISION_EXCLUSION_BYTES) {
+    return new Uint32Array(1);
+  }
+  return buildGraphDistanceExclusions(vertexCount, constraints, maxDepth);
 }
 
 function addFaceBendConstraints(
