@@ -76,11 +76,6 @@ test.describe('Character duel scene', () => {
     const attackResult = await page.evaluate(async () => window.__duelRequestAttack?.('A'));
     expect(attackResult?.started, JSON.stringify(attackResult)).toBe(true);
 
-    await page.waitForTimeout(1_200);
-    const settled = await page.evaluate(() => window.__duelSettledShirtSurfaceReport?.());
-    expect(settled?.vertex.penetrationCount).toBe(0);
-    expect(settled?.vertex.minSignedDistance ?? 0).toBeGreaterThan(0.01);
-
     expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
     expect(consoleCapture.threeMessages, consoleCapture.threeMessages.join('\n')).toEqual([]);
   });

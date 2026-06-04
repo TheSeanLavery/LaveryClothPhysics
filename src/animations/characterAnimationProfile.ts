@@ -49,6 +49,12 @@ export interface CharacterAnimationProfile {
     readonly clipFadeIdle?: number;
     readonly clipFadeWalk?: number;
     readonly clipFadeAttack?: number;
+    /** Crossfade into T-pose during rig dress sequence (0 = instant). */
+    readonly dressPoseFadeSec?: number;
+    /** Extra mixer settle after dress T-pose before garments. */
+    readonly dressPoseSettleSec?: number;
+    /** Crossfade from held dress T-pose into idle (default 0.85). */
+    readonly dressBlendToIdleSec?: number;
   };
   readonly states: Record<FsmStateId, StateDefinition>;
   readonly transitions: readonly FsmTransitionDefinition[];

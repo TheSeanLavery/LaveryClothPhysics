@@ -9,6 +9,12 @@ import {
   type FsmTransitionDefinition,
   type StateClipBinding,
 } from './characterAnimationProfile.ts';
+import {
+  runRigDressSequence,
+  type RigDressSequenceHost,
+  type RigDressSequenceOptions,
+  type RigDressSequenceResult,
+} from './rigDressSequence.ts';
 
 export interface FsmSnapshot {
   readonly state: FsmStateId;
@@ -33,7 +39,7 @@ export interface CharacterAnimationStateMachineOptions {
   ) => void;
 }
 
-export class CharacterAnimationStateMachine {
+export class CharacterAnimationStateMachine implements RigDressSequenceHost {
   private profile: CharacterAnimationProfile;
   private state: FsmStateId = 'tpose';
   private previousState: FsmStateId | null = null;
@@ -42,6 +48,8 @@ export class CharacterAnimationStateMachine {
   private activeClipName: string | null = null;
   private activeClipFile: string | null = null;
   private transitionPulse = 0;
+  private rigDressReady = false;
+  private dressSequenceActive = false;
   private readonly listeners = new Set<(snapshot: FsmSnapshot) => void>();
 
   constructor(
@@ -49,6 +57,14 @@ export class CharacterAnimationStateMachine {
     private readonly options: CharacterAnimationStateMachineOptions,
   ) {
     this.profile = normalizeCharacterAnimationProfile(profile);
+  }
+
+  get rig(): AnimatedCharacterSceneRig {
+    return this.options.rig;
+  }
+
+  get player(): CharacterAnimationPlayer {
+    return this.options.player;
   }
 
   getProfile(): CharacterAnimationProfile {
@@ -99,15 +115,82 @@ export class CharacterAnimationStateMachine {
     await this.enterState('tpose', 'force', true);
   }
 
+  isRigDressReady(): boolean {
+    return this.rigDressReady;
+  }
+
+  clearRigDressReady(): void {
+    this.rigDressReady = false;
+  }
+
+  getActiveClipName(): string | null {
+    return this.activeClipName;
+  }
+
+  async preloadTposeClip(): Promise<void> {
+    await this.options.player.loadBinding(this.pickClipForState('tpose'));
+  }
+
+  async enterDressTpose(poseFadeSec: number): Promise<void> {
+    this.rigDressReady = false;
+    await this.enterState('tpose', 'force', true, undefined, poseFadeSec);
+  }
+
+  /**
+   * Rig dress sequence: T-pose clip → settle bones → hold pose for garment placement.
+   */
+  async runRigDressSequence(options: RigDressSequenceOptions = {}): Promise<RigDressSequenceResult> {
+    if (this.dressSequenceActive) {
+      return {
+        passed: false,
+        state: this.state,
+        activeClipName: this.activeClipName,
+        poseFadeSec: 0,
+        poseSettleSec: 0,
+        settleSteps: 0,
+        failures: ['rig dress sequence already running'],
+      };
+    }
+    this.dressSequenceActive = true;
+    this.rigDressReady = false;
+    try {
+      const result = await runRigDressSequence(this, options);
+      if (result.passed) {
+        this.rigDressReady = true;
+      }
+      return result;
+    } finally {
+      this.dressSequenceActive = false;
+      this.emit();
+    }
+  }
+
   async trigger(trigger: FsmTriggerId): Promise<boolean> {
+    if (this.dressSequenceActive) {
+      return false;
+    }
     const transition = this.findTransition(this.state, trigger);
     if (!transition) {
       return false;
     }
-    return this.enterState(transition.to, trigger, false, transition);
+    const fromDressHold = this.rigDressReady && this.state === 'tpose' && transition.to === 'idle';
+    const fadeOverride = fromDressHold
+      ? (this.profile.parameters.dressBlendToIdleSec ?? 0.85)
+      : undefined;
+    const entered = await this.enterState(transition.to, trigger, false, transition, fadeOverride);
+    if (transition.to !== 'tpose') {
+      this.rigDressReady = false;
+    }
+    return entered;
   }
 
   async forceState(stateId: FsmStateId): Promise<void> {
+    if (this.dressSequenceActive && stateId !== 'tpose') {
+      return;
+    }
+    if (stateId !== 'tpose') {
+      this.rigDressReady = false;
+    }
     await this.enterState(stateId, 'force', true);
   }
 
@@ -139,6 +222,7 @@ export class CharacterAnimationStateMachine {
     trigger: FsmTriggerId,
     force: boolean,
     transition?: FsmTransitionDefinition,
+    fadeOverrideSec?: number,
   ): Promise<boolean> {
     if (!force && next === this.state && trigger !== 'attack') {
       return false;
@@ -153,9 +237,13 @@ export class CharacterAnimationStateMachine {
 
     const clip = this.pickClipForState(next);
     this.options.rig.muteEmbeddedAnimations();
+    if (from === 'tpose' && next !== 'tpose') {
+      this.options.player.releaseDressPose();
+    }
+    const fadeDuration = fadeOverrideSec ?? resolveClipFadeDuration(this.profile, next, clip);
     await this.options.player.playBinding(clip, {
       loop: clip.loop,
-      fadeDuration: resolveClipFadeDuration(this.profile, next, clip),
+      fadeDuration,
     });
     this.activeClipName = clip.name;
     this.activeClipFile = clip.subclipId ?? clip.file ?? null;

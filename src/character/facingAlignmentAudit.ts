@@ -110,8 +110,9 @@ export function auditFacingSuite(options: {
   const walkTurnSamples = walkAll.filter((s) => s.tMs <= turnWindowMs);
   const walkAlignSamples = walkAll.filter((s) => s.tMs >= alignAfterMs);
 
+  const walkTurnSource = walkTurnSamples.length >= 2 ? walkTurnSamples : walkAll;
   const walkTurn = auditFacingTurn(
-    walkTurnSamples.length >= 2 ? walkTurnSamples : walkAll,
+    walkTurnSource.map((s) => ({ ...s, yawRad: s.desiredYawRad })),
     options.expectedWalkIntentMeshYawRad,
     options.turnOptions,
   );

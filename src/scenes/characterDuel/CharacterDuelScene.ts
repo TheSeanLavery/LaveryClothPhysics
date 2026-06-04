@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { ClothSimulation } from '../../cloth';
+import type { ClothAssembly } from '../../cloth/patternAssembly.ts';
 import { mergeClothAssemblies } from '../../cloth/mergeClothAssemblies.ts';
 import {
   AnimatedCharacterSceneRig,
@@ -10,9 +11,10 @@ import type { FsmStateId } from '../../animations/characterAnimationProfile.ts';
 import type { DuelControlMode } from './characterDuelConfig.ts';
 import {
   dressTShirtOnRig,
-  settleRigForShirtDressing,
   SHIRT_DRESS_POSE_SETTLE_SEC,
+  waitForAnimationFrames,
   waitForRigsAnimationSettle,
+  waitForShirtSimSettle,
   warmupCharacterClothCollision,
 } from '../../character/characterGarmentDress.ts';
 import { mergeBoneSdfCapsules } from '../../character/mergeBoneSdfCapsules.ts';
@@ -22,7 +24,15 @@ import {
 } from '../../character/shirtDressing.ts';
 import { FacingDebugArrow } from '../../character/facingDebugArrow.ts';
 import { forwardYawToXZDirection } from '../../character/rigForwardMeasure.ts';
+import {
+  getDefaultCharacterDuelAnimationSetup,
+  type CharacterDuelAnimationSetup,
+} from './characterDuelAnimation.ts';
 import { CHARACTER_DUEL_CONFIG } from './characterDuelConfig.ts';
+
+export interface CharacterDuelLoadOptions {
+  readonly setup?: CharacterDuelAnimationSetup;
+}
 
 export interface CharacterDuelStats {
   readonly phase: 'loading' | 'dressing' | 'ready' | 'fighting';
@@ -46,6 +56,7 @@ export class CharacterDuelScene {
   private phase: CharacterDuelStats['phase'] = 'loading';
   private controlMode: DuelControlMode = 'pvp';
   private mergedVertexCount = 0;
+  private mergedShirtAssembly: ClothAssembly | null = null;
   private readonly keysDown = new Set<string>();
   private readonly moveA = new THREE.Vector2();
   private readonly moveB = new THREE.Vector2();
@@ -147,30 +158,79 @@ export class CharacterDuelScene {
     this.controllerB.snapFaceToward(posA);
   }
 
-  async load(): Promise<void> {
+  /** Reset spawn positions and zero root yaw before facing + shirt dress. */
+  private resetSpawnTransforms(): void {
+    const half = CHARACTER_DUEL_CONFIG.spawnSeparation * 0.5;
+    this.rigA.root.position.set(-half, 0, 0);
+    this.rigB.root.position.set(half, 0, 0);
+    this.rigA.root.rotation.set(0, 0, 0);
+    this.rigB.root.rotation.set(0, 0, 0);
+    this.rigA.root.updateMatrixWorld(true);
+    this.rigB.root.updateMatrixWorld(true);
+  }
+
+  async load(options: CharacterDuelLoadOptions = {}): Promise<void> {
+    const setup = options.setup ?? getDefaultCharacterDuelAnimationSetup();
     this.phase = 'loading';
     await Promise.all([this.rigA.load(), this.rigB.load()]);
     this.rigA.root.name = 'duel-fighter-a';
     this.rigB.root.name = 'duel-fighter-b';
-    settleRigForShirtDressing(this.rigA);
-    settleRigForShirtDressing(this.rigB);
-    this.rigA.root.updateMatrixWorld(true);
-    this.rigB.root.updateMatrixWorld(true);
-
-    this.phase = 'dressing';
-    await this.redressMergedShirts();
+    this.resetSpawnTransforms();
 
     const onTposeEntered = (state: FsmStateId): void => {
       if (state === 'tpose' && this.allowTposeRedress && !this.isRedressingShirts) {
         void this.queueShirtRedressOnTpose();
       }
     };
-    this.controllerA = new CharacterController(this.rigA, undefined, { onStateEntered: onTposeEntered });
-    this.controllerB = new CharacterController(this.rigB, undefined, { onStateEntered: onTposeEntered });
-    await Promise.all([this.controllerA.fsm.holdTpose(), this.controllerB.fsm.holdTpose()]);
-    await Promise.all([this.controllerA.preloadLocomotion(), this.controllerB.preloadLocomotion()]);
-    await Promise.all([this.controllerA.startIdle(), this.controllerB.startIdle()]);
+    this.controllerA = new CharacterController(this.rigA, setup.fighterA.profile, {
+      onStateEntered: onTposeEntered,
+    });
+    this.controllerB = new CharacterController(this.rigB, setup.fighterB.profile, {
+      onStateEntered: onTposeEntered,
+    });
+
+    const bootFrame = () => this.stepBootFrame(1 / 60);
+    await this.waitForBootRenderReady(16, bootFrame);
+
+    this.phase = 'dressing';
+    const dressA = await this.controllerA.prepareRigForGarmentDress({
+      onFrame: bootFrame,
+      poseSettleSec: 0.5,
+    });
+    const dressB = await this.controllerB.prepareRigForGarmentDress({
+      onFrame: bootFrame,
+      poseSettleSec: 0.5,
+    });
+    if (!dressA.passed || !dressB.passed) {
+      const msg = [
+        ...dressA.failures.map((f) => `fighter A: ${f}`),
+        ...dressB.failures.map((f) => `fighter B: ${f}`),
+      ].join('; ');
+      throw new Error(`Rig dress sequence failed: ${msg}`);
+    }
     this.syncFightersFacing();
+    await this.dressMergedShirtsOnTpose();
+
+    await Promise.all([this.controllerA.preloadLocomotion(), this.controllerB.preloadLocomotion()]);
+    await this.controllerA.startIdle();
+    await this.controllerB.startIdle();
+
+    const idleFade = Math.max(
+      setup.fighterA.profile.parameters.dressBlendToIdleSec
+        ?? resolveClipFadeDuration(setup.fighterA.profile, 'idle', setup.fighterA.profile.states.idle.clips[0]!),
+      setup.fighterB.profile.parameters.dressBlendToIdleSec
+        ?? resolveClipFadeDuration(setup.fighterB.profile, 'idle', setup.fighterB.profile.states.idle.clips[0]!),
+    ) + SHIRT_DRESS_POSE_SETTLE_SEC;
+    await waitForRigsAnimationSettle(
+      [
+        { rig: this.rigA, player: this.controllerA.player },
+        { rig: this.rigB, player: this.controllerB.player },
+      ],
+      idleFade,
+      bootFrame,
+    );
+    this.syncFightersFacing();
+
     this.phase = 'ready';
     this.allowTposeRedress = true;
   }
@@ -179,66 +239,118 @@ export class CharacterDuelScene {
     this.phase = 'fighting';
   }
 
-  /** Re-place both duel shirts on the current body pose and reload the merged sim cloth. */
-  async redressMergedShirts(): Promise<void> {
+  /**
+   * T-pose → place shirts → load sim → let cloth settle (stay in T-pose throughout).
+   * Used at duel boot; does not restore animation state afterward.
+   */
+  async dressMergedShirtsOnTpose(): Promise<void> {
     if (this.isRedressingShirts) {
       return;
     }
     this.isRedressingShirts = true;
     try {
-      const restoreA = this.controllerA?.fsm.getState();
-      const restoreB = this.controllerB?.fsm.getState();
-
-      if (this.controllerA && this.controllerB) {
-        const profileA = this.controllerA.getProfile();
-        const profileB = this.controllerB.getProfile();
-        const tposeClipA = profileA.states.tpose.clips[0]!;
-        const tposeClipB = profileB.states.tpose.clips[0]!;
-        const fadeSec = Math.max(
-          resolveClipFadeDuration(profileA, 'tpose', tposeClipA),
-          resolveClipFadeDuration(profileB, 'tpose', tposeClipB),
-        ) + SHIRT_DRESS_POSE_SETTLE_SEC;
-
-        const enterTpose: Promise<void>[] = [];
-        if (this.controllerA.fsm.getState() !== 'tpose') {
-          enterTpose.push(this.controllerA.fsm.forceState('tpose'));
+      if (!this.controllerA.isRigDressReady() || !this.controllerB.isRigDressReady()) {
+        const [dressA, dressB] = await Promise.all([
+          this.controllerA.prepareRigForGarmentDress(),
+          this.controllerB.prepareRigForGarmentDress(),
+        ]);
+        if (!dressA.passed || !dressB.passed) {
+          throw new Error('Rig dress sequence failed before shirt placement');
         }
-        if (this.controllerB.fsm.getState() !== 'tpose') {
-          enterTpose.push(this.controllerB.fsm.forceState('tpose'));
-        }
-        await Promise.all(enterTpose);
-        await waitForRigsAnimationSettle(
-          [
-            { rig: this.rigA, player: this.controllerA.player },
-            { rig: this.rigB, player: this.controllerB.player },
-          ],
-          fadeSec,
-        );
-      } else {
-        settleRigForShirtDressing(this.rigA);
-        settleRigForShirtDressing(this.rigB);
-        this.rigA.root.updateMatrixWorld(true);
-        this.rigB.root.updateMatrixWorld(true);
       }
+      this.syncFightersFacing();
 
       const assemblyA = dressTShirtOnRig(this.rigA, CHARACTER_DUEL_CONFIG.shirtOptions);
       const assemblyB = dressTShirtOnRig(this.rigB, CHARACTER_DUEL_CONFIG.shirtOptions);
       const merged = mergeClothAssemblies([assemblyA, assemblyB]);
+      this.mergedShirtAssembly = merged;
       this.mergedVertexCount = merged.vertices.length;
       await this.cloth.loadClothAssembly(merged);
-      await warmupCharacterClothCollision(this.cloth, [this.rigA, this.rigB], this.tearRestoreThreshold);
-
-      // Do not forceState('tpose') — that re-fires onStateEntered and loops redress.
-      if (this.controllerA && restoreA && restoreA !== 'tpose') {
-        await this.controllerA.fsm.forceState(restoreA);
-      }
-      if (this.controllerB && restoreB && restoreB !== 'tpose') {
-        await this.controllerB.fsm.forceState(restoreB);
-      }
-      this.syncFightersFacing();
+      this.cloth.clothMesh.visible = true;
+      await warmupCharacterClothCollision(
+        this.cloth,
+        [this.rigA, this.rigB],
+        this.tearRestoreThreshold,
+        () => this.stepBootFrame(1 / 60),
+      );
+      await this.waitForMergedShirtSimSettle();
     } finally {
       this.isRedressingShirts = false;
     }
+  }
+
+  /** Re-dress from T-pose and restore prior FSM state (e.g. after clip-editor T-pose preview). */
+  async redressMergedShirts(): Promise<void> {
+    if (this.isRedressingShirts) {
+      return;
+    }
+    const restoreA = this.controllerA?.fsm.getState();
+    const restoreB = this.controllerB?.fsm.getState();
+    await this.dressMergedShirtsOnTpose();
+    if (this.controllerA && restoreA && restoreA !== 'tpose') {
+      await this.controllerA.fsm.forceState(restoreA);
+    }
+    if (this.controllerB && restoreB && restoreB !== 'tpose') {
+      await this.controllerB.fsm.forceState(restoreB);
+    }
+    this.syncFightersFacing();
+  }
+
+  /** One boot/dress frame: animation + bone SDFs + cloth sim (matches live play loop). */
+  stepBootFrame(delta: number): void {
+    if (this.controllerA && this.controllerB) {
+      for (const controller of [this.controllerA, this.controllerB]) {
+        controller.player.update(delta);
+        controller.fsm.tick(delta);
+        controller.rig.update(delta);
+      }
+      this.rigA.root.updateMatrixWorld(true);
+      this.rigB.root.updateMatrixWorld(true);
+    } else {
+      this.rigA.update(delta);
+      this.rigB.update(delta);
+    }
+    this.syncFacingDebugArrows();
+    this.cloth.setBoneSdfCapsules(mergeBoneSdfCapsules([
+      this.rigA.getBoneSdfSummary(),
+      this.rigB.getBoneSdfSummary(),
+    ]));
+    if (this.mergedVertexCount > 0) {
+      this.cloth.update(delta);
+    }
+  }
+
+  private async waitForBootRenderReady(
+    frameCount: number,
+    onFrame: () => void,
+  ): Promise<void> {
+    for (let i = 0; i < frameCount; i += 1) {
+      onFrame();
+      await waitForAnimationFrames(1);
+    }
+    if (!this.rigA.getStats().loaded || !this.rigB.getStats().loaded) {
+      throw new Error('Duel rig meshes not ready after boot warm-up');
+    }
+  }
+
+  private async stepAnimationForClothSettle(): Promise<void> {
+    this.stepBootFrame(1 / 60);
+    await waitForAnimationFrames(1);
+  }
+
+  /** Keep T-pose (or current pose) stepping until merged shirt SDF readback passes. */
+  async waitForMergedShirtSimSettle(): Promise<void> {
+    await waitForShirtSimSettle(
+      async () => {
+        const report = await this.getSettledShirtSurfaceReport();
+        return {
+          vertexCount: report.vertex.vertexCount,
+          penetrationCount: report.vertex.penetrationCount,
+          minSignedDistance: report.vertex.minSignedDistance,
+        };
+      },
+      () => this.stepAnimationForClothSettle(),
+    );
   }
 
   private queueShirtRedressOnTpose(): Promise<void> {
@@ -276,12 +388,16 @@ export class CharacterDuelScene {
   async getSettledShirtSurfaceReport(): Promise<{
     vertex: ReturnType<typeof auditShirtSdfClearance>;
   }> {
-    const settledAssembly = await this.cloth.readCurrentClothAssembly({
-      vertices: [],
-      faces: [],
-      edges: [],
-      stitchEdges: [],
-    });
+    const base = this.mergedShirtAssembly;
+    if (!base || base.vertices.length === 0) {
+      return {
+        vertex: auditShirtSdfClearance([], mergeBoneSdfCapsules([
+          this.rigA.getBoneSdfSummary(),
+          this.rigB.getBoneSdfSummary(),
+        ]), SHIRT_SDF_CLEARANCE),
+      };
+    }
+    const settledAssembly = await this.cloth.readCurrentClothAssembly(base);
     const sdfs = mergeBoneSdfCapsules([this.rigA.getBoneSdfSummary(), this.rigB.getBoneSdfSummary()]);
     return {
       vertex: auditShirtSdfClearance(settledAssembly.vertices, sdfs, SHIRT_SDF_CLEARANCE),
@@ -311,6 +427,10 @@ export class CharacterDuelScene {
   }
 
   update(delta: number): void {
+    if (this.phase === 'loading' || this.phase === 'dressing') {
+      this.stepBootFrame(delta);
+      return;
+    }
     if (this.phase !== 'fighting' && this.phase !== 'ready') {
       this.rigA.update(delta);
       this.rigB.update(delta);

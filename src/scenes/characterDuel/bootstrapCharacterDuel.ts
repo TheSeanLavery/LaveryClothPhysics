@@ -17,7 +17,12 @@ import {
   refreshCharacterDuelAnimationFromServer,
   saveCharacterDuelAnimationSetup,
 } from './characterDuelAnimation.ts';
-import { CHARACTER_DUEL_CONFIG, type DuelControlMode } from './characterDuelConfig.ts';
+import { auditDuelStartupShirtsWithSim } from './duelShirtStartupAudit.ts';
+import {
+  CHARACTER_DUEL_CONFIG,
+  DUEL_CAMERA,
+  type DuelControlMode,
+} from './characterDuelConfig.ts';
 import { resolveProfileFacingParameters } from '../../animations/characterAnimationProfile.ts';
 import {
   auditFacingSuite,
@@ -115,29 +120,49 @@ export async function bootstrapCharacterDuel(
   });
   cloth.applySettings();
   await cloth.init();
+  cloth.clothMesh.visible = false;
+  cloth.camera.position.set(...DUEL_CAMERA.position);
+  cloth.controls.target.set(...DUEL_CAMERA.target);
+  cloth.controls.update();
 
   addDuelArena(cloth.scene);
   const duel = new CharacterDuelScene(cloth, CHARACTER_DUEL_CONFIG.cloth.tearStretchThreshold);
   duel.setControlMode(initialControl);
 
-  statusEl.textContent = 'loading (character duel)';
-  await duel.load();
-
   await Promise.all([
     refreshSubclipLibraryFromServer(),
     refreshCharacterDuelAnimationFromServer(),
   ]);
-
   const duelSetup = getCharacterDuelAnimationSetup();
-  duel.controllerA.applyProfile(duelSetup.fighterA.profile);
-  duel.controllerB.applyProfile(duelSetup.fighterB.profile);
-  await Promise.all([
-    duel.controllerA.fsm.preload(),
-    duel.controllerB.fsm.preload(),
-  ]);
-  duel.syncFightersFacing();
+
+  statusEl.textContent = 'loading (character duel)';
+
+  let last = performance.now();
+  let bootTickActive = true;
+  const bootTick = (now: number): void => {
+    if (!bootTickActive) {
+      return;
+    }
+    const delta = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    duel.update(delta);
+    cloth.render();
+    requestAnimationFrame(bootTick);
+  };
+  requestAnimationFrame(bootTick);
+
+  await duel.load({ setup: duelSetup });
+  bootTickActive = false;
 
   duel.startFighting();
+
+  const updateStatus = (sim: ClothSimulation): void => {
+    const stats = duel.getStats();
+    statusEl.textContent = `running (character duel · ${stats.controlMode})`;
+    backendEl.textContent = `backend: ${sim.renderer.backend.constructor.name} (duel cloth)`;
+    particlesEl.textContent = `duel particles: ${stats.particleCount} · vertices: ${stats.vertexCount}`;
+  };
+  updateStatus(cloth);
 
   duel.rigA.setXrayVisible(false);
   duel.rigB.setXrayVisible(false);
@@ -185,9 +210,6 @@ export async function bootstrapCharacterDuel(
   cloth.setSimGridDebugVisible(false);
   cloth.setGrabModeEnabled(false);
   cloth.setShootModeEnabled(false);
-  cloth.camera.position.set(0, 1.05, 5.2);
-  cloth.controls.target.set(0, 0.95, 0);
-  cloth.controls.update();
 
   createClothControls(cloth, {
     title: 'Character Duel Cloth',
@@ -267,13 +289,6 @@ export async function bootstrapCharacterDuel(
   };
   window.addEventListener('keydown', onKeyDown, true);
   window.addEventListener('keyup', onKeyUp, true);
-
-  const updateStatus = (sim: ClothSimulation): void => {
-    const stats = duel.getStats();
-    statusEl.textContent = `running (character duel · ${stats.controlMode})`;
-    backendEl.textContent = `backend: ${sim.renderer.backend.constructor.name} (duel cloth)`;
-    particlesEl.textContent = `duel particles: ${stats.particleCount} · vertices: ${stats.vertexCount}`;
-  };
 
   window.__duelStats = () => duel.getStats();
   window.__duelFacingDebug = (fighter: 'A' | 'B' = 'A') => {
@@ -383,6 +398,18 @@ export async function bootstrapCharacterDuel(
     gravity: cloth.settings.gravity,
   });
   window.__duelSettledShirtSurfaceReport = () => duel.getSettledShirtSurfaceReport();
+  window.__duelWaitForSettledShirts = () => duel.waitForMergedShirtSimSettle();
+  window.__duelRunRigDressSequence = (fighter: 'A' | 'B' = 'A') => {
+    const controller = fighter === 'B' ? duel.controllerB : duel.controllerA;
+    return controller.prepareRigForGarmentDress();
+  };
+  window.__duelIsRigDressReady = (fighter: 'A' | 'B' = 'A') => {
+    const controller = fighter === 'B' ? duel.controllerB : duel.controllerA;
+    return controller.isRigDressReady();
+  };
+  window.__duelAuditStartupShirts = () => auditDuelStartupShirtsWithSim(duel, {
+    expectedSeparationX: CHARACTER_DUEL_CONFIG.spawnSeparation,
+  });
   window.__duelAnimationFsmSnapshot = (fighter: 'A' | 'B' = 'A') => {
     const controller = fighter === 'B' ? duel.controllerB : duel.controllerA;
     return controller.fsm.getSnapshot();
@@ -476,7 +503,7 @@ export async function bootstrapCharacterDuel(
     });
   };
 
-  let last = performance.now();
+  last = performance.now();
   const tick = (now: number): void => {
     const delta = Math.min(0.05, (now - last) / 1000);
     last = now;

@@ -172,6 +172,8 @@ declare global {
       'selfCollision' | 'mannequinCollision' | 'gravity'
     >;
     __duelSettledShirtSurfaceReport?: () => Promise<{ vertex: ShirtSdfClearanceReport }>;
+    __duelWaitForSettledShirts?: () => Promise<void>;
+    __duelAuditStartupShirts?: () => Promise<import('./scenes/characterDuel/duelShirtStartupAudit.ts').DuelStartupShirtAudit>;
     __duelSimulateKey?: (code: string, phase: 'down' | 'up') => void;
     __duelAnimationFsmSnapshot?: (fighter?: 'A' | 'B') => import('./animations/CharacterAnimationStateMachine.ts').FsmSnapshot;
     __duelAnimationFsmForceState?: (state: string, fighter?: 'A' | 'B') => Promise<void>;

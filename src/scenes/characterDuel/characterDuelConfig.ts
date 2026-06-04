@@ -8,6 +8,12 @@ import { DEFAULT_CHARACTER_T_SHIRT_OPTIONS } from '../../character/shirtDressing
 
 export type DuelControlMode = 'pvp' | 'ai-ai';
 
+/** Framed on fighters (torso height); applied before first boot render. */
+export const DUEL_CAMERA = {
+  position: [0, 1.05, 5.2] as const,
+  target: [0, 0.95, 0] as const,
+};
+
 export const CHARACTER_DUEL_CONFIG = {
   assetUrl: VISIBLE_CHARACTER_MODEL_URL,
   tposeAnimationUrl: MIXAMO_TPOSE_URL,

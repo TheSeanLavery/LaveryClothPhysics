@@ -9,6 +9,7 @@ import {
   type CharacterAnimationProfile,
   type FsmStateId,
 } from '../animations/characterAnimationProfile.ts';
+import type { RigDressSequenceOptions, RigDressSequenceResult } from '../animations/rigDressSequence.ts';
 import type { AnimatedCharacterSceneRig } from './AnimatedCharacter.ts';
 import { shortestAngleDelta, wrapAngleRad } from './rigForwardMeasure.ts';
 
@@ -257,6 +258,17 @@ export class CharacterController {
 
   holdTpose(): void {
     void this.fsm.holdTpose();
+  }
+
+  /** FSM rig dress sequence — T-pose, settle, hold for shirt placement. */
+  async prepareRigForGarmentDress(
+    options?: RigDressSequenceOptions,
+  ): Promise<RigDressSequenceResult> {
+    return this.fsm.runRigDressSequence(options);
+  }
+
+  isRigDressReady(): boolean {
+    return this.fsm.isRigDressReady();
   }
 
   async startIdle(): Promise<void> {

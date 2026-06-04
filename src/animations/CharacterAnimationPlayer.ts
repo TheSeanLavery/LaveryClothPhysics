@@ -209,6 +209,39 @@ export class CharacterAnimationPlayer {
     this.activeCacheKey = cacheKey;
   }
 
+  /**
+   * Duel/garment dress only: freeze pose without pausing (paused blocks crossFadeTo).
+   */
+  holdDressPoseAtFrame(timeSec = 0): void {
+    const action = this.activeAction;
+    if (!action) {
+      return;
+    }
+    action.enabled = true;
+    action.paused = false;
+    action.setEffectiveTimeScale(0);
+    action.setEffectiveWeight(1);
+    action.setLoop(THREE.LoopOnce, 1);
+    action.clampWhenFinished = true;
+    action.time = Math.max(0, timeSec);
+    action.play();
+    this.mixer.update(0);
+  }
+
+  /** Unfreeze dress hold on the active action before blending to locomotion. */
+  releaseDressPose(): void {
+    const action = this.activeAction;
+    if (!action) {
+      return;
+    }
+    action.paused = false;
+    action.enabled = true;
+    if (action.getEffectiveTimeScale() === 0) {
+      action.setEffectiveTimeScale(1);
+    }
+    this.mixer.update(0);
+  }
+
   crossfadeToAction(
     action: THREE.AnimationAction | null,
     clipName: string | null,
