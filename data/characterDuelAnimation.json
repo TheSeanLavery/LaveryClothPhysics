@@ -50,9 +50,9 @@
           },
           "clips": [
             {
-              "name": "Mutant Claws",
-              "file": "rokoko-mixamo/MutantClaws_mixamo.fbx",
-              "loop": false,
+              "name": "Happy Dance",
+              "file": "rokoko-mixamo/HappyDance_mixamo.fbx",
+              "loop": true,
               "fadeIn": 0.55
             }
           ]

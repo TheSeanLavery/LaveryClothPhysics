@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-06-03T23:31:13.926Z",
+  "generatedAt": "2026-06-04T18:44:47.684Z",
   "referenceNote": "Audit reference is FightingIdle (animation-only). Mixamo tpose/idle are mesh-heavy and skipped in Node; use the same delta buckets for rokoko clips.",
   "reference": {
     "file": "rokoko-mixamo/FightingIdle_mixamo.fbx",
