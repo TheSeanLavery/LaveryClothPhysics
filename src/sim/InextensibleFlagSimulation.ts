@@ -159,11 +159,24 @@ export interface InextensibleFlagSimulationStats {
   isHealthy: boolean;
 }
 
+/** Minimum sim frames between debug health readbacks before console.warn. */
+export const HEALTH_READBACK_MIN_FRAME_GAP = 45;
+
+/** Warn if more than this many readbacks occur within HEALTH_READBACK_WARN_WINDOW_FRAMES. */
+export const HEALTH_READBACK_MAX_CALLS_PER_WINDOW = 2;
+
+/** Sliding window (sim frames) for refreshHealthFromGpu rate warnings. */
+export const HEALTH_READBACK_WARN_WINDOW_FRAMES = 120;
+
 export interface InextensibleFlagReadbackStats {
   healthPending: boolean;
   healthStarted: number;
   healthCompleted: number;
   healthSkippedPending: number;
+  /** Scheduled runtime readbacks suppressed (use publishStats / dress-time CPU stats instead). */
+  healthSkippedRuntime: number;
+  /** console.warn emissions from refreshHealthFromGpu rate guard. */
+  healthWarnings: number;
   lastHealthFrame: number;
   topologyPending: boolean;
   topologyStarted: number;
@@ -475,6 +488,9 @@ export class InextensibleFlagSimulation {
   private healthReadbacksStarted = 0;
   private healthReadbacksCompleted = 0;
   private healthReadbacksSkippedPending = 0;
+  private healthReadbacksSkippedRuntime = 0;
+  private healthReadbackWarnings = 0;
+  private readonly healthReadbackCallFrames: number[] = [];
   private lastHealthReadbackFrame = -1;
   private topologyReadbacksStarted = 0;
   private topologyReadbacksCompleted = 0;
@@ -1367,7 +1383,8 @@ export class InextensibleFlagSimulation {
     this.timeSinceLastStep = 0;
     this.frameCount = 0;
     this.renderValidated = false;
-    void this.refreshHealthFromGpu();
+    this.applyHealthFromCpuVertices();
+    this.publishStats();
   }
 
   async rebuildRenderMesh(): Promise<void> {
@@ -1718,21 +1735,27 @@ export class InextensibleFlagSimulation {
       void this.validateFlagRender();
     }
 
+    // Runtime loop must not read back full vertexPositionBuffer (see refreshHealthFromGpu).
     if (this.frameCount % this.healthReadbackInterval === 0) {
-      void this.refreshHealthFromGpu();
-    } else {
-      this.publishStats();
+      this.healthReadbacksSkippedRuntime += 1;
     }
+    this.publishStats();
 
     if (this.grabTryLatch) {
       this.grabTryLatch = false;
     }
   }
 
+  /**
+   * DEBUG / TEST ONLY — full GPU→CPU vertex readback + CPU edge scan.
+   * Not character HP or duel shirt health. Never call from the animation loop.
+   * Prefer getReadbackStats().healthWarnings in tests to catch overuse.
+   */
   async refreshHealthFromGpu(): Promise<InextensibleFlagSimulationStats> {
     if (!this.isReady) {
       return this.getStats();
     }
+    this.recordHealthReadbackRateWarning();
     if (this.healthReadbackPending) {
       this.healthReadbacksSkippedPending += 1;
       this.publishStats();
@@ -2095,6 +2118,8 @@ export class InextensibleFlagSimulation {
       healthStarted: this.healthReadbacksStarted,
       healthCompleted: this.healthReadbacksCompleted,
       healthSkippedPending: this.healthReadbacksSkippedPending,
+      healthSkippedRuntime: this.healthReadbacksSkippedRuntime,
+      healthWarnings: this.healthReadbackWarnings,
       lastHealthFrame: this.lastHealthReadbackFrame,
       topologyPending: this.clothTopologyReadbackPending,
       topologyStarted: this.topologyReadbacksStarted,
@@ -2360,6 +2385,38 @@ export class InextensibleFlagSimulation {
   private setStatus(status: InextensibleFlagSimulationStats['status']): void {
     this.statusEl.dataset.state = status;
     this.statusEl.textContent = status;
+  }
+
+  private recordHealthReadbackRateWarning(): void {
+    const frame = this.frameCount;
+    this.healthReadbackCallFrames.push(frame);
+    const windowStart = frame - HEALTH_READBACK_WARN_WINDOW_FRAMES;
+    while (
+      this.healthReadbackCallFrames.length > 0
+      && this.healthReadbackCallFrames[0]! < windowStart
+    ) {
+      this.healthReadbackCallFrames.shift();
+    }
+
+    const lastFrame = this.healthReadbackCallFrames.at(-2);
+    const callsInWindow = this.healthReadbackCallFrames.length;
+    const gapTooSmall =
+      lastFrame !== undefined && frame - lastFrame < HEALTH_READBACK_MIN_FRAME_GAP;
+    const burstTooHigh = callsInWindow > HEALTH_READBACK_MAX_CALLS_PER_WINDOW;
+
+    if (!gapTooSmall && !burstTooHigh) {
+      return;
+    }
+
+    this.healthReadbackWarnings += 1;
+    const particles = this.clothVertices.length;
+    const approxKb = Math.round((particles * 12) / 1024);
+    console.warn(
+      '[ClothSim] refreshHealthFromGpu called too often (debug/test only; never use in the animation loop). '
+        + `frame=${frame} callsInLast${HEALTH_READBACK_WARN_WINDOW_FRAMES}f=${callsInWindow} `
+        + `gap=${lastFrame === undefined ? 'n/a' : frame - lastFrame} `
+        + `~${approxKb}KB/read topology=${this.topologyMode}`,
+    );
   }
 
   private publishStats(): void {

@@ -33,7 +33,6 @@ import {
   saveFlagSettingsPreset,
 } from '../storage/flagSettingsDb';
 import type { StrandThreadAuditResult } from '../testing/strandThreadAudit';
-import { ZeroGravityTubeScene, type ZeroGravityTubeStats } from './ZeroGravityTubeScene';
 export { mergeClothAssemblies } from './mergeClothAssemblies.ts';
 export {
   buildClothAssembly,
@@ -141,7 +140,6 @@ export const normalizeClothSettings = normalizeFlagSettings;
 
 export {
   InextensibleFlagSimulation,
-  ZeroGravityTubeScene,
   buildClothSdfRenderMesh,
   configureMatteCottonFlagMaterial,
   createSimEdgeLookup,
@@ -178,5 +176,4 @@ export {
   type StoredFlagSettingsPreset,
   type VisibleWorldGeometryAuditOptions,
   type VisibleWorldGeometryAuditReport,
-  type ZeroGravityTubeStats,
 };

@@ -58,7 +58,7 @@ Tier 0 quick wins are **done** (see git history). This file tracks remaining wor
 
 | ID | Task | Why |
 |----|------|-----|
-| 3.1 | Delete legacy `FlagSimulation.ts`, `FlagControls.ts`, `FlagSettings.ts` | ~780 lines dead code |
+| 3.1 | ~~Delete legacy `FlagSimulation.ts`, `FlagControls.ts`, `FlagSettings.ts`~~ + `ZeroGravityTubeScene.ts` | Done — see `docs/cloth-consolidation-checklist.md` Phase 1 |
 | 3.2 | KTX2/Basis compress denim textures | ~1.1 MB → ~200 KB load |
 | 3.3 | Dynamic import for `?mode=plane` debug | Trim main prod bundle |
 | 3.4 | Playwright headless in CI; headed optional locally | Faster CI; 7 serial GPU tests are expensive |

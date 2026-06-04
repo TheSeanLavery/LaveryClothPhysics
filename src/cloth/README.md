@@ -29,6 +29,8 @@ simulation.loadSettingsPreset(
 
 The current implementation is still backed by `InextensibleFlagSimulation`, but consumers should import through `src/cloth` so future garment, panel, or pattern-based cloth implementations can replace the backend without changing app code.
 
+Consolidation progress: [cloth-consolidation-checklist.md](../docs/cloth-consolidation-checklist.md).
+
 Exports include:
 
 - Simulation factory and settings helpers.

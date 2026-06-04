@@ -259,6 +259,7 @@ async function bootstrapFlag(
     backendEl,
     particlesEl,
   });
+  // Debug/test only: full vertex GPU readback — not used by the animation loop.
   window.__flagSimRefreshHealth = () => sim.refreshHealthFromGpu();
   window.__flagSimSetFabric = (settings) => sim.setFabricSettings(settings);
   window.__flagSimReadbackStats = () => sim.getReadbackStats();

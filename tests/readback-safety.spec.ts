@@ -1,6 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
 import { attachConsoleCapture, formatCapturedConsole } from './helpers/consoleCapture';
 
+const HEALTH_READBACK_WARN = /\[ClothSim\] refreshHealthFromGpu called too often/;
+
 type ReadbackStats = NonNullable<Awaited<ReturnType<typeof readFlagReadbackStats>>>;
 
 test.describe('GPU readback scheduling', () => {
@@ -21,7 +23,8 @@ test.describe('GPU readback scheduling', () => {
     expect(renderedFrames).toBeGreaterThan(20);
     expect(after.bbVisualStarted).toBe(before.bbVisualStarted);
     expect(after.bbVisualCompleted).toBe(before.bbVisualCompleted);
-    expect(after.healthStarted - after.healthCompleted).toBeLessThanOrEqual(1);
+    expect(after.healthStarted).toBe(before.healthStarted);
+    expect(after.healthSkippedRuntime).toBeGreaterThan(before.healthSkippedRuntime);
     expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
     expect(consoleCapture.threeMessages, consoleCapture.threeMessages.join('\n')).toEqual([]);
   });
@@ -65,7 +68,8 @@ test.describe('GPU readback scheduling', () => {
     const after = await readCharacterReadbackStats(page);
 
     expect(renderedFrames).toBeGreaterThan(15);
-    expect(after.healthStarted).toBeGreaterThanOrEqual(before.healthStarted);
+    expect(after.healthStarted).toBe(before.healthStarted);
+    expect(after.healthSkippedRuntime).toBeGreaterThan(before.healthSkippedRuntime);
     expect(after.topologySkippedDisabled).toBeGreaterThan(before.topologySkippedDisabled);
     expect(after.bbVisualStarted).toBe(before.bbVisualStarted);
     expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
@@ -86,11 +90,34 @@ test.describe('GPU readback scheduling', () => {
     const after = await readGarmentReadbackStats(page);
 
     expect(renderedFrames).toBeGreaterThan(20);
-    expect(after.healthStarted).toBeGreaterThanOrEqual(before.healthStarted);
+    expect(after.healthStarted).toBe(before.healthStarted);
+    expect(after.healthSkippedRuntime).toBeGreaterThan(before.healthSkippedRuntime);
     expect(after.topologySkippedDisabled).toBeGreaterThan(before.topologySkippedDisabled);
     expect(after.bbVisualStarted).toBe(before.bbVisualStarted);
     expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
     expect(consoleCapture.threeMessages, consoleCapture.threeMessages.join('\n')).toEqual([]);
+  });
+
+  test('burst refreshHealthFromGpu warns and increments healthWarnings (debug hook only)', async ({
+    page,
+  }) => {
+    const consoleCapture = attachConsoleCapture(page);
+
+    await page.goto('/');
+    await expect(page.locator('[data-testid="sim-status"]')).toHaveText('running', { timeout: 20_000 });
+    await waitForFlagFrames(page, 30);
+
+    await page.evaluate(async () => {
+      await window.__flagSimRefreshHealth?.();
+      await window.__flagSimRefreshHealth?.();
+      await window.__flagSimRefreshHealth?.();
+    });
+
+    const stats = await readFlagReadbackStats(page);
+    expect(stats.healthStarted).toBeGreaterThanOrEqual(3);
+    expect(stats.healthWarnings).toBeGreaterThan(0);
+    expect(consoleCapture.warnings.some((line) => HEALTH_READBACK_WARN.test(line))).toBe(true);
+    expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
   });
 });
 
