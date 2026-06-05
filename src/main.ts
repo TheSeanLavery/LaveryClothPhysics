@@ -188,6 +188,9 @@ declare global {
     __duelPhysicsPoseConfig?: (fighter?: 'A' | 'B') => Record<string, number | boolean>;
     __duelPhysicsPoseSnapDisplay?: (fighter?: 'A' | 'B') => void;
     __duelShirtHealth?: () => { fighterA: number; fighterB: number };
+    __duelRoundStats?: () => import('./scenes/characterDuel/CharacterDuelScene.ts').CharacterDuelRoundStats;
+    __duelSetHealthBrokenPercentForZero?: (brokenPercent: number) => void;
+    __duelSetAutoRematch?: (enabled: boolean) => void;
     __duelFacingDebug?: (fighter?: 'A' | 'B') => import('./character/CharacterController.ts').FacingDebugSnapshot;
     __duelAuditFacingTurn?: (options: {
       fighter?: 'A' | 'B';

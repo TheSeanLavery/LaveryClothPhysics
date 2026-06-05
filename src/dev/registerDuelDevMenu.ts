@@ -3,6 +3,7 @@ import type { CharacterDuelScene } from '../scenes/characterDuel/CharacterDuelSc
 import { createDevMenuShell, type DevMenuShell } from './DevMenuShell.ts';
 import { createClothPanelDefinition } from './panels/clothPanel.ts';
 import { createCharacterSdfPanelDefinition } from './panels/characterSdfPanel.ts';
+import { createDuelHealthPanelDefinition } from './panels/duelHealthPanel.ts';
 import { createDuelFighterModelPanelDefinition } from './panels/duelFighterModelPanel.ts';
 import { createDuelShirtPanelDefinition } from './panels/duelShirtPanel.ts';
 import { createPhysicsPosePanelDefinition } from './panels/physicsPosePanel.ts';
@@ -21,6 +22,7 @@ export function registerDuelDevMenu(options: RegisterDuelDevMenuOptions): DevMen
   });
 
   menu.register(createDuelFighterModelPanelDefinition(options.duel));
+  menu.register(createDuelHealthPanelDefinition(options.duel, options.cloth));
   menu.register(createDuelShirtPanelDefinition(options.duel));
   menu.register(createClothPanelDefinition(options.cloth, {
     id: 'duel-cloth',

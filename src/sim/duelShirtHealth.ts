@@ -9,6 +9,33 @@ export const DUEL_SHIRT_TEAR_HEALTH_STEP = 0.014;
 /** Max distance past the dress clearance shell that still counts as "on body". */
 export const DUEL_SHIRT_ATTACH_BAND = 0.35;
 
+export interface DuelShirtHealthDisplayConfig {
+  /**
+   * Displayed health hits 0 when combined remaining cloth/structure falls to or below
+   * this fraction of the dress-time baseline (0–1). Tunable via “zero at % broken”:
+   * 0% broken → 1.0 (any loss zeros HP), 100% broken → 0.0 (only fully gone zeros HP).
+   */
+  readonly zeroBelowRemainingRatio: number;
+  /** Cap subtracted tear penalty applied after remaining-cloth mapping. */
+  readonly maxTearPenalty: number;
+}
+
+export const DEFAULT_DUEL_SHIRT_HEALTH_DISPLAY_CONFIG: DuelShirtHealthDisplayConfig = {
+  zeroBelowRemainingRatio: 0.88,
+  maxTearPenalty: 0.12,
+};
+
+export interface DuelShirtHealthMetrics {
+  readonly remainingA: number;
+  readonly remainingB: number;
+  readonly brokenFractionA: number;
+  readonly brokenFractionB: number;
+  readonly attachRemainingA: number;
+  readonly attachRemainingB: number;
+  readonly structuralRemainingA: number;
+  readonly structuralRemainingB: number;
+}
+
 export interface DuelShirtHealthPartition {
   readonly fighterAVertexCount: number;
   readonly renderVertexToParticle: readonly number[];
@@ -89,23 +116,84 @@ export function measureDuelFighterShirtAttachment(
   return { attachedA, totalA, attachedB, totalB };
 }
 
+export function computeFighterRemainingRatios(
+  current: DuelShirtAttachmentBaseline,
+  dress: DuelShirtAttachmentBaseline,
+  broken: DuelBrokenStructuralCounts,
+  structuralBaseline: DuelShirtHealthBaseline | null,
+): DuelShirtHealthMetrics {
+  const attachRemainingA = ratio(current.attachedA, dress.attachedA);
+  const attachRemainingB = ratio(current.attachedB, dress.attachedB);
+  const structuralRemainingA = structuralBaseline && structuralBaseline.structuralEdgesA > 0
+    ? ratio(
+      Math.max(0, structuralBaseline.structuralEdgesA - broken.fighterA),
+      structuralBaseline.structuralEdgesA,
+    )
+    : 1;
+  const structuralRemainingB = structuralBaseline && structuralBaseline.structuralEdgesB > 0
+    ? ratio(
+      Math.max(0, structuralBaseline.structuralEdgesB - broken.fighterB),
+      structuralBaseline.structuralEdgesB,
+    )
+    : 1;
+  const remainingA = Math.min(attachRemainingA, structuralRemainingA);
+  const remainingB = Math.min(attachRemainingB, structuralRemainingB);
+  return {
+    remainingA,
+    remainingB,
+    brokenFractionA: clamp01(1 - remainingA),
+    brokenFractionB: clamp01(1 - remainingB),
+    attachRemainingA,
+    attachRemainingB,
+    structuralRemainingA,
+    structuralRemainingB,
+  };
+}
+
+export function mapDuelShirtDisplayHealth(
+  remainingRatio: number,
+  tearPenalty: number,
+  config: DuelShirtHealthDisplayConfig,
+): number {
+  const floor = clamp01(config.zeroBelowRemainingRatio);
+  if (remainingRatio <= floor) {
+    return 0;
+  }
+  const span = 1 - floor;
+  const scaled = span > 1e-6 ? (remainingRatio - floor) / span : 1;
+  return clamp01(scaled - Math.min(tearPenalty, config.maxTearPenalty));
+}
+
 export function computeDuelShirtHealthFromAttachment(
   current: DuelShirtAttachmentBaseline,
   dress: DuelShirtAttachmentBaseline,
+  broken: DuelBrokenStructuralCounts,
+  structuralBaseline: DuelShirtHealthBaseline | null,
   tearPenaltyA: number,
   tearPenaltyB: number,
-  maxTearPenalty = 0.12,
+  config: DuelShirtHealthDisplayConfig = DEFAULT_DUEL_SHIRT_HEALTH_DISPLAY_CONFIG,
 ): DuelShirtHealthSnapshot {
-  const wornA = ratio(current.attachedA, current.totalA);
-  const wornB = ratio(current.attachedB, current.totalB);
-  const dressWornA = Math.max(ratio(dress.attachedA, dress.totalA), 0.05);
-  const dressWornB = Math.max(ratio(dress.attachedB, dress.totalB), 0.05);
-  const attachHealthA = wornA >= 0.55 && dressWornA >= 0.5 ? 1 : ratio(wornA, dressWornA);
-  const attachHealthB = wornB >= 0.55 && dressWornB >= 0.5 ? 1 : ratio(wornB, dressWornB);
+  const metrics = computeFighterRemainingRatios(current, dress, broken, structuralBaseline);
   return {
-    fighterA: clamp01(attachHealthA - Math.min(tearPenaltyA, maxTearPenalty)),
-    fighterB: clamp01(attachHealthB - Math.min(tearPenaltyB, maxTearPenalty)),
+    fighterA: mapDuelShirtDisplayHealth(metrics.remainingA, tearPenaltyA, config),
+    fighterB: mapDuelShirtDisplayHealth(metrics.remainingB, tearPenaltyB, config),
   };
+}
+
+export function patchDuelShirtHealthDisplayConfig(
+  config: DuelShirtHealthDisplayConfig,
+  patch: Partial<DuelShirtHealthDisplayConfig>,
+): DuelShirtHealthDisplayConfig {
+  return { ...config, ...patch };
+}
+
+/** UI helper: broken % that forces displayed health to 0. */
+export function brokenPercentForZeroHealth(config: DuelShirtHealthDisplayConfig): number {
+  return Math.round(clamp01(1 - config.zeroBelowRemainingRatio) * 100);
+}
+
+export function zeroBelowRemainingFromBrokenPercent(brokenPercent: number): number {
+  return clamp01(1 - brokenPercent / 100);
 }
 
 export function buildParticleFighterMask(

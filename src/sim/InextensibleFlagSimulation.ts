@@ -84,10 +84,15 @@ import {
   buildParticleFighterMask,
   captureDuelShirtHealthBaseline,
   computeDuelShirtHealthFromAttachment,
+  computeFighterRemainingRatios,
   countBrokenStructuralPerFighter,
+  DEFAULT_DUEL_SHIRT_HEALTH_DISPLAY_CONFIG,
   DUEL_SHIRT_ATTACH_BAND,
+  patchDuelShirtHealthDisplayConfig,
   type DuelShirtAttachmentBaseline,
   type DuelShirtHealthBaseline,
+  type DuelShirtHealthDisplayConfig,
+  type DuelShirtHealthMetrics,
   type DuelShirtHealthSnapshot,
 } from './duelShirtHealth';
 import type { StrandThreadAuditResult } from '../testing/strandThreadAudit';
@@ -466,6 +471,10 @@ export class InextensibleFlagSimulation {
   private duelShirtHealthCalibrated = false;
   private duelShirtHealthGraceFrames = 0;
   private duelShirtHealth: DuelShirtHealthSnapshot = { fighterA: 1, fighterB: 1 };
+  private duelShirtHealthDisplayConfig: DuelShirtHealthDisplayConfig = {
+    ...DEFAULT_DUEL_SHIRT_HEALTH_DISPLAY_CONFIG,
+  };
+  private lastDuelShirtHealthMetrics: DuelShirtHealthMetrics | null = null;
   private duelParticleCountA = 0;
   private duelParticleCountB = 0;
   private duelCapsuleCountA = 0;
@@ -1912,6 +1921,21 @@ export class InextensibleFlagSimulation {
     return this.duelShirtHealth;
   }
 
+  getDuelShirtHealthDisplayConfig(): DuelShirtHealthDisplayConfig {
+    return this.duelShirtHealthDisplayConfig;
+  }
+
+  setDuelShirtHealthDisplayConfig(patch: Partial<DuelShirtHealthDisplayConfig>): void {
+    this.duelShirtHealthDisplayConfig = patchDuelShirtHealthDisplayConfig(
+      this.duelShirtHealthDisplayConfig,
+      patch,
+    );
+  }
+
+  getDuelShirtHealthMetrics(): DuelShirtHealthMetrics | null {
+    return this.lastDuelShirtHealthMetrics;
+  }
+
   /** Upload fighter A capsule count after bone SDF merge (capsules A occupy buffer prefix). */
   updateDuelShirtHealthCapsuleSplit(capsuleCountA: number): void {
     if (this.duelFighterAVertexCount === null) {
@@ -2036,16 +2060,30 @@ export class InextensibleFlagSimulation {
       return;
     }
     this.updateDuelTearPenaltyFromBrokenCounts(brokenA, brokenB);
-    this.duelShirtHealth = computeDuelShirtHealthFromAttachment(
-      {
-        attachedA,
-        totalA: this.duelParticleCountA,
-        attachedB,
-        totalB: this.duelParticleCountB,
-      },
+    const current = {
+      attachedA,
+      totalA: this.duelParticleCountA,
+      attachedB,
+      totalB: this.duelParticleCountB,
+    };
+    const broken = {
+      fighterA: Math.max(0, Math.round(brokenA)),
+      fighterB: Math.max(0, Math.round(brokenB)),
+    };
+    this.lastDuelShirtHealthMetrics = computeFighterRemainingRatios(
+      current,
       dress,
+      broken,
+      this.duelShirtHealthBaseline,
+    );
+    this.duelShirtHealth = computeDuelShirtHealthFromAttachment(
+      current,
+      dress,
+      broken,
+      this.duelShirtHealthBaseline,
       this.duelTearPenalty.fighterA,
       this.duelTearPenalty.fighterB,
+      this.duelShirtHealthDisplayConfig,
     );
   }
 

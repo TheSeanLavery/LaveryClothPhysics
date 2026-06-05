@@ -45,6 +45,13 @@ export interface CharacterDuelLoadOptions {
   readonly fighterBModelId?: string;
 }
 
+export interface CharacterDuelRoundStats {
+  readonly roundCount: number;
+  readonly lastRoundWinner: 'A' | 'B' | null;
+  readonly autoRematch: boolean;
+  readonly roundResetInProgress: boolean;
+}
+
 export interface CharacterDuelStats {
   readonly phase: 'loading' | 'dressing' | 'ready' | 'fighting';
   readonly controlMode: DuelControlMode;
@@ -60,6 +67,9 @@ export interface CharacterDuelStats {
   readonly fighterBModelId: string;
   readonly fighterAAssetUrl: string;
   readonly fighterBAssetUrl: string;
+  readonly roundCount: number;
+  readonly lastRoundWinner: 'A' | 'B' | null;
+  readonly autoRematch: boolean;
 }
 
 export class CharacterDuelScene {
@@ -92,6 +102,13 @@ export class CharacterDuelScene {
   private fighterAModelId = getDefaultCharacterModelId();
   private fighterBModelId = getDefaultCharacterModelId();
   private isSwappingModel = false;
+  private autoRematchEnabled = CHARACTER_DUEL_CONFIG.healthDisplay.autoRematch;
+  private roundEndHoldSec = CHARACTER_DUEL_CONFIG.healthDisplay.roundEndHoldSec;
+  private roundCount = 1;
+  private lastRoundWinner: 'A' | 'B' | null = null;
+  private roundResetInProgress = false;
+  private roundEndZeroFor: 'A' | 'B' | 'both' | null = null;
+  private roundEndZeroElapsed = 0;
 
   constructor(
     private readonly cloth: ClothSimulation,
@@ -353,6 +370,102 @@ export class CharacterDuelScene {
 
   startFighting(): void {
     this.phase = 'fighting';
+    this.cloth.setDuelShirtHealthDisplayConfig(CHARACTER_DUEL_CONFIG.healthDisplay);
+  }
+
+  getRoundStats(): CharacterDuelRoundStats {
+    return {
+      roundCount: this.roundCount,
+      lastRoundWinner: this.lastRoundWinner,
+      autoRematch: this.autoRematchEnabled,
+      roundResetInProgress: this.roundResetInProgress,
+    };
+  }
+
+  setAutoRematchEnabled(enabled: boolean): void {
+    this.autoRematchEnabled = enabled;
+    if (!enabled) {
+      this.roundEndZeroFor = null;
+      this.roundEndZeroElapsed = 0;
+    }
+  }
+
+  getAutoRematchEnabled(): boolean {
+    return this.autoRematchEnabled;
+  }
+
+  setRoundEndHoldSec(seconds: number): void {
+    this.roundEndHoldSec = Math.max(0.1, Math.min(5, seconds));
+  }
+
+  getRoundEndHoldSec(): number {
+    return this.roundEndHoldSec;
+  }
+
+  private async beginRoundReset(winner: 'A' | 'B'): Promise<void> {
+    if (this.roundResetInProgress || this.isRedressingShirts) {
+      return;
+    }
+    this.roundResetInProgress = true;
+    this.lastRoundWinner = winner;
+    this.roundEndZeroFor = null;
+    this.roundEndZeroElapsed = 0;
+    const priorPhase = this.phase;
+    this.phase = 'dressing';
+    try {
+      this.resetSpawnTransforms();
+      this.syncFightersFacing();
+      await Promise.all([
+        this.controllerA.fsm.forceState('idle'),
+        this.controllerB.fsm.forceState('idle'),
+      ]);
+      await this.dressMergedShirtsOnTpose();
+      await Promise.all([
+        this.controllerA.startIdle(),
+        this.controllerB.startIdle(),
+      ]);
+      this.syncFightersFacing();
+      this.roundCount += 1;
+    } catch (error: unknown) {
+      console.error('Duel round reset failed', error);
+    } finally {
+      this.roundResetInProgress = false;
+      this.phase = priorPhase === 'loading' ? 'fighting' : 'fighting';
+    }
+  }
+
+  private maybeStartRoundReset(delta: number): void {
+    if (
+      !this.autoRematchEnabled
+      || this.roundResetInProgress
+      || this.isRedressingShirts
+      || this.isSwappingModel
+      || this.phase !== 'fighting'
+    ) {
+      return;
+    }
+
+    const health = this.cloth.getDuelShirtHealth();
+    const aDead = health.fighterA <= 0;
+    const bDead = health.fighterB <= 0;
+    if (!aDead && !bDead) {
+      this.roundEndZeroFor = null;
+      this.roundEndZeroElapsed = 0;
+      return;
+    }
+
+    const zeroFor: 'A' | 'B' | 'both' = aDead && bDead ? 'both' : aDead ? 'A' : 'B';
+    if (this.roundEndZeroFor !== zeroFor) {
+      this.roundEndZeroFor = zeroFor;
+      this.roundEndZeroElapsed = 0;
+    }
+    this.roundEndZeroElapsed += delta;
+    if (this.roundEndZeroElapsed < this.roundEndHoldSec) {
+      return;
+    }
+
+    const winner: 'A' | 'B' = aDead && !bDead ? 'B' : bDead && !aDead ? 'A' : 'A';
+    void this.beginRoundReset(winner);
   }
 
   /**
@@ -519,13 +632,19 @@ export class CharacterDuelScene {
 
   getShirtHealthDebug(): {
     health: { fighterA: number; fighterB: number };
+    metrics: ReturnType<ClothSimulation['getDuelShirtHealthMetrics']>;
+    displayConfig: ReturnType<ClothSimulation['getDuelShirtHealthDisplayConfig']>;
     fighterAVertexCount: number;
+    round: CharacterDuelRoundStats;
     note: string;
   } {
     return {
       health: this.getShirtHealth(),
+      metrics: this.cloth.getDuelShirtHealthMetrics(),
+      displayConfig: this.cloth.getDuelShirtHealthDisplayConfig(),
       fighterAVertexCount: this.fighterAVertexCount,
-      note: 'HP from GPU attachment counts; UI readback is 8 bytes per interval only',
+      round: this.getRoundStats(),
+      note: 'Display HP maps GPU remaining cloth/structure; 0 when below tunable broken %',
     };
   }
 
@@ -545,6 +664,9 @@ export class CharacterDuelScene {
       fighterBModelId: this.fighterBModelId,
       fighterAAssetUrl: this.rigA.getAssetUrl(),
       fighterBAssetUrl: this.rigB.getAssetUrl(),
+      roundCount: this.roundCount,
+      lastRoundWinner: this.lastRoundWinner,
+      autoRematch: this.autoRematchEnabled,
     };
   }
 
@@ -630,6 +752,7 @@ export class CharacterDuelScene {
 
     this.syncFacingDebugArrows();
     this.syncDuelClothCollisionAndHealth();
+    this.maybeStartRoundReset(delta);
   }
 
   private readPvpInput(): void {

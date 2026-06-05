@@ -298,6 +298,15 @@ export async function bootstrapCharacterDuel(
   window.__duelSwapFighterModel = (fighter: 'A' | 'B', modelId: string) => duel.swapFighterModel(fighter, modelId);
   window.__duelShirtHealth = () => duel.getShirtHealth();
   window.__duelShirtHealthDebug = () => duel.getShirtHealthDebug();
+  window.__duelRoundStats = () => duel.getRoundStats();
+  window.__duelSetHealthBrokenPercentForZero = (brokenPercent: number) => {
+    cloth.setDuelShirtHealthDisplayConfig({
+      zeroBelowRemainingRatio: Math.max(0, Math.min(1, 1 - brokenPercent / 100)),
+    });
+  };
+  window.__duelSetAutoRematch = (enabled: boolean) => {
+    duel.setAutoRematchEnabled(enabled);
+  };
   window.__duelFacingDebug = (fighter: 'A' | 'B' = 'A') => {
     const controller = fighter === 'B' ? duel.controllerB : duel.controllerA;
     return controller.getFacingDebug();

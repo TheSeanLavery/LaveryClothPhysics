@@ -3,12 +3,16 @@ import test from 'node:test';
 import { recomputeVertexComponents, type ClothGraphEdge } from './clothComponents.ts';
 import {
   applyDuelTearPenalties,
+  brokenPercentForZeroHealth,
   buildParticleFighterMask,
   captureDuelShirtHealthBaseline,
   computeDuelShirtHealth,
   computeDuelShirtHealthFromAttachment,
+  DEFAULT_DUEL_SHIRT_HEALTH_DISPLAY_CONFIG,
   isShirtVertexAttachedToBody,
+  mapDuelShirtDisplayHealth,
   measureDuelFighterShirtAttachment,
+  zeroBelowRemainingFromBrokenPercent,
 } from './duelShirtHealth.ts';
 
 test('buildParticleFighterMask maps assembly vertices to fighters', () => {
@@ -100,9 +104,11 @@ test('measureDuelFighterShirtAttachment counts vertices near fighter capsules', 
   assert.equal(report.totalA, 2);
 });
 
+const emptyBroken = { fighterA: 0, fighterB: 0 };
+
 test('computeDuelShirtHealthFromAttachment is full at dress baseline', () => {
   const dress = { attachedA: 80, totalA: 100, attachedB: 70, totalB: 90 };
-  const health = computeDuelShirtHealthFromAttachment(dress, dress, 0, 0);
+  const health = computeDuelShirtHealthFromAttachment(dress, dress, emptyBroken, null, 0, 0);
   assert.equal(health.fighterA, 1);
   assert.equal(health.fighterB, 1);
 });
@@ -110,8 +116,51 @@ test('computeDuelShirtHealthFromAttachment is full at dress baseline', () => {
 test('computeDuelShirtHealthFromAttachment drops when fewer vertices stay on body', () => {
   const dress = { attachedA: 80, totalA: 100, attachedB: 70, totalB: 90 };
   const current = { attachedA: 40, totalA: 100, attachedB: 70, totalB: 90 };
-  const health = computeDuelShirtHealthFromAttachment(current, dress, 0, 0);
-  assert.ok(health.fighterA < 0.6);
+  const lenientConfig = { zeroBelowRemainingRatio: 0.15, maxTearPenalty: 0.12 };
+  const health = computeDuelShirtHealthFromAttachment(
+    current,
+    dress,
+    emptyBroken,
+    null,
+    0,
+    0,
+    lenientConfig,
+  );
+  assert.ok(health.fighterA > 0.2);
+  assert.ok(health.fighterA < 0.75);
+  assert.equal(health.fighterB, 1);
+});
+
+test('mapDuelShirtDisplayHealth hits zero below tunable remaining threshold', () => {
+  const config = { zeroBelowRemainingRatio: zeroBelowRemainingFromBrokenPercent(85), maxTearPenalty: 0.12 };
+  assert.equal(mapDuelShirtDisplayHealth(0.14, 0, config), 0);
+  assert.ok(mapDuelShirtDisplayHealth(0.5, 0, config) > 0.35);
+});
+
+test('default display config zeros health at 12% broken', () => {
+  assert.equal(brokenPercentForZeroHealth(DEFAULT_DUEL_SHIRT_HEALTH_DISPLAY_CONFIG), 12);
+});
+
+test('zeroBelowRemainingFromBrokenPercent spans full 0–100 broken range', () => {
+  assert.equal(zeroBelowRemainingFromBrokenPercent(0), 1);
+  assert.equal(zeroBelowRemainingFromBrokenPercent(1), 0.99);
+  assert.equal(zeroBelowRemainingFromBrokenPercent(100), 0);
+});
+
+test('computeDuelShirtHealthFromAttachment uses broken structural edges', () => {
+  const dress = { attachedA: 100, totalA: 100, attachedB: 100, totalB: 100 };
+  const current = { attachedA: 100, totalA: 100, attachedB: 100, totalB: 100 };
+  const structuralBaseline = { structuralEdgesA: 10, structuralEdgesB: 10, particlesA: 4, particlesB: 4 };
+  const health = computeDuelShirtHealthFromAttachment(
+    current,
+    dress,
+    { fighterA: 9, fighterB: 0 },
+    structuralBaseline,
+    0,
+    0,
+    { zeroBelowRemainingRatio: 0.1, maxTearPenalty: 0.12 },
+  );
+  assert.equal(health.fighterA, 0);
   assert.equal(health.fighterB, 1);
 });
 

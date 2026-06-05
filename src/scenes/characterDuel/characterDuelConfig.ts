@@ -52,6 +52,14 @@ export const CHARACTER_DUEL_CONFIG = {
     attackLungeSpeed: 1.1,
   },
   shirtOptions: { ...DEFAULT_CHARACTER_T_SHIRT_OPTIONS },
+  healthDisplay: {
+    /** Display 0 when less than this fraction of dress-time cloth remains (12% broken). */
+    zeroBelowRemainingRatio: 0.88,
+    maxTearPenalty: 0.12,
+    autoRematch: true,
+    /** Seconds a fighter must stay at 0 HP before auto reset. */
+    roundEndHoldSec: 0.6,
+  },
   cloth: {
     gravity: 0.000025,
     clothThickness: 0.003,
