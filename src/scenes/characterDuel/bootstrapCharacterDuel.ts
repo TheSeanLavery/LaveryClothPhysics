@@ -16,6 +16,7 @@ import {
   refreshCharacterDuelAnimationFromServer,
   saveCharacterDuelAnimationSetup,
 } from './characterDuelAnimation.ts';
+import { auditRigTShirtDressAlignment } from '../../character/characterGarmentDress.ts';
 import { auditDuelStartupShirtsWithSim } from './duelShirtStartupAudit.ts';
 import {
   CHARACTER_DUEL_CONFIG,
@@ -311,6 +312,10 @@ export async function bootstrapCharacterDuel(
     const controller = fighter === 'B' ? duel.controllerB : duel.controllerA;
     return controller.getFacingDebug();
   };
+  window.__duelMovementDebug = (fighter: 'A' | 'B' = 'A') => {
+    const controller = fighter === 'B' ? duel.controllerB : duel.controllerA;
+    return controller.getMovementDebug();
+  };
   const duelRigForFighter = (fighter: 'A' | 'B') => (fighter === 'B' ? duel.rigB : duel.rigA);
   window.__duelPhysicsPoseStats = (fighter: 'A' | 'B' = 'A') => duelRigForFighter(fighter).getPhysicsPoseStats();
   window.__duelPhysicsPoseConfig = (fighter: 'A' | 'B' = 'A') => duelRigForFighter(fighter).getPhysicsPoseConfig();
@@ -451,6 +456,20 @@ export async function bootstrapCharacterDuel(
   window.__duelAuditStartupShirts = () => auditDuelStartupShirtsWithSim(duel, {
     expectedSeparationX: CHARACTER_DUEL_CONFIG.spawnSeparation,
   });
+  window.__duelTShirtDressAlignmentAudit = () => {
+    const params = duel.getShirtPreset().params;
+    const posA = duel.rigA.root.position;
+    const posB = duel.rigB.root.position;
+    const towardB: [number, number, number] = [posB.x - posA.x, 0, posB.z - posA.z];
+    const towardA: [number, number, number] = [posA.x - posB.x, 0, posA.z - posB.z];
+    const fighterA = auditRigTShirtDressAlignment(duel.rigA, params, { intentForward: towardB });
+    const fighterB = auditRigTShirtDressAlignment(duel.rigB, params, { intentForward: towardA });
+    return {
+      passed: fighterA.passed && fighterB.passed,
+      fighterA,
+      fighterB,
+    };
+  };
   window.__duelAnimationFsmSnapshot = (fighter: 'A' | 'B' = 'A') => {
     const controller = fighter === 'B' ? duel.controllerB : duel.controllerA;
     return controller.fsm.getSnapshot();
@@ -477,6 +496,7 @@ export async function bootstrapCharacterDuel(
     fighter === 'A' ? bonesVisibleA : bonesVisibleB
   );
   window.__duelRedressShirts = () => duel.redressMergedShirts();
+  window.__duelShirtPreset = () => duel.getShirtPreset();
   window.__duelAnimationFsmForceState = (state: string, fighter: 'A' | 'B' = 'A') => {
     const controller = fighter === 'B' ? duel.controllerB : duel.controllerA;
     return controller.fsm.forceState(state as 'tpose' | 'idle' | 'walk' | 'attack');

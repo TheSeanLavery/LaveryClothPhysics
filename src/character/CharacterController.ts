@@ -11,6 +11,13 @@ import {
 } from '../animations/characterAnimationProfile.ts';
 import type { RigDressSequenceOptions, RigDressSequenceResult } from '../animations/rigDressSequence.ts';
 import type { AnimatedCharacterSceneRig } from './AnimatedCharacter.ts';
+import {
+  resolveMovementSmoothingParams,
+  smoothInput2D,
+  smoothVelocity2D,
+  stepAngularVelocity,
+  type MovementSmoothingParams,
+} from './movementSmoothing.ts';
 import { shortestAngleDelta, wrapAngleRad } from './rigForwardMeasure.ts';
 
 export type CharacterControllerState = FsmStateId;
@@ -18,6 +25,17 @@ export type CharacterControllerState = FsmStateId;
 export type CharacterInputMode = 'human' | 'ai';
 
 export type FacingDebugMode = 'walk' | 'idle' | 'hold' | 'attack';
+
+export interface MovementDebugSnapshot {
+  readonly rawInputX: number;
+  readonly rawInputZ: number;
+  readonly smoothedInputX: number;
+  readonly smoothedInputZ: number;
+  readonly velocityX: number;
+  readonly velocityZ: number;
+  readonly speed: number;
+  readonly angularVelocity: number;
+}
 
 export interface FacingDebugSnapshot {
   readonly desiredYaw: number;
@@ -43,6 +61,15 @@ export class CharacterController {
   readonly fsm: CharacterAnimationStateMachine;
 
   private moveInput = new THREE.Vector2();
+  private smoothedMoveInput = new THREE.Vector2();
+  private worldVelocity = new THREE.Vector2();
+  private smoothedWalkDir = new THREE.Vector2(0, 0);
+  private hasSmoothedWalkDir = false;
+  private angularVelocity = 0;
+  private attackStepBudget = 0;
+  private attackStepApplied = 0;
+  private attackStepDirX = 0;
+  private attackStepDirZ = 0;
   private facingYaw = 0;
   private attackCooldown = 0;
   private readonly tmpTarget = new THREE.Vector3();
@@ -55,6 +82,16 @@ export class CharacterController {
   private hasLockedWalkDir = false;
   private lockedWalkDirX = 0;
   private lockedWalkDirZ = 0;
+  private movementDebug: MovementDebugSnapshot = {
+    rawInputX: 0,
+    rawInputZ: 0,
+    smoothedInputX: 0,
+    smoothedInputZ: 0,
+    velocityX: 0,
+    velocityZ: 0,
+    speed: 0,
+    angularVelocity: 0,
+  };
   private facingDebug: FacingDebugSnapshot = {
     desiredYaw: 0,
     actualYaw: 0,
@@ -85,9 +122,6 @@ export class CharacterController {
       rig,
       player: this.player,
       onStateEntered: async (state) => {
-        if (state === 'attack' && this.hasLastOpponent) {
-          this.snapFaceToward(this.lastOpponent);
-        }
         await options.onStateEntered?.(state);
       },
     });
@@ -117,6 +151,7 @@ export class CharacterController {
 
   private clearWalkFacingLock(): void {
     this.hasLockedWalkDir = false;
+    this.hasSmoothedWalkDir = false;
   }
 
   /**
@@ -176,6 +211,14 @@ export class CharacterController {
 
   getFacingDebug(): FacingDebugSnapshot {
     return this.facingDebug;
+  }
+
+  getMovementDebug(): MovementDebugSnapshot {
+    return this.movementDebug;
+  }
+
+  private movementParams(): MovementSmoothingParams {
+    return resolveMovementSmoothingParams(this.fsm.getProfile().parameters);
   }
 
   private facingParams() {
@@ -280,13 +323,137 @@ export class CharacterController {
     this.moveInput.set(x, z);
   }
 
-  private turnTowardYaw(desiredYaw: number, delta: number): void {
-    const turnSpeed = this.fsm.getProfile().parameters.turnSpeed;
-    const deltaYaw = shortestAngleDelta(this.facingYaw, desiredYaw);
-    this.applyFacingYaw(
-      this.facingYaw
-        + THREE.MathUtils.clamp(deltaYaw, -turnSpeed * delta, turnSpeed * delta),
+  private refreshMovementDebug(): void {
+    const speed = this.worldVelocity.length();
+    this.movementDebug = {
+      rawInputX: this.moveInput.x,
+      rawInputZ: this.moveInput.y,
+      smoothedInputX: this.smoothedMoveInput.x,
+      smoothedInputZ: this.smoothedMoveInput.y,
+      velocityX: this.worldVelocity.x,
+      velocityZ: this.worldVelocity.y,
+      speed,
+      angularVelocity: this.angularVelocity,
+    };
+  }
+
+  private smoothLocomotionInput(delta: number): void {
+    const { inputSmoothTau } = this.movementParams();
+    const smoothed = smoothInput2D(
+      this.smoothedMoveInput.x,
+      this.smoothedMoveInput.y,
+      this.moveInput.x,
+      this.moveInput.y,
+      delta,
+      inputSmoothTau,
     );
+    this.smoothedMoveInput.set(smoothed.x, smoothed.z);
+  }
+
+  private turnTowardYaw(
+    desiredYaw: number,
+    delta: number,
+    maxTurnSpeed?: number,
+    direct = false,
+  ): void {
+    const cap = maxTurnSpeed ?? this.fsm.getProfile().parameters.turnSpeed;
+    if (direct) {
+      const deltaYaw = shortestAngleDelta(this.facingYaw, desiredYaw);
+      this.angularVelocity = 0;
+      this.applyFacingYaw(
+        this.facingYaw + THREE.MathUtils.clamp(deltaYaw, -cap * delta, cap * delta),
+      );
+      return;
+    }
+    const movement = this.movementParams();
+    const turnParams = maxTurnSpeed === undefined
+      ? movement
+      : { ...movement, maxTurnSpeed: cap };
+    const stepped = stepAngularVelocity(
+      this.angularVelocity,
+      this.facingYaw,
+      desiredYaw,
+      delta,
+      turnParams,
+    );
+    this.angularVelocity = stepped.angularVelocity;
+    this.applyFacingYaw(stepped.yaw);
+  }
+
+  private integrateWorldVelocity(
+    desiredVelocityX: number,
+    desiredVelocityZ: number,
+    delta: number,
+  ): void {
+    const { moveAccel, moveDecel } = this.movementParams();
+    const next = smoothVelocity2D(
+      this.worldVelocity.x,
+      this.worldVelocity.y,
+      desiredVelocityX,
+      desiredVelocityZ,
+      delta,
+      moveAccel,
+      moveDecel,
+    );
+    this.worldVelocity.set(next.x, next.z);
+    this.root.position.x += this.worldVelocity.x * delta;
+    this.root.position.z += this.worldVelocity.y * delta;
+  }
+
+  private snapWalkDirection(dx: number, dz: number): { x: number; z: number } {
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-6) {
+      return { x: this.smoothedWalkDir.x, z: this.smoothedWalkDir.y };
+    }
+    const nx = dx / len;
+    const nz = dz / len;
+    this.smoothedWalkDir.set(nx, nz);
+    this.hasSmoothedWalkDir = true;
+    return { x: nx, z: nz };
+  }
+
+  private smoothWalkDirection(dx: number, dz: number, delta: number): { x: number; z: number } {
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-6) {
+      return { x: this.smoothedWalkDir.x, z: this.smoothedWalkDir.y };
+    }
+    const targetX = dx / len;
+    const targetZ = dz / len;
+    if (!this.hasSmoothedWalkDir) {
+      return this.snapWalkDirection(dx, dz);
+    }
+    const dot = this.smoothedWalkDir.x * targetX + this.smoothedWalkDir.y * targetZ;
+    if (dot < 0.2) {
+      return this.snapWalkDirection(dx, dz);
+    }
+    const { walkDirectionSmoothTau } = this.movementParams();
+    const smoothed = smoothInput2D(
+      this.smoothedWalkDir.x,
+      this.smoothedWalkDir.y,
+      targetX,
+      targetZ,
+      delta,
+      walkDirectionSmoothTau,
+    );
+    const smoothedLen = Math.hypot(smoothed.x, smoothed.z);
+    if (smoothedLen > 1e-6) {
+      this.smoothedWalkDir.set(smoothed.x / smoothedLen, smoothed.z / smoothedLen);
+      this.hasSmoothedWalkDir = true;
+    }
+    return { x: this.smoothedWalkDir.x, z: this.smoothedWalkDir.y };
+  }
+
+  private applyRampedAttackStep(delta: number): void {
+    const remaining = this.attackStepBudget - this.attackStepApplied;
+    if (remaining <= 1e-6) {
+      return;
+    }
+    const rampSec = this.movementParams().attackStepRampSec;
+    const rate = rampSec > 0 ? this.attackStepBudget / rampSec : this.attackStepBudget / delta;
+    const step = Math.min(remaining, rate * delta);
+    this.root.position.x += this.attackStepDirX * step;
+    this.root.position.z += this.attackStepDirZ * step;
+    this.attackStepApplied += step;
   }
 
   /** Instant mesh-aligned facing (attack start, spawn sync). */
@@ -300,14 +467,19 @@ export class CharacterController {
     this.applyFacingYaw(this.rootYawToMatchMeshIntent(dx, dz));
   }
 
-  faceToward(target: THREE.Vector3, delta: number): void {
+  faceToward(
+    target: THREE.Vector3,
+    delta: number,
+    turnSpeed?: number,
+    direct = false,
+  ): void {
     const position = this.getWorldPosition(this.tmpTarget);
     const dx = target.x - position.x;
     const dz = target.z - position.z;
     if (dx * dx + dz * dz < 1e-6) {
       return;
     }
-    this.turnTowardYaw(this.rootYawToMatchMeshIntent(dx, dz), delta);
+    this.turnTowardYaw(this.rootYawToMatchMeshIntent(dx, dz), delta, turnSpeed, direct);
   }
 
   canAttackNow(): boolean {
@@ -337,22 +509,30 @@ export class CharacterController {
     const dx = target.x - position.x;
     const dz = target.z - position.z;
     const dist = Math.hypot(dx, dz);
-    this.snapFaceToward(target);
+    const { attackFacingTurnSpeed } = this.movementParams();
+    if (attackFacingTurnSpeed <= 0) {
+      this.snapFaceToward(target);
+    }
     this.moveInput.set(0, 0);
+    this.smoothedMoveInput.set(0, 0);
+    this.worldVelocity.set(0, 0);
     let started = await this.fsm.trigger('attack');
     if (!started) {
       await this.fsm.forceState('attack');
       started = true;
     }
     if (started) {
-      this.snapFaceToward(target);
       this.attackCooldown = params.attackCooldownSeconds;
       const stepMeters = params.attackStepMeters ?? 0;
+      this.attackStepBudget = 0;
+      this.attackStepApplied = 0;
       if (stepMeters > 0 && dist > 1e-6) {
         const { strikeDistance } = this.combatSpacing(params);
         const step = Math.min(stepMeters, Math.max(0, dist - strikeDistance));
-        this.root.position.x += (dx / dist) * step;
-        this.root.position.z += (dz / dist) * step;
+        this.attackStepBudget = step;
+        this.attackStepApplied = 0;
+        this.attackStepDirX = dx / dist;
+        this.attackStepDirZ = dz / dist;
       }
     }
     return started;
@@ -380,14 +560,24 @@ export class CharacterController {
       this.updateAiInput(delta, options.opponent, options.boundsRadius ?? 4);
     }
 
-    const moveLength = this.moveInput.length();
+    this.smoothLocomotionInput(delta);
+    const smoothedMoveLength = this.smoothedMoveInput.length();
+    const speed = this.worldVelocity.length();
+    const { moveStopSpeed } = this.movementParams();
     const state = this.fsm.getState();
 
     if (state === 'attack') {
-      this.refreshFacingDebug(options.opponent, moveLength, params.moveThreshold);
+      this.refreshFacingDebug(options.opponent, smoothedMoveLength, params.moveThreshold);
+      this.refreshMovementDebug();
       const attackTarget = options.opponent ?? (this.hasLastOpponent ? this.lastOpponent : null);
       if (attackTarget) {
-        this.faceToward(attackTarget, delta);
+        const { attackFacingTurnSpeed } = this.movementParams();
+        if (attackFacingTurnSpeed <= 0) {
+          this.snapFaceToward(attackTarget);
+        } else {
+          this.faceToward(attackTarget, delta, attackFacingTurnSpeed);
+        }
+        this.applyRampedAttackStep(delta);
         const lungeSpeed = params.attackLungeSpeed ?? 0;
         if (lungeSpeed > 0) {
           const position = this.getWorldPosition(this.tmpTarget);
@@ -396,40 +586,56 @@ export class CharacterController {
           const dist = Math.hypot(dx, dz);
           if (dist > 1e-6) {
             const { strikeDistance, minSeparation } = this.combatSpacing(params);
-            if (dist < minSeparation) {
-              const push = Math.min(minSeparation - dist, lungeSpeed * delta);
-              this.root.position.x -= (dx / dist) * push;
-              this.root.position.z -= (dz / dist) * push;
-            } else if (dist > strikeDistance) {
-              const step = Math.min(dist - strikeDistance, lungeSpeed * delta);
-              this.root.position.x += (dx / dist) * step;
-              this.root.position.z += (dz / dist) * step;
-            }
+            const desiredLungeX = dist < minSeparation
+              ? -(dx / dist) * lungeSpeed
+              : dist > strikeDistance
+                ? (dx / dist) * lungeSpeed
+                : 0;
+            const desiredLungeZ = dist < minSeparation
+              ? -(dz / dist) * lungeSpeed
+              : dist > strikeDistance
+                ? (dz / dist) * lungeSpeed
+                : 0;
+            this.integrateWorldVelocity(desiredLungeX, desiredLungeZ, delta);
           }
         }
       }
       return;
     }
 
-    this.refreshFacingDebug(options.opponent, moveLength, params.moveThreshold);
+    this.refreshFacingDebug(options.opponent, smoothedMoveLength, params.moveThreshold);
 
-    if (moveLength > params.moveThreshold) {
-      if (state !== 'walk') {
+    const hasMoveIntent = smoothedMoveLength > params.moveThreshold;
+    const isCoasting = speed > moveStopSpeed;
+    if (hasMoveIntent || (state === 'walk' && isCoasting)) {
+      if (hasMoveIntent && state !== 'walk') {
         void this.fsm.trigger('moveStart');
       }
-      const normalized = this.moveInput.clone().divideScalar(moveLength);
-      this.turnTowardYaw(
-        this.walkFacingTargetForDirection(normalized.x, normalized.y),
-        delta,
-      );
-      this.root.position.x += normalized.x * params.walkSpeed * delta;
-      this.root.position.z += normalized.y * params.walkSpeed * delta;
+      let dirX = 0;
+      let dirZ = 0;
+      if (hasMoveIntent) {
+        const invLen = 1 / Math.max(smoothedMoveLength, 1e-6);
+        dirX = this.smoothedMoveInput.x * invLen;
+        dirZ = this.smoothedMoveInput.y * invLen;
+      } else {
+        const invSpeed = 1 / Math.max(speed, 1e-6);
+        dirX = this.worldVelocity.x * invSpeed;
+        dirZ = this.worldVelocity.y * invSpeed;
+      }
+      const walkDir = this.smoothWalkDirection(dirX, dirZ, delta);
+      this.turnTowardYaw(this.walkFacingTargetForDirection(walkDir.x, walkDir.z), delta);
+      const desiredSpeed = hasMoveIntent ? params.walkSpeed : 0;
+      this.integrateWorldVelocity(dirX * desiredSpeed, dirZ * desiredSpeed, delta);
     } else if (state === 'walk') {
       this.clearWalkFacingLock();
+      this.angularVelocity = 0;
+      this.worldVelocity.set(0, 0);
       void this.fsm.trigger('moveStop');
     } else if (options.opponent && state === 'idle') {
-      this.faceToward(options.opponent, delta);
+      this.faceToward(options.opponent, delta, undefined, true);
     }
+
+    this.refreshMovementDebug();
   }
 
   private updateAiInput(delta: number, opponent: THREE.Vector3 | undefined, boundsRadius: number): void {

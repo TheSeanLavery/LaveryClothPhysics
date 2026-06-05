@@ -50,6 +50,37 @@ test('builds a closed pyramid with side and base stitches', () => {
   assertStitchesAreCoincident(pyramid);
 });
 
+test('default T-shirt neckline stays crew-neck sized, not boat-neck wide', () => {
+  const shirt = createTShirtAssembly({
+    bodyWidth: 0.66,
+    torsoHeight: 0.74,
+    sleeveLength: 0.24,
+    sleeveOpening: 0.26,
+    depth: 0.25,
+    bodySegmentsX: 38,
+    bodySegmentsY: 38,
+    sleeveSegmentsX: 6,
+  });
+
+  const bodySegmentsX = 38;
+  const neckHalfSegments = Math.max(2, Math.round(bodySegmentsX * 0.09));
+  const neckLeftU = (Math.floor(bodySegmentsX * 0.5) - neckHalfSegments) / bodySegmentsX;
+  const neckRightU = (Math.ceil(bodySegmentsX * 0.5) + neckHalfSegments) / bodySegmentsX;
+  const neckline = shirt.vertices.filter(
+    (vertex) =>
+      vertex.patchId === 'tshirt-front'
+      && vertex.uv[1] > 0.99
+      && vertex.uv[0] >= neckLeftU - 0.01
+      && vertex.uv[0] <= neckRightU + 0.01,
+  );
+  const xs = neckline.map((vertex) => vertex.position[0]);
+  const neckWidth = Math.max(...xs) - Math.min(...xs);
+  const shoulderWidth = 0.66 * 0.84;
+
+  assert.ok(neckWidth < shoulderWidth * 0.24, `neck width ${neckWidth.toFixed(3)} too wide`);
+  assert.ok(neckWidth > shoulderWidth * 0.1, `neck width ${neckWidth.toFixed(3)} too narrow`);
+});
+
 test('builds a stitched T-shirt with welded seams and open neck/hem/cuffs', () => {
   const shirt = createTShirtAssembly({
     bodyWidth: 0.8,

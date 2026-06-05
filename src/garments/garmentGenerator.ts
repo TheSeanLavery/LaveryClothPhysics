@@ -880,6 +880,10 @@ function skirtPoint(angle: number, radius: number, y: number): AssemblyVec3 {
   return [Math.cos(angle) * radius, y, Math.sin(angle) * radius];
 }
 
+export function resolveTShirtAssemblyOptions(params: Extract<GarmentGeneratorParams, { garmentType: 'tshirt' }>) {
+  return applyTShirtGridSpacing(params);
+}
+
 function applyTShirtGridSpacing(params: Extract<GarmentGeneratorParams, { garmentType: 'tshirt' }>) {
   return {
     ...params,

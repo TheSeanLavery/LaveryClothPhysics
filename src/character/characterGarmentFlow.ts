@@ -1,4 +1,3 @@
-import type GUI from 'lil-gui';
 import * as THREE from 'three';
 import type { ClothAssembly, ClothSimulation } from '../cloth';
 import type { AnimatedCharacterSceneRig, ShirtAnchorReport } from './AnimatedCharacter';
@@ -20,6 +19,7 @@ import {
   auditPerCapsuleClearance,
   auditShirtSdfClearance,
   auditTriangleCapsuleClearance,
+  auditTShirtDressAlignment,
   auditTriangleQuality,
   DEFAULT_CHARACTER_T_SHIRT_OPTIONS,
   placeCharacterTShirtAssembly,
@@ -27,7 +27,6 @@ import {
   SHIRT_SDF_CLEARANCE,
   type AssemblyStrainReport,
   type BodyArmDrapeReport,
-  type CharacterTShirtGenerationOptions,
   type EdgeCapsuleClearanceReport,
   type PerCapsuleClearanceReport,
   type ShirtSdfClearanceReport,
@@ -75,15 +74,13 @@ export interface CharacterGarmentFitReport {
 }
 
 export class CharacterGarmentFlow {
-  readonly options: CharacterTShirtGenerationOptions = { ...DEFAULT_CHARACTER_T_SHIRT_OPTIONS };
-
   private assembly: ClothAssembly;
   private activePreset: GarmentPresetEnvelope;
   private activeStats: GarmentAssemblyStats | null = null;
   private activeFitReport: CharacterGarmentFitReport | null = null;
   private readonly fitDebugGroup = new THREE.Group();
-  private readonly dressTimeSdfs: ReturnType<AnimatedCharacterSceneRig['getBoneSdfSummary']>;
-  private readonly dressTimeAnchors: ReturnType<AnimatedCharacterSceneRig['getCharacterAnchors']>;
+  private dressTimeSdfs: ReturnType<AnimatedCharacterSceneRig['getBoneSdfSummary']>;
+  private dressTimeAnchors: ReturnType<AnimatedCharacterSceneRig['getCharacterAnchors']>;
   private tearProtectionTimeout: ReturnType<typeof window.setTimeout> | null = null;
   private tearProtectionRestoreThreshold: number;
 
@@ -92,13 +89,26 @@ export class CharacterGarmentFlow {
     private readonly rig: AnimatedCharacterSceneRig,
     private readonly particlesEl?: HTMLElement,
   ) {
-    this.dressTimeSdfs = rig.getBoneSdfSummary();
-    this.dressTimeAnchors = rig.getCharacterAnchors();
+    this.dressTimeSdfs = [];
+    this.dressTimeAnchors = {
+      hips: null,
+      chest: null,
+      neck: null,
+      leftShoulder: null,
+      rightShoulder: null,
+      leftArm: null,
+      rightArm: null,
+    };
     this.fitDebugGroup.name = 'character-garment-fit-debug';
     this.fitDebugGroup.visible = false;
     this.cloth.scene.add(this.fitDebugGroup);
-    this.activePreset = createGarmentPresetEnvelope('Character T-shirt', 'tshirt', this.options);
-    this.assembly = this.fitPresetAssembly(this.activePreset);
+    this.activePreset = createGarmentPresetEnvelope('Character T-shirt', 'tshirt', DEFAULT_CHARACTER_T_SHIRT_OPTIONS);
+    this.assembly = {
+      vertices: [],
+      faces: [],
+      edges: [],
+      stitchEdges: [],
+    };
     this.tearProtectionRestoreThreshold = cloth.settings.tearStretchThreshold;
   }
 
@@ -119,6 +129,9 @@ export class CharacterGarmentFlow {
     this.startTearProtection();
     this.cloth.setBoneSdfCapsules([]);
     this.activePreset = preset;
+    this.rig.root.updateMatrixWorld(true);
+    this.dressTimeAnchors = this.rig.getCharacterAnchors();
+    this.dressTimeSdfs = this.rig.getBoneSdfSummary();
     this.assembly = this.fitPresetAssembly(preset);
     this.activeStats = null;
     this.activeFitReport = null;
@@ -207,6 +220,31 @@ export class CharacterGarmentFlow {
     return auditBodyNotFloatingOverArms(this.assembly.vertices, armCapsules, SHIRT_SDF_CLEARANCE);
   }
 
+  dressAlignmentReport(): TShirtDressAlignmentReport {
+    if (this.activePreset.garmentType !== 'tshirt') {
+      return {
+        passed: false,
+        failures: ['active garment is not a t-shirt'],
+        torsoCenter: [0, 0, 0],
+        chestDistance: Number.POSITIVE_INFINITY,
+        forwardAlignment: 0,
+        backAlignment: 0,
+        shirtForwardYawErrorDeg: 180,
+        leftSleeveMeanArmDistance: Number.POSITIVE_INFINITY,
+        rightSleeveMeanArmDistance: Number.POSITIVE_INFINITY,
+        leftSleeveSideProjection: 0,
+        rightSleeveSideProjection: 0,
+        leftSleeveAxisErrorDeg: 180,
+        rightSleeveAxisErrorDeg: 180,
+        intentForwardAlignment: null,
+      };
+    }
+    this.rig.root.updateMatrixWorld(true);
+    return auditTShirtDressAlignment(this.assembly, this.dressTimeAnchors, this.dressTimeSdfs, {
+      forwardYawRad: this.rig.measureForwardYaw(),
+    });
+  }
+
   async settledSurfaceReport(): Promise<CharacterShirtSurfaceReport> {
     const settledAssembly = await this.cloth.readCurrentClothAssembly(this.assembly);
     return {
@@ -243,8 +281,8 @@ export class CharacterGarmentFlow {
       visible: true,
       bodyWidth: this.estimateActiveWidth(),
       torsoHeight: this.estimateActiveHeight(),
-      sleeveLength: this.activePreset.garmentType === 'tshirt' ? this.options.sleeveLength : 0,
-      sleeveOpening: this.activePreset.garmentType === 'tshirt' ? this.options.sleeveOpening : 0,
+      sleeveLength: this.activePreset.garmentType === 'tshirt' ? this.activePreset.params.sleeveLength : 0,
+      sleeveOpening: this.activePreset.garmentType === 'tshirt' ? this.activePreset.params.sleeveOpening : 0,
       vertexCount: this.assembly.vertices.length,
       faceCount: this.assembly.faces.length,
       stitchEdgeCount: this.assembly.stitchEdges.length,
@@ -256,8 +294,7 @@ export class CharacterGarmentFlow {
 
   private fitPresetAssembly(preset: GarmentPresetEnvelope): ClothAssembly {
     if (preset.garmentType === 'tshirt') {
-      Object.assign(this.options, preset.params);
-      return placeCharacterTShirtAssembly(this.rig, SHIRT_SDF_CLEARANCE, this.options);
+      return placeCharacterTShirtAssembly(this.rig, preset.params);
     }
 
     const generated = generateGarmentPresetAssembly(preset);
@@ -889,45 +926,6 @@ function restLengthEdgesFromVertices(
     const b = new THREE.Vector3(...vertices[edge.b]!.position);
     return { ...edge, restLength: a.distanceTo(b) };
   });
-}
-
-export interface CharacterGarmentOptionsHost {
-  readonly options: CharacterTShirtGenerationOptions;
-}
-
-export function createCharacterGarmentControls(
-  gui: GUI,
-  host: CharacterGarmentOptionsHost,
-  rebuild: () => void,
-): void {
-  const folder = gui.addFolder('T-shirt generation');
-  const addSlider = (
-    property: keyof CharacterTShirtGenerationOptions,
-    min: number,
-    max: number,
-    step: number,
-    label: string,
-  ): void => {
-    folder.add(host.options, property, min, max, step).name(label).onFinishChange(rebuild);
-  };
-
-  addSlider('bodyWidth', 0.2, 0.9, 0.01, 'Body width');
-  addSlider('torsoHeight', 0.22, 0.95, 0.01, 'Torso height');
-  addSlider('sleeveLength', 0, 0.45, 0.01, 'Sleeve length');
-  addSlider('sleeveOpening', 0.035, 0.4, 0.005, 'Sleeve opening');
-  addSlider('sleeveTubeRadius', 0.01, 0.16, 0.001, 'Sleeve tube radius');
-  addSlider('depth', 0.035, 0.38, 0.005, 'Front/back depth');
-  addSlider('sleeveHangScale', 0, 1, 0.01, 'Sleeve hang');
-  addSlider('sleeveLiftScale', 0, 1, 0.01, 'Sleeve lift');
-  addSlider('sleeveVerticalRadiusScale', 0.02, 0.7, 0.01, 'Sleeve vertical radius');
-
-  folder.add({
-    reset: () => {
-      Object.assign(host.options, DEFAULT_CHARACTER_T_SHIRT_OPTIONS);
-      folder.controllersRecursive().forEach((controller) => controller.updateDisplay());
-      rebuild();
-    },
-  }, 'reset').name('Reset T-shirt shape');
 }
 
 function averageAssemblyPosition(vertices: readonly ClothAssembly['vertices'][number][]): THREE.Vector3 {

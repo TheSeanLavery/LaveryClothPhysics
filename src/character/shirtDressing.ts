@@ -1,6 +1,13 @@
 import * as THREE from 'three';
 import { createTShirtAssembly, type AssemblyVertex, type ClothAssembly } from '../cloth/patternAssembly.ts';
-import type { AnimatedCharacterSceneRig } from './AnimatedCharacter.ts';
+import { resolveTShirtAssemblyOptions } from '../garments/garmentGenerator.ts';
+import {
+  DEFAULT_TSHIRT_PARAMS,
+  normalizeGarmentParams,
+  type TShirtGarmentParams,
+} from '../garments/garmentSchema.ts';
+import type { AnimatedCharacterSceneRig, CharacterAnchors } from './AnimatedCharacter.ts';
+import { forwardYawToXZDirection } from './rigForwardMeasure.ts';
 
 export const SHIRT_SDF_CLEARANCE = 0.008;
 
@@ -98,29 +105,256 @@ interface DressFrame {
   readonly halfDepth: number;
 }
 
-export interface CharacterTShirtGenerationOptions {
-  bodyWidth: number;
-  torsoHeight: number;
-  sleeveLength: number;
-  sleeveOpening: number;
-  sleeveTubeRadius: number;
-  depth: number;
-  sleeveHangScale: number;
-  sleeveLiftScale: number;
-  sleeveVerticalRadiusScale: number;
+export type CharacterTShirtGenerationOptions = TShirtGarmentParams;
+
+export const DEFAULT_CHARACTER_T_SHIRT_OPTIONS: TShirtGarmentParams = DEFAULT_TSHIRT_PARAMS;
+
+export interface CharacterDressAxes {
+  readonly xAxis: THREE.Vector3;
+  readonly yAxis: THREE.Vector3;
+  readonly zAxis: THREE.Vector3;
+  readonly origin: THREE.Vector3;
 }
 
-export const DEFAULT_CHARACTER_T_SHIRT_OPTIONS: CharacterTShirtGenerationOptions = {
-  bodyWidth: 0.66,
-  torsoHeight: 0.74,
-  sleeveLength: 0.24,
-  sleeveOpening: 0.26,
-  sleeveTubeRadius: 0.088,
-  depth: 0.25,
-  sleeveHangScale: 0.25,
-  sleeveLiftScale: 0.18,
-  sleeveVerticalRadiusScale: 0.34,
-};
+/**
+ * Dress frame axes. When `forwardYawRad` is set (from `rig.measureForwardYaw()`), forward
+ * matches bone facing — required in duel where fighters yaw ~90° and shoulder-cross alone
+ * picks the lateral axis.
+ */
+export function resolveCharacterDressAxes(
+  anchors: CharacterAnchors,
+  forwardYawRad: number | null = null,
+): CharacterDressAxes {
+  const hips = anchors.hips ?? new THREE.Vector3(0, 0.75, 0);
+  const chest = anchors.chest ?? new THREE.Vector3(0, 1.1, 0);
+  const neck = anchors.neck ?? chest;
+  const leftShoulder = anchors.leftShoulder;
+  const rightShoulder = anchors.rightShoulder;
+  const yAxis = new THREE.Vector3(0, 1, 0);
+
+  let zAxis: THREE.Vector3;
+  if (forwardYawRad !== null && Number.isFinite(forwardYawRad)) {
+    const dir = forwardYawToXZDirection(forwardYawRad);
+    zAxis = new THREE.Vector3(dir.x, 0, dir.z);
+    if (zAxis.lengthSq() < 1e-6) {
+      zAxis.set(0, 0, -1);
+    } else {
+      zAxis.normalize();
+    }
+  } else {
+    const torsoUp = neck.clone().sub(hips);
+    if (torsoUp.lengthSq() < 0.0001) {
+      torsoUp.copy(chest.clone().sub(hips));
+    }
+    if (torsoUp.lengthSq() < 0.0001) {
+      torsoUp.copy(yAxis);
+    }
+    torsoUp.normalize();
+    const shoulderLine = leftShoulder && rightShoulder
+      ? rightShoulder.clone().sub(leftShoulder)
+      : new THREE.Vector3(1, 0, 0);
+    shoulderLine.y = 0;
+    if (shoulderLine.lengthSq() < 0.0001) {
+      shoulderLine.set(1, 0, 0);
+    }
+    shoulderLine.normalize();
+    zAxis = torsoUp.clone().cross(shoulderLine);
+    zAxis.y = 0;
+    if (zAxis.lengthSq() < 0.0001) {
+      zAxis.copy(yAxis.clone().cross(shoulderLine));
+    }
+    zAxis.normalize();
+  }
+
+  let xAxis: THREE.Vector3;
+  if (leftShoulder && rightShoulder) {
+    xAxis = rightShoulder.clone().sub(leftShoulder);
+    xAxis.y = 0;
+    xAxis.addScaledVector(zAxis, -xAxis.dot(zAxis));
+    if (xAxis.lengthSq() < 0.0001) {
+      xAxis.copy(yAxis.clone().cross(zAxis));
+    }
+    xAxis.y = 0;
+    xAxis.normalize();
+  } else {
+    xAxis = yAxis.clone().cross(zAxis);
+    xAxis.y = 0;
+    if (xAxis.lengthSq() < 0.0001) {
+      xAxis.set(1, 0, 0);
+    }
+    xAxis.normalize();
+  }
+
+  return {
+    xAxis,
+    yAxis,
+    zAxis,
+    origin: chest,
+  };
+}
+
+export interface TShirtDressAlignmentOptions {
+  readonly forwardYawRad?: number | null;
+  /** World XZ direction the character should face (e.g. toward duel opponent). */
+  readonly intentForward?: readonly [number, number, number] | null;
+}
+
+export interface TShirtDressAlignmentReport {
+  readonly passed: boolean;
+  readonly failures: readonly string[];
+  readonly torsoCenter: readonly [number, number, number];
+  readonly chestDistance: number;
+  readonly forwardAlignment: number;
+  readonly backAlignment: number;
+  readonly shirtForwardYawErrorDeg: number;
+  readonly leftSleeveMeanArmDistance: number;
+  readonly rightSleeveMeanArmDistance: number;
+  readonly leftSleeveSideProjection: number;
+  readonly rightSleeveSideProjection: number;
+  readonly leftSleeveAxisErrorDeg: number;
+  readonly rightSleeveAxisErrorDeg: number;
+  readonly intentForwardAlignment: number | null;
+}
+
+export function auditTShirtDressAlignment(
+  assembly: ClothAssembly,
+  anchors: CharacterAnchors,
+  sdfs: readonly BoneSdfCapsuleSample[],
+  options: TShirtDressAlignmentOptions = {},
+): TShirtDressAlignmentReport {
+  const failures: string[] = [];
+  const axes = resolveCharacterDressAxes(anchors, options.forwardYawRad ?? null);
+  const chest = anchors.chest ?? axes.origin;
+  const hips = anchors.hips ?? new THREE.Vector3(0, 0.75, 0);
+
+  const bodyVertices = assembly.vertices.filter((vertex) => isBodyPanelVertex(vertex));
+  const frontVertices = assembly.vertices.filter((vertex) => vertex.patchId.includes('front') && !vertex.patchId.includes('neck'));
+  const backVertices = assembly.vertices.filter((vertex) => vertex.patchId.includes('back') && !vertex.patchId.includes('neck'));
+  const leftSleeveVertices = assembly.vertices.filter((vertex) => vertex.patchId.includes('left-sleeve'));
+  const rightSleeveVertices = assembly.vertices.filter((vertex) => vertex.patchId.includes('right-sleeve'));
+
+  const torsoCenter = averageVertexPosition(bodyVertices.length > 0 ? bodyVertices : assembly.vertices);
+  const chestDistance = torsoCenter.distanceTo(chest);
+  if (chestDistance > 0.55) {
+    failures.push(`torso center ${chestDistance.toFixed(3)}m from chest (max 0.55)`);
+  }
+
+  const forwardAlignment = averageProjection(frontVertices, chest, axes.zAxis);
+  const backAlignment = averageProjection(backVertices, chest, axes.zAxis);
+  if (forwardAlignment < 0.02) {
+    failures.push(`front panel behind chest (forwardAlignment=${forwardAlignment.toFixed(3)})`);
+  }
+  if (backAlignment > -0.02) {
+    failures.push(`back panel in front of chest (backAlignment=${backAlignment.toFixed(3)})`);
+  }
+
+  const frontCenter = averageVertexPosition(frontVertices);
+  const backCenter = averageVertexPosition(backVertices);
+  const shirtForward = frontCenter.clone().sub(backCenter);
+  shirtForward.y = 0;
+  const shirtForwardYaw = shirtForward.lengthSq() > 1e-6
+    ? Math.atan2(shirtForward.x, shirtForward.z)
+    : 0;
+  const characterForwardYaw = Math.atan2(axes.zAxis.x, axes.zAxis.z);
+  const shirtForwardYawErrorDeg = Math.abs(
+    Math.atan2(
+      Math.sin(shirtForwardYaw - characterForwardYaw),
+      Math.cos(shirtForwardYaw - characterForwardYaw),
+    ),
+  ) * (180 / Math.PI);
+  if (shirtForwardYawErrorDeg > 35) {
+    failures.push(`shirt forward yaw error ${shirtForwardYawErrorDeg.toFixed(1)}° (max 35°)`);
+  }
+
+  let intentForwardAlignment: number | null = null;
+  if (options.intentForward) {
+    const intent = new THREE.Vector3(...options.intentForward);
+    intent.y = 0;
+    if (intent.lengthSq() > 1e-6) {
+      intent.normalize();
+      intentForwardAlignment = averageProjection(frontVertices, chest, intent);
+      if (intentForwardAlignment < 0.02) {
+        failures.push(`front panel not facing intent (intentAlignment=${intentForwardAlignment.toFixed(3)})`);
+      }
+      const intentYaw = Math.atan2(intent.x, intent.z);
+      const intentYawErrorDeg = Math.abs(
+        Math.atan2(
+          Math.sin(shirtForwardYaw - intentYaw),
+          Math.cos(shirtForwardYaw - intentYaw),
+        ),
+      ) * (180 / Math.PI);
+      if (intentYawErrorDeg > 35) {
+        failures.push(`shirt forward vs intent yaw error ${intentYawErrorDeg.toFixed(1)}° (max 35°)`);
+      }
+    }
+  }
+
+  const leftSleeveCenter = averageVertexPosition(leftSleeveVertices);
+  const rightSleeveCenter = averageVertexPosition(rightSleeveVertices);
+  const leftSleeveSideProjection = leftSleeveCenter.clone().sub(hips).dot(axes.xAxis);
+  const rightSleeveSideProjection = rightSleeveCenter.clone().sub(hips).dot(axes.xAxis);
+  if (leftSleeveSideProjection > -0.04) {
+    failures.push(`left sleeve on wrong side (projection=${leftSleeveSideProjection.toFixed(3)})`);
+  }
+  if (rightSleeveSideProjection < 0.04) {
+    failures.push(`right sleeve on wrong side (projection=${rightSleeveSideProjection.toFixed(3)})`);
+  }
+
+  const leftArmTarget = anchors.leftArm ?? anchors.leftShoulder;
+  const rightArmTarget = anchors.rightArm ?? anchors.rightShoulder;
+  const leftSleeveMeanArmDistance = leftArmTarget
+    ? meanDistanceToPoint(leftSleeveVertices, leftArmTarget)
+    : Number.POSITIVE_INFINITY;
+  const rightSleeveMeanArmDistance = rightArmTarget
+    ? meanDistanceToPoint(rightSleeveVertices, rightArmTarget)
+    : Number.POSITIVE_INFINITY;
+  if (leftSleeveMeanArmDistance > 0.42) {
+    failures.push(`left sleeve too far from arm (${leftSleeveMeanArmDistance.toFixed(3)}m)`);
+  }
+  if (rightSleeveMeanArmDistance > 0.42) {
+    failures.push(`right sleeve too far from arm (${rightSleeveMeanArmDistance.toFixed(3)}m)`);
+  }
+
+  const leftSleeveAxisErrorDeg = measureSleeveAxisErrorDeg(
+    leftSleeveVertices,
+    anchors.leftShoulder,
+    leftArmTarget,
+    axes,
+    'left',
+    sdfs,
+  );
+  const rightSleeveAxisErrorDeg = measureSleeveAxisErrorDeg(
+    rightSleeveVertices,
+    anchors.rightShoulder,
+    rightArmTarget,
+    axes,
+    'right',
+    sdfs,
+  );
+  if (leftSleeveAxisErrorDeg > 72) {
+    failures.push(`left sleeve axis misaligned ${leftSleeveAxisErrorDeg.toFixed(1)}° (max 72°)`);
+  }
+  if (rightSleeveAxisErrorDeg > 72) {
+    failures.push(`right sleeve axis misaligned ${rightSleeveAxisErrorDeg.toFixed(1)}° (max 72°)`);
+  }
+
+  return {
+    passed: failures.length === 0,
+    failures,
+    torsoCenter: [torsoCenter.x, torsoCenter.y, torsoCenter.z],
+    chestDistance,
+    forwardAlignment,
+    backAlignment,
+    shirtForwardYawErrorDeg,
+    leftSleeveMeanArmDistance,
+    rightSleeveMeanArmDistance,
+    leftSleeveSideProjection,
+    rightSleeveSideProjection,
+    leftSleeveAxisErrorDeg,
+    rightSleeveAxisErrorDeg,
+    intentForwardAlignment,
+  };
+}
 
 export function closestCapsuleSignedDistance(
   point: THREE.Vector3,
@@ -482,27 +716,16 @@ export function auditTriangleQuality(
 
 export function placeCharacterTShirtAssembly(
   rig: AnimatedCharacterSceneRig,
+  params: TShirtGarmentParams = DEFAULT_CHARACTER_T_SHIRT_OPTIONS,
   clearance = SHIRT_SDF_CLEARANCE,
-  options: CharacterTShirtGenerationOptions = DEFAULT_CHARACTER_T_SHIRT_OPTIONS,
 ): ClothAssembly {
-  void clearance;
-  const source = createTShirtAssembly({
-    bodyWidth: options.bodyWidth,
-    torsoHeight: options.torsoHeight,
-    sleeveLength: options.sleeveLength,
-    sleeveOpening: options.sleeveOpening,
-    sleeveTubeRadius: options.sleeveTubeRadius,
-    depth: options.depth,
-    bodySegmentsX: 36,
-    bodySegmentsY: 40,
-    sleeveSegmentsX: 24,
-    restLengthMode: 'placed',
-    sleeveHangScale: options.sleeveHangScale,
-    sleeveLiftScale: options.sleeveLiftScale,
-    sleeveVerticalRadiusScale: options.sleeveVerticalRadiusScale,
-  });
+  const normalized = normalizeGarmentParams('tshirt', params);
+  const source = createTShirtAssembly(resolveTShirtAssemblyOptions(normalized));
 
+  rig.root.updateMatrixWorld(true);
   const anchors = rig.getCharacterAnchors();
+  const sdfs = rig.getBoneSdfSummary();
+  const capsuleTargets = sdfs.map(toCapsuleTarget);
   const hips = anchors.hips ?? new THREE.Vector3(0, 0.75, 0);
   const chest = anchors.chest ?? new THREE.Vector3(0, 1.1, 0);
   const neck = anchors.neck ?? new THREE.Vector3(0, 1.38, 0);
@@ -512,50 +735,75 @@ export function placeCharacterTShirtAssembly(
     ? leftShoulder.clone().add(rightShoulder).multiplyScalar(0.5)
     : chest;
   const targetCenter = hips.clone().lerp(shoulderCenter, 0.55);
-  targetCenter.y = neck.y - options.torsoHeight * 0.86;
+  targetCenter.y = neck.y - normalized.torsoHeight * 0.86;
 
-  const xAxis = leftShoulder && rightShoulder
-    ? rightShoulder.clone().sub(leftShoulder)
-    : new THREE.Vector3(1, 0, 0);
-  xAxis.y = 0;
-  if (xAxis.lengthSq() < 0.0001) {
-    xAxis.set(1, 0, 0);
-  }
-  xAxis.normalize();
-  const zAxis = xAxis.clone().cross(new THREE.Vector3(0, 1, 0)).normalize();
-  const yAxis = new THREE.Vector3(0, 1, 0);
-
+  const dressAxes = resolveCharacterDressAxes(anchors, rig.measureForwardYaw());
   const frame: DressFrame = {
-    xAxis,
-    yAxis,
-    zAxis,
+    xAxis: dressAxes.xAxis,
+    yAxis: dressAxes.yAxis,
+    zAxis: dressAxes.zAxis,
     targetCenter,
     scaleX: 1,
     scaleY: 1,
-    halfDepth: options.depth * 0.5,
+    halfDepth: normalized.depth * 0.5,
   };
 
-  const dressedVertices = source.vertices.map((vertex) => ({
-    ...vertex,
-    position: dressVertex(vertex, frame, clearance),
-  }));
+  const leftArmCapsules = filterSideArmCapsules(capsuleTargets, 'left');
+  const rightArmCapsules = filterSideArmCapsules(capsuleTargets, 'right');
+  const leftSleeveTarget = leftShoulder
+    ? createSleeveDressingTarget(
+        leftShoulder,
+        leftArmCapsules,
+        dressAxes.zAxis,
+        dressAxes.xAxis.clone().multiplyScalar(-1),
+      )
+    : null;
+  const rightSleeveTarget = rightShoulder
+    ? createSleeveDressingTarget(rightShoulder, rightArmCapsules, dressAxes.zAxis, dressAxes.xAxis)
+    : null;
+
+  const dressClearance = clearance + 0.002;
+
+  const dressedVertices = source.vertices.map((vertex) => {
+    const fallbackBaseline = transformPatternVertex(vertex.position, frame);
+    const fallback = new THREE.Vector3(fallbackBaseline.x, fallbackBaseline.y, fallbackBaseline.z);
+
+    if (vertex.patchId.includes('left-sleeve')) {
+      const position = leftSleeveTarget
+        ? dressSleeveVertex(vertex, leftSleeveTarget, fallback, dressClearance)
+        : fallback;
+      return {
+        ...vertex,
+        position: [position.x, position.y, position.z] as [number, number, number],
+      };
+    }
+    if (vertex.patchId.includes('right-sleeve')) {
+      const position = rightSleeveTarget
+        ? dressSleeveVertex(vertex, rightSleeveTarget, fallback, dressClearance)
+        : fallback;
+      return {
+        ...vertex,
+        position: [position.x, position.y, position.z] as [number, number, number],
+      };
+    }
+
+    const fitted = applyCoherentFitOffset(vertex, fallback, frame);
+    const position = new THREE.Vector3(fitted[0], fitted[1], fitted[2]);
+    if (shouldProjectTorsoVertexToShell(vertex)) {
+      position.copy(projectToExteriorShell(position, sdfs, dressClearance));
+    }
+    return {
+      ...vertex,
+      position: [position.x, position.y, position.z] as [number, number, number],
+    };
+  });
 
   return {
     vertices: dressedVertices,
     faces: source.faces,
-    edges: source.edges,
-    stitchEdges: source.stitchEdges,
+    edges: withRestLengthsFromVertices(source.edges, dressedVertices),
+    stitchEdges: withRestLengthsFromVertices(source.stitchEdges, dressedVertices),
   };
-}
-
-function dressVertex(
-  vertex: ClothAssembly['vertices'][number],
-  frame: DressFrame,
-  clearance: number,
-): [number, number, number] {
-  void clearance;
-  const baseline = transformPatternVertex(vertex.position, frame);
-  return [baseline.x, baseline.y, baseline.z];
 }
 
 function transformPatternVertex(position: readonly [number, number, number], frame: DressFrame): THREE.Vector3 {
@@ -597,6 +845,20 @@ function applyCoherentFitOffset(
 
 function isBodyPanelVertex(vertex: AssemblyVertex): boolean {
   return vertex.patchId.includes('front') || vertex.patchId.includes('back') || vertex.patchId.includes('neck-binding');
+}
+
+/** Shell projection is for armpit/side clearance only — not neckline or neck binding. */
+function shouldProjectTorsoVertexToShell(vertex: AssemblyVertex): boolean {
+  if (vertex.patchId.includes('neck-binding')) {
+    return false;
+  }
+  if (!vertex.patchId.includes('front') && !vertex.patchId.includes('back')) {
+    return false;
+  }
+  if (vertex.uv[1] < 0.68) {
+    return false;
+  }
+  return Math.abs(vertex.uv[0] - 0.5) > 0.34;
 }
 
 function pushoutAssemblySurface(
@@ -677,6 +939,18 @@ function fallbackNormalForCapsule(capsule: BoneSdfCapsuleSample): THREE.Vector3 
     fallback.set(0, 0, 1);
   }
   return fallback.normalize();
+}
+
+function filterSideArmCapsules(
+  capsules: readonly CharacterSdfCapsuleTarget[],
+  side: 'left' | 'right',
+): CharacterSdfCapsuleTarget[] {
+  return capsules.filter((capsule) => {
+    const key = (capsule.name ?? '').toLowerCase();
+    return side === 'left'
+      ? /left(shoulder|arm|forearm)/.test(key) && !/right/.test(key)
+      : /right(shoulder|arm|forearm)/.test(key) && !/left/.test(key);
+  });
 }
 
 function toCapsuleTarget(capsule: ReturnType<AnimatedCharacterSceneRig['getBoneSdfSummary']>[number]): CharacterSdfCapsuleTarget {
@@ -974,6 +1248,110 @@ function pointTriangleDistance(
 
 function triangleArea(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3): number {
   return b.clone().sub(a).cross(c.clone().sub(a)).length() * 0.5;
+}
+
+function averageVertexPosition(vertices: readonly AssemblyVertex[]): THREE.Vector3 {
+  if (vertices.length === 0) {
+    return new THREE.Vector3();
+  }
+  const sum = new THREE.Vector3();
+  for (const vertex of vertices) {
+    sum.add(new THREE.Vector3(...vertex.position));
+  }
+  return sum.multiplyScalar(1 / vertices.length);
+}
+
+function averageProjection(
+  vertices: readonly AssemblyVertex[],
+  origin: THREE.Vector3,
+  axis: THREE.Vector3,
+): number {
+  if (vertices.length === 0) {
+    return 0;
+  }
+  let total = 0;
+  for (const vertex of vertices) {
+    total += new THREE.Vector3(...vertex.position).sub(origin).dot(axis);
+  }
+  return total / vertices.length;
+}
+
+function meanDistanceToPoint(
+  vertices: readonly AssemblyVertex[],
+  target: THREE.Vector3,
+): number {
+  if (vertices.length === 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+  let total = 0;
+  for (const vertex of vertices) {
+    total += new THREE.Vector3(...vertex.position).distanceTo(target);
+  }
+  return total / vertices.length;
+}
+
+function measureSleeveAxisErrorDeg(
+  sleeveVertices: readonly AssemblyVertex[],
+  shoulder: THREE.Vector3 | null,
+  arm: THREE.Vector3 | null,
+  axes: CharacterDressAxes,
+  side: 'left' | 'right',
+  sdfs: readonly BoneSdfCapsuleSample[],
+): number {
+  if (sleeveVertices.length === 0) {
+    return 180;
+  }
+
+  const shoulderEnd = sleeveVertices.filter((vertex) => vertex.uv[0] <= 0.2);
+  const cuffEnd = sleeveVertices.filter((vertex) => vertex.uv[0] >= 0.8);
+  const shoulderPoint = averageVertexPosition(shoulderEnd.length > 0 ? shoulderEnd : sleeveVertices);
+  const cuffPoint = averageVertexPosition(cuffEnd.length > 0 ? cuffEnd : sleeveVertices);
+  const sleeveAxis = cuffPoint.clone().sub(shoulderPoint);
+  sleeveAxis.y = 0;
+  if (sleeveAxis.lengthSq() < 1e-6) {
+    return 180;
+  }
+  sleeveAxis.normalize();
+
+  let expectedAxis: THREE.Vector3 | null = null;
+  if (shoulder && arm) {
+    expectedAxis = arm.clone().sub(shoulder);
+    expectedAxis.y = 0;
+    if (expectedAxis.lengthSq() < 1e-6) {
+      expectedAxis = null;
+    } else {
+      expectedAxis.normalize();
+    }
+  }
+
+  if (!expectedAxis) {
+    const armCapsules = sdfs.filter((capsule) => {
+      const key = (capsule.name ?? '').toLowerCase();
+      return side === 'left'
+        ? /left(shoulder|arm|forearm)/.test(key) && !/right/.test(key)
+        : /right(shoulder|arm|forearm)/.test(key) && !/left/.test(key);
+    });
+    if (armCapsules.length > 0) {
+      const start = new THREE.Vector3(...armCapsules[0]!.start);
+      const end = new THREE.Vector3(...armCapsules[0]!.end);
+      expectedAxis = end.clone().sub(start);
+      expectedAxis.y = 0;
+      if (expectedAxis.lengthSq() > 1e-6) {
+        expectedAxis.normalize();
+      } else {
+        expectedAxis = null;
+      }
+    }
+  }
+
+  if (!expectedAxis) {
+    expectedAxis = side === 'left'
+      ? axes.xAxis.clone().multiplyScalar(-1)
+      : axes.xAxis.clone();
+  }
+
+  const dot = THREE.MathUtils.clamp(sleeveAxis.dot(expectedAxis), -1, 1);
+  return Math.acos(dot) * (180 / Math.PI);
 }
 
 function characterSdfKey(name: string): string {

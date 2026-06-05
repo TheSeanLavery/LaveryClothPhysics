@@ -1,10 +1,8 @@
-import {
-  createCharacterGarmentControls,
-  type CharacterGarmentOptionsHost,
-} from '../../character/characterGarmentFlow.ts';
 import type { CharacterDuelScene } from '../../scenes/characterDuel/CharacterDuelScene.ts';
-import { CHARACTER_DUEL_CONFIG } from '../../scenes/characterDuel/characterDuelConfig.ts';
-import { createDockedGui } from '../DevMenuShell.ts';
+import { duelShirtPresetState } from '../../scenes/characterDuel/characterDuelConfig.ts';
+import { createGarmentStudioControls } from '../../garments/GarmentStudioControls.ts';
+import { embedGuiInDock } from '../../ui/ControlsDock.ts';
+import { makeDraggable } from '../../ui/draggableFloating.ts';
 import type { DevPanelDefinition } from '../DevMenuShell.ts';
 
 export function createDuelShirtPanelDefinition(duel: CharacterDuelScene): DevPanelDefinition {
@@ -15,28 +13,36 @@ export function createDuelShirtPanelDefinition(duel: CharacterDuelScene): DevPan
     testId: 'duel-shirt-controls',
     defaultOpen: true,
     create: (container) => {
-      const gui = createDockedGui(container, {
-        title: 'Duel shirts',
+      const garmentControls = createGarmentStudioControls({
+        title: 'Duel T-shirt',
         testId: 'duel-shirt-controls',
+        position: 'left',
+        initialPreset: duelShirtPresetState.preset,
+        initialGarmentType: 'tshirt',
+        showServerFixture: false,
+        showExport: true,
+        lockGarmentType: true,
+        onGenerate: async (preset) => {
+          duelShirtPresetState.preset = preset;
+          await duel.redressMergedShirts();
+        },
       });
 
-      const shirtHost: CharacterGarmentOptionsHost = {
-        options: CHARACTER_DUEL_CONFIG.shirtOptions,
-      };
-      const redress = (): void => {
-        void duel.redressMergedShirts();
-      };
-      createCharacterGarmentControls(gui, shirtHost, redress);
+      const guiEl = garmentControls.gui.domElement;
+      guiEl.remove();
+      container.appendChild(guiEl);
+      embedGuiInDock(guiEl);
+      const title = guiEl.querySelector<HTMLElement>('.lil-title');
+      if (title) {
+        makeDraggable(container, { handle: title });
+      }
 
-      const actionsFolder = gui.addFolder('Duel actions');
-      actionsFolder.add({ redress }, 'redress').name('Redress both fighters');
-      actionsFolder.add(
-        { settle: () => void duel.waitForMergedShirtSimSettle() },
-        'settle',
-      ).name('Wait shirt settle');
-      actionsFolder.open();
-
-      return gui;
+      return {
+        id: 'duel-shirts',
+        title: 'Duel shirts',
+        testId: 'duel-shirt-controls',
+        destroy: () => garmentControls.gui.destroy(),
+      };
     },
   };
 }

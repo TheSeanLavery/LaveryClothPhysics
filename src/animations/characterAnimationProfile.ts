@@ -41,6 +41,24 @@ export interface CharacterAnimationProfile {
     readonly rootYawOffset?: number;
     readonly walkSpeed: number;
     readonly turnSpeed: number;
+    /** Horizontal acceleration while starting or changing direction (m/s²). */
+    readonly moveAccel?: number;
+    /** Horizontal deceleration when releasing input (m/s²). */
+    readonly moveDecel?: number;
+    /** Seconds to smooth raw WASD input (0 = none). */
+    readonly inputSmoothTau?: number;
+    /** Root speed below which walk→idle hysteresis fires (m/s). */
+    readonly moveStopSpeed?: number;
+    /** Angular acceleration while turning (rad/s²). */
+    readonly turnAccel?: number;
+    /** Angular deceleration while turning (rad/s²). */
+    readonly turnDecel?: number;
+    /** Seconds to ease walk facing when WASD direction changes. */
+    readonly walkDirectionSmoothTau?: number;
+    /** Seconds to distribute attack step-in over (duel). */
+    readonly attackStepRampSec?: number;
+    /** Attack facing turn rate (rad/s); 0 keeps instant snap. */
+    readonly attackFacingTurnSpeed?: number;
     readonly attackRange: number;
     /** Multiplier on attackRange for AI walk-to-engage (default 0.85). */
     readonly attackEngageFactor?: number;

@@ -4,7 +4,11 @@ import {
   MIXAMO_TPOSE_URL,
   VISIBLE_CHARACTER_MODEL_URL,
 } from '../../character/AnimatedCharacter.ts';
-import { DEFAULT_CHARACTER_T_SHIRT_OPTIONS } from '../../character/shirtDressing.ts';
+import {
+  createGarmentPresetEnvelope,
+  DEFAULT_TSHIRT_PARAMS,
+  type GarmentPresetEnvelope,
+} from '../../garments/garmentSchema.ts';
 import type { CharacterAnimationProfile } from '../../animations/characterAnimationProfile.ts';
 
 export type DuelControlMode = 'pvp' | 'ai-ai';
@@ -20,6 +24,8 @@ export function applyDuelCombatProfile(profile: CharacterAnimationProfile): Char
       attackMinSeparation: combat.attackMinSeparation,
       attackStrikeDistance: combat.attackStrikeDistance,
       attackStepMeters: combat.attackStepMeters,
+      attackStepRampSec: combat.attackStepRampSec,
+      attackFacingTurnSpeed: combat.attackFacingTurnSpeed,
       attackLungeSpeed: combat.attackLungeSpeed,
     },
   };
@@ -29,6 +35,11 @@ export function applyDuelCombatProfile(profile: CharacterAnimationProfile): Char
 export const DUEL_CAMERA = {
   position: [0, 1.05, 5.2] as const,
   target: [0, 0.95, 0] as const,
+};
+
+/** Mutable duel shirt preset — shared by duel scene dress + dev garment panel. */
+export const duelShirtPresetState: { preset: GarmentPresetEnvelope } = {
+  preset: createGarmentPresetEnvelope('Duel T-shirt', 'tshirt', DEFAULT_TSHIRT_PARAMS),
 };
 
 export const CHARACTER_DUEL_CONFIG = {
@@ -49,9 +60,10 @@ export const CHARACTER_DUEL_CONFIG = {
     attackStrikeDistance: 0.58,
     attackMinSeparation: 0.5,
     attackStepMeters: 0.1,
-    attackLungeSpeed: 1.1,
+    attackStepRampSec: 0.15,
+    attackFacingTurnSpeed: 14,
+    attackLungeSpeed: 0.85,
   },
-  shirtOptions: { ...DEFAULT_CHARACTER_T_SHIRT_OPTIONS },
   healthDisplay: {
     /** Display 0 when less than this fraction of dress-time cloth remains (12% broken). */
     zeroBelowRemainingRatio: 0.88,

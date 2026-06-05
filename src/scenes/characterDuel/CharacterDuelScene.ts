@@ -36,8 +36,10 @@ import {
 import {
   applyDuelCombatProfile,
   CHARACTER_DUEL_CONFIG,
+  duelShirtPresetState,
   type DuelControlMode,
 } from './characterDuelConfig.ts';
+import type { GarmentPresetEnvelope } from '../../garments/garmentSchema.ts';
 
 export interface CharacterDuelLoadOptions {
   readonly setup?: CharacterDuelAnimationSetup;
@@ -326,22 +328,6 @@ export class CharacterDuelScene {
     await this.waitForBootRenderReady(16, bootFrame);
 
     this.phase = 'dressing';
-    const dressA = await this.controllerA.prepareRigForGarmentDress({
-      onFrame: bootFrame,
-      poseSettleSec: 0.5,
-    });
-    const dressB = await this.controllerB.prepareRigForGarmentDress({
-      onFrame: bootFrame,
-      poseSettleSec: 0.5,
-    });
-    if (!dressA.passed || !dressB.passed) {
-      const msg = [
-        ...dressA.failures.map((f) => `fighter A: ${f}`),
-        ...dressB.failures.map((f) => `fighter B: ${f}`),
-      ].join('; ');
-      throw new Error(`Rig dress sequence failed: ${msg}`);
-    }
-    this.syncFightersFacing();
     await this.dressMergedShirtsOnTpose();
 
     await Promise.all([this.controllerA.preloadLocomotion(), this.controllerB.preloadLocomotion()]);
@@ -414,11 +400,6 @@ export class CharacterDuelScene {
     this.phase = 'dressing';
     try {
       this.resetSpawnTransforms();
-      this.syncFightersFacing();
-      await Promise.all([
-        this.controllerA.fsm.forceState('idle'),
-        this.controllerB.fsm.forceState('idle'),
-      ]);
       await this.dressMergedShirtsOnTpose();
       await Promise.all([
         this.controllerA.startIdle(),
@@ -478,19 +459,38 @@ export class CharacterDuelScene {
     }
     this.isRedressingShirts = true;
     try {
-      if (!this.controllerA.isRigDressReady() || !this.controllerB.isRigDressReady()) {
-        const [dressA, dressB] = await Promise.all([
-          this.controllerA.prepareRigForGarmentDress(),
-          this.controllerB.prepareRigForGarmentDress(),
-        ]);
-        if (!dressA.passed || !dressB.passed) {
-          throw new Error('Rig dress sequence failed before shirt placement');
-        }
+      const bootFrame = () => this.stepBootFrame(1 / 60);
+      this.controllerA.fsm.clearRigDressReady();
+      this.controllerB.fsm.clearRigDressReady();
+      const [dressA, dressB] = await Promise.all([
+        this.controllerA.prepareRigForGarmentDress({
+          onFrame: bootFrame,
+          poseSettleSec: 0.5,
+        }),
+        this.controllerB.prepareRigForGarmentDress({
+          onFrame: bootFrame,
+          poseSettleSec: 0.5,
+        }),
+      ]);
+      if (!dressA.passed || !dressB.passed) {
+        const msg = [
+          ...dressA.failures.map((f) => `fighter A: ${f}`),
+          ...dressB.failures.map((f) => `fighter B: ${f}`),
+        ].join('; ');
+        throw new Error(`Rig dress sequence failed before shirt placement: ${msg}`);
       }
-      this.syncFightersFacing();
+      if (this.controllerA.getState() !== 'tpose' || this.controllerB.getState() !== 'tpose') {
+        throw new Error('fighters must be held in T-pose before shirt placement');
+      }
 
-      const assemblyA = dressTShirtOnRig(this.rigA, CHARACTER_DUEL_CONFIG.shirtOptions);
-      const assemblyB = dressTShirtOnRig(this.rigB, CHARACTER_DUEL_CONFIG.shirtOptions);
+      this.syncFightersFacing();
+      await this.settleRigsAfterFacingSync(bootFrame);
+      this.rigA.root.updateMatrixWorld(true);
+      this.rigB.root.updateMatrixWorld(true);
+
+      const shirtParams = duelShirtPresetState.preset.params;
+      const assemblyA = dressTShirtOnRig(this.rigA, shirtParams);
+      const assemblyB = dressTShirtOnRig(this.rigB, shirtParams);
       this.fighterAVertexCount = assemblyA.vertices.length;
       const merged = mergeClothAssemblies([assemblyA, assemblyB]);
       this.mergedShirtAssembly = merged;
@@ -531,6 +531,18 @@ export class CharacterDuelScene {
       await this.controllerB.fsm.forceState(restoreB);
     }
     this.syncFightersFacing();
+  }
+
+  /** Advance held T-pose bone matrices after root yaw snaps (duel facing). */
+  private async settleRigsAfterFacingSync(onFrame?: () => void): Promise<void> {
+    const stepSec = 1 / 60;
+    const steps = Math.max(1, Math.ceil(SHIRT_DRESS_POSE_SETTLE_SEC / stepSec));
+    for (let i = 0; i < steps; i += 1) {
+      this.rigA.root.updateMatrixWorld(true);
+      this.rigB.root.updateMatrixWorld(true);
+      onFrame?.();
+      await waitForAnimationFrames(1);
+    }
   }
 
   /** One boot/dress frame: animation + bone SDFs + cloth sim (matches live play loop). */
@@ -646,6 +658,10 @@ export class CharacterDuelScene {
       round: this.getRoundStats(),
       note: 'Display HP maps GPU remaining cloth/structure; 0 when below tunable broken %',
     };
+  }
+
+  getShirtPreset(): GarmentPresetEnvelope {
+    return duelShirtPresetState.preset;
   }
 
   getStats(): CharacterDuelStats {

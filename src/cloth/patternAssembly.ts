@@ -385,13 +385,13 @@ export function createTShirtAssembly(options: TShirtAssemblyOptions): ClothAssem
   const sleeveSegmentsX = Math.max(5, Math.round(options.sleeveSegmentsX ?? 8));
   const armholeTopV = bodySegmentsY;
   const armholeBottomV = bodySegmentsY - sleeveSegmentsV;
-  const neckHalfSegments = Math.max(3, Math.round(bodySegmentsX * 0.16));
+  const neckHalfSegments = Math.max(2, Math.round(bodySegmentsX * 0.09));
   const neckLeftEndU = Math.floor(bodySegmentsX * 0.5) - neckHalfSegments;
   const neckRightStartU = Math.ceil(bodySegmentsX * 0.5) + neckHalfSegments;
   const shoulderDrop = torsoHeight * 0.055;
-  const frontNeckDrop = torsoHeight * 0.13;
-  const backNeckDrop = torsoHeight * 0.045;
-  const neckBindingWidth = torsoHeight * 0.025;
+  const frontNeckDrop = torsoHeight * 0.085;
+  const backNeckDrop = torsoHeight * 0.035;
+  const neckBindingWidth = torsoHeight * 0.02;
 
   const makeBody = (id: string, zSign: number, neckDrop: number, placed: boolean): ClothPatchDefinition => {
     const vertices: AssemblyVec3[] = [];

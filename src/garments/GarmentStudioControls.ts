@@ -28,6 +28,8 @@ export interface GarmentStudioControlsOptions {
   readonly initialPresetName?: string;
   readonly showServerFixture?: boolean;
   readonly showExport?: boolean;
+  /** When set, garment type is fixed (e.g. duel T-shirt panel). */
+  readonly lockGarmentType?: boolean;
 }
 
 export interface GarmentStudioControls {
@@ -178,26 +180,28 @@ export function createGarmentStudioControls(
   presetFolder.open();
 
   const generatorFolder = gui.addFolder('Generator');
-  generatorFolder
-    .add(state, 'garmentType', {
-      'T-shirt': 'tshirt',
-      'Skirt': 'skirt',
-      'Pleated skirt': 'pleatedSkirt',
-      'Elastic shorts': 'elasticShorts',
-      'Trousers': 'trousers',
-      'Jeans': 'jeans',
-    })
-    .name('Garment type')
-    .onChange((next: GarmentType) => {
-      garmentType = next;
-      state.garmentType = next;
-      state.presetName = defaultPresetName(next);
-      currentParams = mutableParams(defaultGarmentParams(next));
-      presetNameController.updateDisplay();
-      rebuildParamFolder();
-      void generateCurrent();
-    })
-    .domElement.setAttribute('data-testid', 'garment-type-select');
+  if (!options.lockGarmentType) {
+    generatorFolder
+      .add(state, 'garmentType', {
+        'T-shirt': 'tshirt',
+        'Skirt': 'skirt',
+        'Pleated skirt': 'pleatedSkirt',
+        'Elastic shorts': 'elasticShorts',
+        'Trousers': 'trousers',
+        'Jeans': 'jeans',
+      })
+      .name('Garment type')
+      .onChange((next: GarmentType) => {
+        garmentType = next;
+        state.garmentType = next;
+        state.presetName = defaultPresetName(next);
+        currentParams = mutableParams(defaultGarmentParams(next));
+        presetNameController.updateDisplay();
+        rebuildParamFolder();
+        void generateCurrent();
+      })
+      .domElement.setAttribute('data-testid', 'garment-type-select');
+  }
   generatorFolder.add(state, 'generate').name('Generate garment')
     .domElement.setAttribute('data-testid', 'garment-generate-btn');
   generatorFolder.open();
@@ -302,7 +306,9 @@ export function createGarmentStudioControls(
       addSlider('waistRadius', 0.045, 0.8, 0.005, 'Waist radius');
       addSlider('hemRadius', 0.065, 1.1, 0.005, 'Hem radius');
       addSlider('length', 0.15, 1.4, 0.01, 'Length');
-      addSlider('panelCount', garmentType === 'pleatedSkirt' ? 6 : 4, garmentType === 'pleatedSkirt' ? 48 : 36, 1, 'Panel count');
+      if (garmentType === 'skirt') {
+        addSlider('panelCount', 4, 36, 1, 'Panel count');
+      }
       addSlider('gridSpacing', 0.018, 0.08, 0.001, 'Grid spacing');
       if (garmentType === 'pleatedSkirt') {
         addChoice('waistFinish', {
@@ -338,22 +344,17 @@ export function createGarmentStudioControls(
       addSlider('seatEase', -0.12, 0.22, 0.005, 'Seat ease');
       addSlider('gridSpacing', 0.018, 0.08, 0.001, 'Grid spacing');
       if (garmentType === 'elasticShorts') {
-        addSlider('elasticWidth', 0.015, 0.08, 0.001, 'Elastic width');
-        addSlider('elasticRatio', 0.65, 1, 0.01, 'Elastic ratio');
         addSlider('casingHeight', 0.025, 0.12, 0.001, 'Casing height');
-        addSlider('hemAllowance', 0.005, 0.08, 0.001, 'Hem allowance');
       }
       if (garmentType === 'trousers') {
         addSlider('waistbandHeight', 0.02, 0.08, 0.001, 'Waistband height');
         addSlider('flyLength', 0.08, 0.28, 0.005, 'Fly length');
-        addSlider('frontPleatDepth', 0, 0.08, 0.005, 'Front pleat depth');
       }
       if (garmentType === 'jeans') {
         addSlider('waistbandHeight', 0.025, 0.075, 0.001, 'Waistband height');
         addSlider('flyLength', 0.08, 0.28, 0.005, 'Fly length');
         addSlider('yokeHeight', 0.035, 0.14, 0.005, 'Yoke height');
         addSlider('frontPocketOpening', 0.08, 0.26, 0.005, 'Front pocket opening');
-        addSlider('backPocketWidth', 0.07, 0.2, 0.005, 'Back pocket width');
         addSlider('backPocketHeight', 0.08, 0.24, 0.005, 'Back pocket height');
         addSlider('beltLoopCount', 4, 9, 1, 'Belt loops');
       }

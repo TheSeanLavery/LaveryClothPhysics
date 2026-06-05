@@ -7,13 +7,16 @@ import {
   auditEdgeCapsuleClearance,
   auditPerCapsuleClearance,
   auditShirtSdfClearance,
+  auditTShirtDressAlignment,
   auditTriangleCapsuleClearance,
   auditTriangleQuality,
   closestCapsuleSignedDistance,
   projectToExteriorShell,
+  resolveCharacterDressAxes,
   SHIRT_SDF_CLEARANCE,
   signedDistanceToCapsule,
 } from './shirtDressing.ts';
+import type { CharacterAnchors } from './AnimatedCharacter.ts';
 
 const clearance = SHIRT_SDF_CLEARANCE;
 
@@ -162,6 +165,65 @@ describe('shirt SDF dressing utilities', () => {
     const capsules = [{ start: [0, 0.2, 0] as const, end: [0, 0.8, 0] as const, radius: 0.02, name: 'spine' }];
     const report = auditTriangleCapsuleClearance(assembly, capsules, clearance);
     assert.ok(report.failureCount > 0);
+  });
+
+  it('resolves dress forward from torso up cross shoulder line', () => {
+    const anchors: CharacterAnchors = {
+      hips: new THREE.Vector3(0, 0.8, 0),
+      chest: new THREE.Vector3(0, 1.1, 0),
+      neck: new THREE.Vector3(0, 1.35, 0),
+      leftShoulder: new THREE.Vector3(-0.2, 1.32, 0),
+      rightShoulder: new THREE.Vector3(0.2, 1.32, 0),
+      leftArm: new THREE.Vector3(-0.42, 1.18, 0),
+      rightArm: new THREE.Vector3(0.42, 1.18, 0),
+    };
+    const axes = resolveCharacterDressAxes(anchors);
+    assert.ok(axes.zAxis.z < -0.9, `expected forward -Z, got ${axes.zAxis.toArray()}`);
+    assert.ok(axes.xAxis.x > 0.9, `expected right +X, got ${axes.xAxis.toArray()}`);
+  });
+
+  it('uses measured forward yaw for duel-facing rigs instead of the lateral shoulder axis', () => {
+    const anchors: CharacterAnchors = {
+      hips: new THREE.Vector3(-1.2, 0.8, 0),
+      chest: new THREE.Vector3(-1.2, 1.1, 0),
+      neck: new THREE.Vector3(-1.2, 1.35, 0),
+      leftShoulder: new THREE.Vector3(-1.2, 1.32, -0.2),
+      rightShoulder: new THREE.Vector3(-1.2, 1.32, 0.2),
+      leftArm: new THREE.Vector3(-1.2, 1.18, -0.42),
+      rightArm: new THREE.Vector3(-1.2, 1.18, 0.42),
+    };
+    const towardOpponent = resolveCharacterDressAxes(anchors, Math.PI / 2);
+    assert.ok(towardOpponent.zAxis.x > 0.9, `fighter A should face +X, got ${towardOpponent.zAxis.toArray()}`);
+    assert.ok(Math.abs(towardOpponent.xAxis.z) > 0.9, `fighter A right should be along Z, got ${towardOpponent.xAxis.toArray()}`);
+
+    const towardOpponentB = resolveCharacterDressAxes(anchors, -Math.PI / 2);
+    assert.ok(towardOpponentB.zAxis.x < -0.9, `fighter B should face -X, got ${towardOpponentB.zAxis.toArray()}`);
+  });
+
+  it('fails dress alignment when the shirt front panel is on the character back', () => {
+    const anchors: CharacterAnchors = {
+      hips: new THREE.Vector3(0, 0.8, 0),
+      chest: new THREE.Vector3(0, 1.1, 0),
+      neck: new THREE.Vector3(0, 1.35, 0),
+      leftShoulder: new THREE.Vector3(-0.2, 1.32, 0),
+      rightShoulder: new THREE.Vector3(0.2, 1.32, 0),
+      leftArm: new THREE.Vector3(-0.42, 1.18, 0),
+      rightArm: new THREE.Vector3(0.42, 1.18, 0),
+    };
+    const assembly = {
+      vertices: [
+        { id: 0, patchId: 'tshirt-front-panel', localId: 0, position: [0, 1.1, 0.25] as const, uv: [0.5, 0.8] as const },
+        { id: 1, patchId: 'tshirt-back-panel', localId: 1, position: [0, 1.1, -0.25] as const, uv: [0.5, 0.8] as const },
+        { id: 2, patchId: 'tshirt-left-sleeve', localId: 2, position: [-0.35, 1.15, 0] as const, uv: [0.1, 0.5] as const },
+        { id: 3, patchId: 'tshirt-right-sleeve', localId: 3, position: [0.35, 1.15, 0] as const, uv: [0.9, 0.5] as const },
+      ],
+      faces: [],
+      edges: [],
+      stitchEdges: [],
+    };
+    const report = auditTShirtDressAlignment(assembly, anchors, []);
+    assert.equal(report.passed, false);
+    assert.ok(report.failures.some((failure) => failure.includes('front panel behind chest')));
   });
 
   it('reports strain and degenerate triangle quality', () => {

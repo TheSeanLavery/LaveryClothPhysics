@@ -11,8 +11,10 @@ import {
 import {
   generateGarmentAssembly,
   measurePleatedSkirtMaterial,
+  resolveTShirtAssemblyOptions,
   summarizeGarmentAssembly,
 } from './garmentGenerator.ts';
+import { createTShirtAssembly } from '../cloth/patternAssembly.ts';
 
 test('upgrades v1 garment presets into the current envelope', () => {
   const upgraded = upgradeGarmentPreset({
@@ -35,7 +37,7 @@ test('upgrades v1 garment presets into the current envelope', () => {
   assert.equal(upgraded.garmentType, 'tshirt');
   assert.equal(upgraded.params.garmentType, 'tshirt');
   assert.equal(upgraded.params.bodyWidth, 1.2);
-  assert.equal(upgraded.params.bodySegmentsX, 36);
+  assert.equal(upgraded.params.gridSpacing, 0.04);
 });
 
 test('upgrades v2 pleated skirt presets with real fold and grid defaults', () => {
@@ -115,6 +117,14 @@ test('normalizes snug lower-body garment ranges for character fitting', () => {
   assert.equal(trousers.hemCircumference, 0.1);
   assert.equal(trousers.hipEase, -0.12);
   assert.equal(trousers.seatEase, -0.12);
+});
+
+test('studio and character t-shirt paths share grid-derived topology', () => {
+  const params = normalizeGarmentParams('tshirt', { garmentType: 'tshirt' });
+  const studio = generateGarmentAssembly(params);
+  const direct = createTShirtAssembly(resolveTShirtAssemblyOptions(params));
+  assert.equal(direct.vertices.length, studio.vertices.length);
+  assert.equal(direct.faces.length, studio.faces.length);
 });
 
 test('generates valid assemblies for supported garment types', () => {

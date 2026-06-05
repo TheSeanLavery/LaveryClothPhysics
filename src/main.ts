@@ -45,6 +45,7 @@ import {
   generateGarmentPresetAssembly,
   type GarmentAssemblyStats,
 } from './garments/garmentGenerator';
+import { createGarmentStudioControls } from './garments/GarmentStudioControls.ts';
 import {
   deleteGarmentPreset,
   getGarmentPreset,
@@ -164,6 +165,7 @@ declare global {
     __characterSettledShirtSurfaceReport?: () => Promise<CharacterShirtSurfaceReport>;
     __characterProbeBoneSdfCollision?: () => BoneSdfCollisionProbe;
     __characterShirtAnchorReport?: () => ShirtAnchorReport;
+    __characterTShirtDressAlignmentReport?: () => import('./character/shirtDressing.ts').TShirtDressAlignmentReport;
     __characterSdfToolStats?: () => CharacterSdfToolStats;
     __characterSdfToolCapsules?: () => ReturnType<CharacterSdfTool['getCapsules']>;
     __characterSdfToolReport?: () => CharacterSdfFitQualityReport;
@@ -192,6 +194,7 @@ declare global {
     __duelSetHealthBrokenPercentForZero?: (brokenPercent: number) => void;
     __duelSetAutoRematch?: (enabled: boolean) => void;
     __duelFacingDebug?: (fighter?: 'A' | 'B') => import('./character/CharacterController.ts').FacingDebugSnapshot;
+    __duelMovementDebug?: (fighter?: 'A' | 'B') => import('./character/CharacterController.ts').MovementDebugSnapshot;
     __duelAuditFacingTurn?: (options: {
       fighter?: 'A' | 'B';
       key: string;
@@ -230,6 +233,11 @@ declare global {
     __duelSettledShirtSurfaceReport?: () => Promise<{ vertex: ShirtSdfClearanceReport }>;
     __duelWaitForSettledShirts?: () => Promise<void>;
     __duelAuditStartupShirts?: () => Promise<import('./scenes/characterDuel/duelShirtStartupAudit.ts').DuelStartupShirtAudit>;
+    __duelTShirtDressAlignmentAudit?: () => {
+      readonly passed: boolean;
+      readonly fighterA: import('./character/shirtDressing.ts').TShirtDressAlignmentReport;
+      readonly fighterB: import('./character/shirtDressing.ts').TShirtDressAlignmentReport;
+    };
     __duelSimulateKey?: (code: string, phase: 'down' | 'up') => void;
     __duelAnimationFsmSnapshot?: (fighter?: 'A' | 'B') => import('./animations/CharacterAnimationStateMachine.ts').FsmSnapshot;
     __duelAnimationFsmForceState?: (state: string, fighter?: 'A' | 'B') => Promise<void>;
@@ -237,6 +245,7 @@ declare global {
     __duelAnimationSetup?: () => Promise<import('./scenes/characterDuel/characterDuelAnimation.ts').CharacterDuelAnimationSetup>;
     __duelSaveAnimationSetup?: () => Promise<void>;
     __duelRedressShirts?: () => Promise<void>;
+    __duelShirtPreset?: () => import('./garments/garmentSchema.ts').GarmentPresetEnvelope;
     __duelSetBonesVisible?: (fighter: 'A' | 'B', visible: boolean) => void;
     __duelGetBonesVisible?: (fighter: 'A' | 'B') => boolean;
     __duelMeasureRigForward?: (fighter?: 'A' | 'B') => {
@@ -481,6 +490,11 @@ async function bootstrapCharacterPreview(
 
   const rig = new AnimatedCharacterSceneRig(cloth.scene);
   await rig.load();
+  rig.settleShirtTpose();
+  for (let i = 0; i < 12; i += 1) {
+    rig.update(1 / 60);
+    rig.root.updateMatrixWorld(true);
+  }
   cloth.settings.mannequinFriction = 0.85;
   cloth.settings.mannequinCollision = false;
   cloth.applySettings();
@@ -879,6 +893,7 @@ async function bootstrapCharacterPreview(
     hitBoneNames: [],
   });
   window.__characterShirtAnchorReport = () => garmentFlow.anchorReport();
+  window.__characterTShirtDressAlignmentReport = () => garmentFlow.dressAlignmentReport();
 
   let characterReproRecorder!: ReturnType<typeof createCharacterReproRecorder>;
 

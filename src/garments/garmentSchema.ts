@@ -1,5 +1,3 @@
-import type { TShirtAssemblyOptions } from '../cloth/patternAssembly.ts';
-
 export const GARMENT_PRESET_KIND = 'lavery-garment-generator-preset';
 export const CURRENT_GARMENT_SCHEMA_VERSION = 5;
 
@@ -18,10 +16,20 @@ export interface GarmentGeneratorParamsByType {
 
 export type GarmentGeneratorParams = GarmentGeneratorParamsByType[GarmentType];
 
-export interface TShirtGarmentParams extends TShirtAssemblyOptions {
+export type TShirtGarmentParams = {
   readonly garmentType: 'tshirt';
   readonly gridSpacing: number;
-}
+  readonly bodyWidth: number;
+  readonly torsoHeight: number;
+  readonly sleeveLength: number;
+  readonly sleeveOpening: number;
+  readonly sleeveTubeRadius: number;
+  readonly depth: number;
+  readonly sleeveHangScale: number;
+  readonly sleeveLiftScale: number;
+  readonly sleeveVerticalRadiusScale: number;
+  readonly restLengthMode?: 'flat' | 'placed';
+};
 
 export interface SkirtGarmentParams {
   readonly garmentType: 'skirt';
@@ -30,7 +38,6 @@ export interface SkirtGarmentParams {
   readonly hemRadius: number;
   readonly length: number;
   readonly panelCount: number;
-  readonly segmentsHeight: number;
 }
 
 export interface PleatedSkirtGarmentParams extends SkirtGarmentParams {
@@ -62,17 +69,13 @@ export interface LowerBodyBlockParams {
 
 export interface ElasticShortsGarmentParams extends LowerBodyBlockParams {
   readonly garmentType: 'elasticShorts';
-  readonly elasticWidth: number;
-  readonly elasticRatio: number;
   readonly casingHeight: number;
-  readonly hemAllowance: number;
 }
 
 export interface TrousersGarmentParams extends LowerBodyBlockParams {
   readonly garmentType: 'trousers';
   readonly waistbandHeight: number;
   readonly flyLength: number;
-  readonly frontPleatDepth: number;
 }
 
 export interface JeansGarmentParams extends LowerBodyBlockParams {
@@ -81,7 +84,6 @@ export interface JeansGarmentParams extends LowerBodyBlockParams {
   readonly flyLength: number;
   readonly yokeHeight: number;
   readonly frontPocketOpening: number;
-  readonly backPocketWidth: number;
   readonly backPocketHeight: number;
   readonly beltLoopCount: number;
 }
@@ -119,14 +121,11 @@ export const DEFAULT_TSHIRT_PARAMS: TShirtGarmentParams = {
   sleeveOpening: 0.26,
   sleeveTubeRadius: 0.088,
   depth: 0.25,
-  bodySegmentsX: 12,
-  bodySegmentsY: 18,
-  sleeveSegmentsX: 5,
-  gridSpacing: 0.04,
+  gridSpacing: 0.044,
   restLengthMode: 'placed',
-  sleeveHangScale: 0.25,
-  sleeveLiftScale: 0.18,
-  sleeveVerticalRadiusScale: 0.34,
+  sleeveHangScale: 0.45,
+  sleeveLiftScale: 0.35,
+  sleeveVerticalRadiusScale: 0.42,
 };
 
 export const DEFAULT_SKIRT_PARAMS: SkirtGarmentParams = {
@@ -135,8 +134,7 @@ export const DEFAULT_SKIRT_PARAMS: SkirtGarmentParams = {
   hemRadius: 0.34,
   length: 0.62,
   panelCount: 8,
-  segmentsHeight: 16,
-  gridSpacing: 0.04,
+  gridSpacing: 0.044,
 };
 
 export const DEFAULT_PLEATED_SKIRT_PARAMS: PleatedSkirtGarmentParams = {
@@ -158,7 +156,7 @@ export const DEFAULT_PLEATED_SKIRT_PARAMS: PleatedSkirtGarmentParams = {
 
 export const DEFAULT_ELASTIC_SHORTS_PARAMS: ElasticShortsGarmentParams = {
   garmentType: 'elasticShorts',
-  gridSpacing: 0.04,
+  gridSpacing: 0.044,
   waistCircumference: 0.78,
   hipCircumference: 0.96,
   rise: 0.29,
@@ -168,15 +166,12 @@ export const DEFAULT_ELASTIC_SHORTS_PARAMS: ElasticShortsGarmentParams = {
   hemCircumference: 0.56,
   hipEase: 0.1,
   seatEase: 0.08,
-  elasticWidth: 0.035,
-  elasticRatio: 0.86,
   casingHeight: 0.055,
-  hemAllowance: 0.025,
 };
 
 export const DEFAULT_TROUSERS_PARAMS: TrousersGarmentParams = {
   garmentType: 'trousers',
-  gridSpacing: 0.04,
+  gridSpacing: 0.044,
   waistCircumference: 0.82,
   hipCircumference: 1.0,
   rise: 0.3,
@@ -188,7 +183,6 @@ export const DEFAULT_TROUSERS_PARAMS: TrousersGarmentParams = {
   seatEase: 0.06,
   waistbandHeight: 0.04,
   flyLength: 0.16,
-  frontPleatDepth: 0.015,
 };
 
 export const DEFAULT_JEANS_PARAMS: JeansGarmentParams = {
@@ -207,7 +201,6 @@ export const DEFAULT_JEANS_PARAMS: JeansGarmentParams = {
   flyLength: 0.17,
   yokeHeight: 0.075,
   frontPocketOpening: 0.16,
-  backPocketWidth: 0.13,
   backPocketHeight: 0.15,
   beltLoopCount: 5,
 };
@@ -316,13 +309,10 @@ function clampGarmentParams<T extends GarmentGeneratorParams>(params: T): T {
       sleeveTubeRadius: clamp(params.sleeveTubeRadius ?? DEFAULT_TSHIRT_PARAMS.sleeveTubeRadius!, 0.006, 0.22),
       depth: clamp(params.depth ?? DEFAULT_TSHIRT_PARAMS.depth!, 0.02, 0.45),
       gridSpacing: clamp(params.gridSpacing ?? DEFAULT_TSHIRT_PARAMS.gridSpacing, 0.018, 0.08),
-      bodySegmentsX: Math.round(clamp(params.bodySegmentsX ?? 12, 4, 36)),
-      bodySegmentsY: Math.round(clamp(params.bodySegmentsY ?? 18, 4, 48)),
-      sleeveSegmentsX: Math.round(clamp(params.sleeveSegmentsX ?? 5, 2, 18)),
       restLengthMode: params.restLengthMode === 'flat' ? 'flat' : 'placed',
-      sleeveHangScale: clamp(params.sleeveHangScale ?? 0.25, 0, 1),
-      sleeveLiftScale: clamp(params.sleeveLiftScale ?? 0.18, 0, 1),
-      sleeveVerticalRadiusScale: clamp(params.sleeveVerticalRadiusScale ?? 0.34, 0.02, 0.8),
+      sleeveHangScale: clamp(params.sleeveHangScale ?? 0.45, 0, 1),
+      sleeveLiftScale: clamp(params.sleeveLiftScale ?? 0.35, 0, 1),
+      sleeveVerticalRadiusScale: clamp(params.sleeveVerticalRadiusScale ?? 0.42, 0.02, 0.8),
     } as T;
   }
 
@@ -334,7 +324,6 @@ function clampGarmentParams<T extends GarmentGeneratorParams>(params: T): T {
       length: clamp(params.length, 0.15, 1.4),
       gridSpacing: clamp(params.gridSpacing ?? DEFAULT_PLEATED_SKIRT_PARAMS.gridSpacing, 0.018, 0.08),
       panelCount: Math.round(clamp(params.panelCount, 4, 48)),
-      segmentsHeight: Math.round(clamp(params.segmentsHeight, 2, 64)),
       pleatType: parsePleatType(params.pleatType),
       pleatDepth: clamp(params.pleatDepth, 0, 0.18),
       pleatCount: Math.round(clamp(params.pleatCount, 4, 48)),
@@ -350,10 +339,7 @@ function clampGarmentParams<T extends GarmentGeneratorParams>(params: T): T {
 
   if (params.garmentType === 'elasticShorts') {
     return clampLowerBodyParams(params, DEFAULT_ELASTIC_SHORTS_PARAMS, {
-      elasticWidth: clamp(params.elasticWidth, 0.015, 0.08),
-      elasticRatio: clamp(params.elasticRatio, 0.65, 1),
       casingHeight: clamp(params.casingHeight, 0.025, 0.12),
-      hemAllowance: clamp(params.hemAllowance, 0.005, 0.08),
     }) as T;
   }
 
@@ -361,7 +347,6 @@ function clampGarmentParams<T extends GarmentGeneratorParams>(params: T): T {
     return clampLowerBodyParams(params, DEFAULT_TROUSERS_PARAMS, {
       waistbandHeight: clamp(params.waistbandHeight, 0.02, 0.08),
       flyLength: clamp(params.flyLength, 0.08, 0.28),
-      frontPleatDepth: clamp(params.frontPleatDepth, 0, 0.08),
     }) as T;
   }
 
@@ -371,7 +356,6 @@ function clampGarmentParams<T extends GarmentGeneratorParams>(params: T): T {
       flyLength: clamp(params.flyLength, 0.08, 0.28),
       yokeHeight: clamp(params.yokeHeight, 0.035, 0.14),
       frontPocketOpening: clamp(params.frontPocketOpening, 0.08, 0.26),
-      backPocketWidth: clamp(params.backPocketWidth, 0.07, 0.2),
       backPocketHeight: clamp(params.backPocketHeight, 0.08, 0.24),
       beltLoopCount: Math.round(clamp(params.beltLoopCount, 4, 9)),
     }) as T;
@@ -384,7 +368,6 @@ function clampGarmentParams<T extends GarmentGeneratorParams>(params: T): T {
     length: clamp(params.length, 0.15, 1.4),
     gridSpacing: clamp(params.gridSpacing ?? DEFAULT_SKIRT_PARAMS.gridSpacing, 0.018, 0.08),
     panelCount: Math.round(clamp(params.panelCount, 4, 36)),
-    segmentsHeight: Math.round(clamp(params.segmentsHeight, 2, 64)),
   } as T;
 }
 

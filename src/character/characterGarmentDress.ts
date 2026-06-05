@@ -6,6 +6,7 @@ import {
   auditPerCapsuleClearance,
   auditShirtSdfClearance,
   auditTriangleQuality,
+  auditTShirtDressAlignment,
   DEFAULT_CHARACTER_T_SHIRT_OPTIONS,
   placeCharacterTShirtAssembly,
   SHIRT_SDF_CLEARANCE,
@@ -14,6 +15,8 @@ import {
   type CharacterTShirtGenerationOptions,
   type PerCapsuleClearanceReport,
   type ShirtSdfClearanceReport,
+  type TShirtDressAlignmentOptions,
+  type TShirtDressAlignmentReport,
   type TriangleQualityReport,
 } from './shirtDressing.ts';
 import type { BoneSdfCapsuleSample } from './shirtDressing.ts';
@@ -34,9 +37,23 @@ export function settleRigForShirtDressing(rig: AnimatedCharacterSceneRig): void 
 
 export function dressTShirtOnRig(
   rig: AnimatedCharacterSceneRig,
-  options: CharacterTShirtGenerationOptions = DEFAULT_CHARACTER_T_SHIRT_OPTIONS,
+  params: CharacterTShirtGenerationOptions = DEFAULT_CHARACTER_T_SHIRT_OPTIONS,
 ): ClothAssembly {
-  return placeCharacterTShirtAssembly(rig, SHIRT_SDF_CLEARANCE, options);
+  return placeCharacterTShirtAssembly(rig, params);
+}
+
+/** Dress-time validation: torso forward, sleeve side, and arm proximity. */
+export function auditRigTShirtDressAlignment(
+  rig: AnimatedCharacterSceneRig,
+  params: CharacterTShirtGenerationOptions = DEFAULT_CHARACTER_T_SHIRT_OPTIONS,
+  options: TShirtDressAlignmentOptions = {},
+): TShirtDressAlignmentReport {
+  rig.root.updateMatrixWorld(true);
+  const assembly = dressTShirtOnRig(rig, params);
+  return auditTShirtDressAlignment(assembly, rig.getCharacterAnchors(), rig.getBoneSdfSummary(), {
+    forwardYawRad: rig.measureForwardYaw(),
+    ...options,
+  });
 }
 
 export interface RigShirtPlacementReport {

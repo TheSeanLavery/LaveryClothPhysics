@@ -6,6 +6,7 @@ import { createCharacterSdfPanelDefinition } from './panels/characterSdfPanel.ts
 import { createDuelHealthPanelDefinition } from './panels/duelHealthPanel.ts';
 import { createDuelFighterModelPanelDefinition } from './panels/duelFighterModelPanel.ts';
 import { createDuelShirtPanelDefinition } from './panels/duelShirtPanel.ts';
+import { createMovementSmoothingPanelDefinition } from './panels/movementSmoothingPanel.ts';
 import { createPhysicsPosePanelDefinition } from './panels/physicsPosePanel.ts';
 
 export interface RegisterDuelDevMenuOptions {
@@ -42,6 +43,7 @@ export function registerDuelDevMenu(options: RegisterDuelDevMenuOptions): DevMen
     getSquashReport: () => options.duel.getMergedSquashReport(),
     getAllSquashRigs: () => [options.duel.rigA, options.duel.rigB],
   }));
+  menu.register(createMovementSmoothingPanelDefinition(options.duel));
   menu.register(createPhysicsPosePanelDefinition({
     id: 'duel-physics-pose',
     title: 'Physics pose',

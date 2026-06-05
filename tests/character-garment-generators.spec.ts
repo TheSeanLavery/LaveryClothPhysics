@@ -18,7 +18,7 @@ test.describe('Character clothing generator', () => {
     await expect(page.locator('[data-testid="sim-status"]')).toHaveText('running (animated character cloth)', {
       timeout: 45_000,
     });
-    await expect(page.locator('[data-testid="character-garment-generator-controls"]')).toBeVisible();
+    await expect(page.getByTestId('character-garment-generator-controls').first()).toBeVisible();
 
     for (const garmentType of garmentTypes) {
       const stats = await page.evaluate(
