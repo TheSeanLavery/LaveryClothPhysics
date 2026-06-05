@@ -1,0 +1,55 @@
+{
+  "defaultModelId": "blue-haired-anime-girl",
+  "basePath": "/assets/characters",
+  "models": {
+    "blue-haired-anime-girl": {
+      "id": "blue-haired-anime-girl",
+      "label": "Blue Haired Anime Girl",
+      "file": "meshy/blue-haired-anime-girl.fbx",
+      "source": "meshy",
+      "tags": ["default", "legacy"]
+    },
+    "astra-vanguard": {
+      "id": "astra-vanguard",
+      "label": "Astra Vanguard",
+      "file": "meshy-rigged/astra-vanguard.fbx",
+      "source": "meshy-rigged",
+      "tags": ["meshy", "fighter"]
+    },
+    "astra-in-motion": {
+      "id": "astra-in-motion",
+      "label": "Astra in Motion",
+      "file": "meshy-rigged/astra-in-motion.fbx",
+      "source": "meshy-rigged",
+      "tags": ["meshy", "dynamic"]
+    },
+    "athletic-t-pose": {
+      "id": "athletic-t-pose",
+      "label": "Athletic T-Pose",
+      "file": "meshy-rigged/athletic-t-pose.fbx",
+      "source": "meshy-rigged",
+      "tags": ["meshy", "tpose"]
+    },
+    "azure-training-pose": {
+      "id": "azure-training-pose",
+      "label": "Azure Training Pose",
+      "file": "meshy-rigged/azure-training-pose.fbx",
+      "source": "meshy-rigged",
+      "tags": ["meshy", "training"]
+    },
+    "crimson-aegis": {
+      "id": "crimson-aegis",
+      "label": "Crimson Aegis",
+      "file": "meshy-rigged/crimson-aegis.fbx",
+      "source": "meshy-rigged",
+      "tags": ["meshy", "fighter"]
+    },
+    "crimson-lotus-dancer": {
+      "id": "crimson-lotus-dancer",
+      "label": "Crimson Lotus Dancer",
+      "file": "meshy-rigged/crimson-lotus-dancer.fbx",
+      "source": "meshy-rigged",
+      "tags": ["meshy", "dancer"]
+    }
+  }
+}

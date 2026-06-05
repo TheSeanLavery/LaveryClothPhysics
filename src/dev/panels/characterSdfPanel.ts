@@ -1,11 +1,13 @@
 import type GUI from 'lil-gui';
 import type { AnimatedCharacterSceneRig } from '../../character/AnimatedCharacter.ts';
 import {
+  DEFAULT_SDF_SQUASH_CONFIG,
   getCharacterSdfPreset,
   importCharacterSdfPreset,
   listCharacterSdfPresets,
   saveCharacterSdfPreset,
   type CharacterSdfPresetSummary,
+  type SdfSquashReport,
 } from '../../character/sdf';
 import { createDockedGui } from '../DevMenuShell.ts';
 import type { DevPanelDefinition } from '../DevMenuShell.ts';
@@ -21,6 +23,9 @@ export interface CharacterSdfPanelOptions {
   readonly rig?: AnimatedCharacterSceneRig;
   readonly rigA?: AnimatedCharacterSceneRig;
   readonly rigB?: AnimatedCharacterSceneRig;
+  readonly getSquashReport?: () => SdfSquashReport | null;
+  /** When set (duel), squash config applies to every rig here—not only the fighter selector. */
+  readonly getAllSquashRigs?: () => readonly AnimatedCharacterSceneRig[];
 }
 
 function downloadJson(filename: string, value: unknown): void {
@@ -46,8 +51,18 @@ function syncStateFromRig(
     insideBlobRatio: number;
     meanAbsDistance: number;
     capsuleCount: number;
+    squashEnabled: boolean;
+    sdfGap: number;
+    maxSquash: number;
+    squashGain: number;
+    smoothing: number;
+    activePairCount: number;
+    maxOverlap: number;
+    squashedCapsuleCount: number;
+    topPair: string;
   },
   rig: AnimatedCharacterSceneRig,
+  getSquashReport?: () => SdfSquashReport | null,
 ): void {
   const preset = rig.getCharacterSdfPreset();
   state.globalRadiusScale = preset?.globalRadiusScale ?? 1;
@@ -62,6 +77,20 @@ function syncStateFromRig(
   state.insideBlobRatio = report?.insideBlobRatio ?? 0;
   state.meanAbsDistance = report?.meanAbsDistance ?? 0;
   state.capsuleCount = rig.getStats().sdfCapsuleCount;
+  const squashConfig = rig.getSdfSquashConfig();
+  state.squashEnabled = squashConfig.enabled;
+  state.sdfGap = squashConfig.sdfGap;
+  state.maxSquash = squashConfig.maxSquash;
+  state.squashGain = squashConfig.squashGain;
+  state.smoothing = squashConfig.smoothing;
+  const squashReport = getSquashReport?.() ?? rig.getSdfSquashReport();
+  state.activePairCount = squashReport?.activePairCount ?? 0;
+  state.maxOverlap = squashReport?.maxOverlap ?? 0;
+  state.squashedCapsuleCount = squashReport?.squashedCapsuleCount ?? 0;
+  const top = squashReport?.topPairs[0];
+  state.topPair = top
+    ? `${top.nameA}↔${top.nameB} (${top.overlap.toFixed(4)}m, ${top.policy})`
+    : '(none)';
 }
 
 function applyPresetPatch(
@@ -76,6 +105,8 @@ function applyPresetPatch(
 function bindCharacterSdfGui(
   gui: GUI,
   getRigs: () => readonly AnimatedCharacterSceneRig[],
+  getSquashReport?: () => SdfSquashReport | null,
+  getAllSquashRigs?: () => readonly AnimatedCharacterSceneRig[],
 ): void {
   const state = {
     globalRadiusScale: 1,
@@ -89,6 +120,15 @@ function bindCharacterSdfGui(
     insideBlobRatio: 0,
     meanAbsDistance: 0,
     capsuleCount: 0,
+    squashEnabled: DEFAULT_SDF_SQUASH_CONFIG.enabled,
+    sdfGap: DEFAULT_SDF_SQUASH_CONFIG.sdfGap,
+    maxSquash: DEFAULT_SDF_SQUASH_CONFIG.maxSquash,
+    squashGain: DEFAULT_SDF_SQUASH_CONFIG.squashGain,
+    smoothing: DEFAULT_SDF_SQUASH_CONFIG.smoothing,
+    activePairCount: 0,
+    maxOverlap: 0,
+    squashedCapsuleCount: 0,
+    topPair: '(none)',
     presetId: '',
     shrinkAll: () => {
       applyPresetPatch(getRigs(), { globalRadiusScale: state.globalRadiusScale * 0.96 });
@@ -182,12 +222,24 @@ function bindCharacterSdfGui(
     return options;
   };
 
+  const applySquashPatch = (
+    patch: Parameters<AnimatedCharacterSceneRig['setSdfSquashConfig']>[0],
+  ): void => {
+    const targets = getAllSquashRigs?.() ?? getRigs();
+    for (const rig of targets) {
+      rig.setSdfSquashConfig(patch);
+    }
+  };
+
   const refreshFromRigs = (): void => {
     const rig = getRigs()[0];
     if (!rig) {
       return;
     }
-    syncStateFromRig(state, rig);
+    if (!getSquashReport) {
+      rig.getBoneSdfSummaryForCloth();
+    }
+    syncStateFromRig(state, rig, getSquashReport);
     gui.controllersRecursive().forEach((controller) => controller.updateDisplay());
   };
 
@@ -227,6 +279,33 @@ function bindCharacterSdfGui(
     }
   });
   liveFolder.open();
+
+  const squashFolder = gui.addFolder('Overlap squash (cloth collision)');
+  squashFolder.add(state, 'squashEnabled').name('Enabled').onChange((value: boolean) => {
+    applySquashPatch({ enabled: value });
+    refreshFromRigs();
+  });
+  squashFolder.add(state, 'sdfGap', 0, 0.03, 0.001).name('SDF gap (m)').onFinishChange((value: number) => {
+    applySquashPatch({ sdfGap: value });
+    refreshFromRigs();
+  });
+  squashFolder.add(state, 'maxSquash', 0.005, 0.06, 0.001).name('Max squash (m)').onFinishChange((value: number) => {
+    applySquashPatch({ maxSquash: value });
+    refreshFromRigs();
+  });
+  squashFolder.add(state, 'squashGain', 0.2, 1.5, 0.05).name('Squash gain').onFinishChange((value: number) => {
+    applySquashPatch({ squashGain: value });
+    refreshFromRigs();
+  });
+  squashFolder.add(state, 'smoothing', 0.05, 1, 0.05).name('Smoothing').onFinishChange((value: number) => {
+    applySquashPatch({ smoothing: value });
+    refreshFromRigs();
+  });
+  squashFolder.add(state, 'activePairCount').name('Active pairs').disable();
+  squashFolder.add(state, 'maxOverlap').name('Max overlap (m)').disable();
+  squashFolder.add(state, 'squashedCapsuleCount').name('Squashed capsules').disable();
+  squashFolder.add(state, 'topPair').name('Top pair').disable();
+  squashFolder.open();
 
   const reportFolder = gui.addFolder('Fit report');
   reportFolder.add(state, 'capsuleCount').name('Capsule count').disable();
@@ -269,7 +348,7 @@ export function createCharacterSdfPanelDefinition(
       });
 
       if (options.rig) {
-        bindCharacterSdfGui(gui, () => [options.rig!]);
+        bindCharacterSdfGui(gui, () => [options.rig!], options.getSquashReport, options.getAllSquashRigs);
         return gui;
       }
 
@@ -288,7 +367,7 @@ export function createCharacterSdfPanelDefinition(
         gui.controllersRecursive().forEach((controller) => controller.updateDisplay());
       });
 
-      bindCharacterSdfGui(gui, getRigs);
+      bindCharacterSdfGui(gui, getRigs, options.getSquashReport, options.getAllSquashRigs);
       return gui;
     },
   };

@@ -337,4 +337,40 @@ test.describe('Animated Mixamo character preview', () => {
     expect(afterRadius).toBeLessThan(beforeRadius);
     expect(await page.evaluate(() => window.__characterSdfPreset?.()?.globalRadiusScale)).toBe(0.82);
   });
+
+  test('universal SDF squash reduces overlapping cloth collision radii', async ({ page }) => {
+    await page.goto('/?mode=character');
+    await expect(page.locator('[data-testid="sim-status"]')).toHaveText('running (animated character cloth)', {
+      timeout: 20_000,
+    });
+    await page.waitForFunction(
+      () => (window.__characterBoneSdfs?.().length ?? 0) > 15,
+      undefined,
+      { timeout: 15_000 },
+    );
+
+    await page.evaluate(() => window.__characterPatchSdfSquashConfig?.({ enabled: false }));
+    const rawRadii = await page.evaluate(() => window.__characterBoneSdfs?.().map((cap) => cap.radius) ?? []);
+    const clothRadiiDisabled = await page.evaluate(
+      () => window.__characterBoneSdfsForCloth?.().map((cap) => cap.radius) ?? [],
+    );
+    expect(clothRadiiDisabled).toEqual(rawRadii);
+
+    await page.evaluate(() => window.__characterPatchSdfSquashConfig?.({
+      enabled: true,
+      sdfGap: 0.015,
+      squashGain: 1.4,
+      smoothing: 1,
+      recovery: 1,
+    }));
+    await page.waitForTimeout(600);
+    const squashReport = await page.evaluate(() => window.__characterSdfSquashReport?.());
+    const clothRadii = await page.evaluate(() => window.__characterBoneSdfsForCloth?.().map((cap) => cap.radius) ?? []);
+    const maxReduction = rawRadii.reduce((max, radius, index) => {
+      const clothRadius = clothRadii[index] ?? radius;
+      return Math.max(max, radius - clothRadius);
+    }, 0);
+    expect(squashReport?.activePairCount ?? 0).toBeGreaterThan(0);
+    expect(maxReduction).toBeGreaterThan(0.0005);
+  });
 });

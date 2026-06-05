@@ -326,7 +326,7 @@ export class CharacterGarmentFlow {
     ]) {
       this.cloth.settings.mannequinMargin = margin;
       this.cloth.applySettings();
-      this.cloth.setBoneSdfCapsules(this.rig.getBoneSdfSummary());
+      this.cloth.setBoneSdfCapsules(this.rig.getBoneSdfSummaryForCloth());
       await waitForAnimationFrames(6);
     }
   }

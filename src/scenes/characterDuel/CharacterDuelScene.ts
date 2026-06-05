@@ -17,6 +17,12 @@ import {
   warmupCharacterClothCollision,
 } from '../../character/characterGarmentDress.ts';
 import { mergeBoneSdfCapsules } from '../../character/mergeBoneSdfCapsules.ts';
+import { SdfSquashTracker, type SdfSquashReport } from '../../character/sdf';
+import {
+  getDefaultCharacterModelId,
+  normalizeCharacterModelId,
+  resolveCharacterModelUrl,
+} from '../../animations/characterModelCatalog.ts';
 import {
   auditShirtSdfClearance,
   SHIRT_SDF_CLEARANCE,
@@ -35,6 +41,8 @@ import {
 
 export interface CharacterDuelLoadOptions {
   readonly setup?: CharacterDuelAnimationSetup;
+  readonly fighterAModelId?: string;
+  readonly fighterBModelId?: string;
 }
 
 export interface CharacterDuelStats {
@@ -48,6 +56,10 @@ export interface CharacterDuelStats {
   readonly activeClipB: string | null;
   readonly positionA: [number, number, number];
   readonly positionB: [number, number, number];
+  readonly fighterAModelId: string;
+  readonly fighterBModelId: string;
+  readonly fighterAAssetUrl: string;
+  readonly fighterBAssetUrl: string;
 }
 
 export class CharacterDuelScene {
@@ -74,6 +86,12 @@ export class CharacterDuelScene {
   private readonly facingArrowActualA: FacingDebugArrow;
   private readonly facingArrowActualB: FacingDebugArrow;
   facingDebugVisible = true;
+  private readonly mergedSquashTracker = new SdfSquashTracker();
+  private lastMergedSquashReport: SdfSquashReport | null = null;
+  private duelSetup: CharacterDuelAnimationSetup | null = null;
+  private fighterAModelId = getDefaultCharacterModelId();
+  private fighterBModelId = getDefaultCharacterModelId();
+  private isSwappingModel = false;
 
   constructor(
     private readonly cloth: ClothSimulation,
@@ -173,24 +191,118 @@ export class CharacterDuelScene {
     this.rigB.root.updateMatrixWorld(true);
   }
 
+  getFighterModelIds(): { readonly fighterA: string; readonly fighterB: string } {
+    return {
+      fighterA: this.fighterAModelId,
+      fighterB: this.fighterBModelId,
+    };
+  }
+
+  async swapFighterModel(fighter: 'A' | 'B', modelId: string): Promise<void> {
+    if (this.isSwappingModel || this.isRedressingShirts) {
+      return;
+    }
+    this.isSwappingModel = true;
+    try {
+      const resolvedModelId = normalizeCharacterModelId(modelId);
+      const rig = fighter === 'A' ? this.rigA : this.rigB;
+      const controller = fighter === 'A' ? this.controllerA : this.controllerB;
+      const restoreState = controller?.fsm.getState() ?? 'idle';
+      await rig.reloadCharacterModel(resolveCharacterModelUrl(resolvedModelId));
+      if (fighter === 'A') {
+        this.fighterAModelId = resolvedModelId;
+      } else {
+        this.fighterBModelId = resolvedModelId;
+      }
+      await this.rebuildController(fighter);
+      const nextController = fighter === 'A' ? this.controllerA : this.controllerB;
+      const dress = await nextController.prepareRigForGarmentDress({
+        onFrame: () => this.stepBootFrame(1 / 60),
+        poseSettleSec: 0.5,
+      });
+      if (!dress.passed) {
+        throw new Error(`Fighter ${fighter} dress sequence failed after model swap`);
+      }
+      this.syncFightersFacing();
+      await this.redressMergedShirts();
+      if (restoreState !== 'tpose') {
+        await nextController.fsm.forceState(restoreState);
+      } else {
+        await nextController.startIdle();
+      }
+      this.syncFightersFacing();
+    } finally {
+      this.isSwappingModel = false;
+    }
+  }
+
+  private async ensureFighterModelLoaded(
+    rig: AnimatedCharacterSceneRig,
+    modelId: string,
+  ): Promise<void> {
+    const url = resolveCharacterModelUrl(normalizeCharacterModelId(modelId));
+    if (rig.getLoadedRoot() && rig.getAssetUrl() === url) {
+      return;
+    }
+    if (rig.getLoadedRoot()) {
+      await rig.reloadCharacterModel(url);
+      return;
+    }
+    if (rig.getAssetUrl() !== url) {
+      await rig.reloadCharacterModel(url);
+      return;
+    }
+    await rig.load();
+  }
+
+  private createTposeRedressCallback(): (state: FsmStateId) => void {
+    return (state: FsmStateId): void => {
+      if (state === 'tpose' && this.allowTposeRedress && !this.isRedressingShirts && !this.isSwappingModel) {
+        void this.queueShirtRedressOnTpose();
+      }
+    };
+  }
+
+  private async rebuildController(fighter: 'A' | 'B'): Promise<void> {
+    const setup = this.duelSetup ?? getDefaultCharacterDuelAnimationSetup();
+    const rig = fighter === 'A' ? this.rigA : this.rigB;
+    const profile = applyDuelCombatProfile(
+      fighter === 'A' ? setup.fighterA.profile : setup.fighterB.profile,
+    );
+    const controller = new CharacterController(rig, profile, {
+      onStateEntered: this.createTposeRedressCallback(),
+    });
+    if (fighter === 'A') {
+      this.controllerA = controller;
+    } else {
+      this.controllerB = controller;
+    }
+    await controller.preloadLocomotion();
+  }
+
   async load(options: CharacterDuelLoadOptions = {}): Promise<void> {
     const setup = options.setup ?? getDefaultCharacterDuelAnimationSetup();
+    this.duelSetup = setup;
+    if (options.fighterAModelId) {
+      this.fighterAModelId = options.fighterAModelId;
+    }
+    if (options.fighterBModelId) {
+      this.fighterBModelId = options.fighterBModelId;
+    }
     this.phase = 'loading';
-    await Promise.all([this.rigA.load(), this.rigB.load()]);
+    await Promise.all([
+      this.ensureFighterModelLoaded(this.rigA, this.fighterAModelId),
+      this.ensureFighterModelLoaded(this.rigB, this.fighterBModelId),
+    ]);
     this.rigA.root.name = 'duel-fighter-a';
     this.rigB.root.name = 'duel-fighter-b';
     this.resetSpawnTransforms();
 
-    const onTposeEntered = (state: FsmStateId): void => {
-      if (state === 'tpose' && this.allowTposeRedress && !this.isRedressingShirts) {
-        void this.queueShirtRedressOnTpose();
-      }
-    };
     this.controllerA = new CharacterController(this.rigA, applyDuelCombatProfile(setup.fighterA.profile), {
-      onStateEntered: onTposeEntered,
+      onStateEntered: this.createTposeRedressCallback(),
     });
     this.controllerB = new CharacterController(this.rigB, applyDuelCombatProfile(setup.fighterB.profile), {
-      onStateEntered: onTposeEntered,
+      onStateEntered: this.createTposeRedressCallback(),
     });
 
     const bootFrame = () => this.stepBootFrame(1 / 60);
@@ -332,8 +444,23 @@ export class CharacterDuelScene {
   private syncDuelClothCollisionAndHealth(): void {
     const capsulesA = this.rigA.getBoneSdfSummary();
     const capsulesB = this.rigB.getBoneSdfSummary();
-    this.cloth.setBoneSdfCapsules(mergeBoneSdfCapsules([capsulesA, capsulesB]));
+    const merged = mergeBoneSdfCapsules([capsulesA, capsulesB]);
+    const squashConfig = this.rigA.getSdfSquashConfig();
+    const squashed = squashConfig.enabled
+      ? this.mergedSquashTracker.apply(merged, squashConfig)
+      : { capsules: merged, report: null };
+    this.lastMergedSquashReport = squashed.report;
+    this.cloth.setBoneSdfCapsules(squashed.capsules);
     this.cloth.updateDuelShirtHealthCapsuleSplit(capsulesA.length);
+  }
+
+  getMergedSquashReport(): SdfSquashReport | null {
+    return this.lastMergedSquashReport;
+  }
+
+  resetMergedSquashState(): void {
+    this.mergedSquashTracker.reset();
+    this.lastMergedSquashReport = null;
   }
 
   private async waitForBootRenderReady(
@@ -414,6 +541,10 @@ export class CharacterDuelScene {
       activeClipB: this.controllerB.fsm.getSnapshot().activeClipName,
       positionA: this.controllerA.getWorldPosition().toArray() as [number, number, number],
       positionB: this.controllerB.getWorldPosition().toArray() as [number, number, number],
+      fighterAModelId: this.fighterAModelId,
+      fighterBModelId: this.fighterBModelId,
+      fighterAAssetUrl: this.rigA.getAssetUrl(),
+      fighterBAssetUrl: this.rigB.getAssetUrl(),
     };
   }
 

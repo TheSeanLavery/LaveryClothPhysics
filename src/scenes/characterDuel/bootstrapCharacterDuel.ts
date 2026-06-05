@@ -52,7 +52,7 @@ export async function bootstrapCharacterDuel(
   const duelHint = document.createElement('p');
   duelHint.dataset.testid = 'duel-controls-hint';
   duelHint.textContent =
-    'A: WASD+Space · B: Arrows+Enter · M: AI · Green=look intent · Orange=mesh facing · Console: __duelFacingDebug("A").meshAlignErrorDeg';
+    'A: WASD+Space · B: Arrows+Enter · M: AI · Models: ?fighterA=crimson-aegis&fighterB=astra-vanguard · Dev → Fighter models';
   document.querySelector('#overlay')?.append(duelHint);
 
   const resetBtn = document.querySelector<HTMLButtonElement>('#reset-flag-btn');
@@ -65,8 +65,11 @@ export async function bootstrapCharacterDuel(
     toolbar.style.display = 'flex';
   }
 
-  const controlParam = new URLSearchParams(window.location.search).get('control');
+  const urlParams = new URLSearchParams(window.location.search);
+  const controlParam = urlParams.get('control');
   const initialControl: DuelControlMode = controlParam === 'ai' ? 'ai-ai' : 'pvp';
+  const fighterAModelId = urlParams.get('fighterA') ?? urlParams.get('modelA') ?? undefined;
+  const fighterBModelId = urlParams.get('fighterB') ?? urlParams.get('modelB') ?? undefined;
 
   const cloth = await createClothSimulation(
     {
@@ -144,7 +147,11 @@ export async function bootstrapCharacterDuel(
   };
   requestAnimationFrame(bootTick);
 
-  await duel.load({ setup: duelSetup });
+  await duel.load({
+    setup: duelSetup,
+    fighterAModelId,
+    fighterBModelId,
+  });
   bootTickActive = false;
 
   duel.startFighting();
@@ -287,6 +294,8 @@ export async function bootstrapCharacterDuel(
   window.addEventListener('keyup', onKeyUp, true);
 
   window.__duelStats = () => duel.getStats();
+  window.__duelFighterModels = () => duel.getFighterModelIds();
+  window.__duelSwapFighterModel = (fighter: 'A' | 'B', modelId: string) => duel.swapFighterModel(fighter, modelId);
   window.__duelShirtHealth = () => duel.getShirtHealth();
   window.__duelShirtHealthDebug = () => duel.getShirtHealthDebug();
   window.__duelFacingDebug = (fighter: 'A' | 'B' = 'A') => {

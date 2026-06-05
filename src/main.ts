@@ -90,6 +90,11 @@ declare global {
   interface Window {
     __characterStats?: () => CharacterStats;
     __characterBoneSdfs?: () => ReturnType<AnimatedCharacterSceneRig['getBoneSdfSummary']>;
+    __characterBoneSdfsForCloth?: () => ReturnType<AnimatedCharacterSceneRig['getBoneSdfSummaryForCloth']>;
+    __characterPatchSdfSquashConfig?: (
+      patch: Partial<import('./character/sdf').SdfSquashConfig>,
+    ) => void;
+    __characterSdfSquashReport?: () => import('./character/sdf').SdfSquashReport | null;
     __characterBoneSdfFitReport?: () => BoneSdfFitReport;
     __characterBoneSdfMeshCoverageReport?: () => BoneSdfMeshCoverageReport;
     __characterSdfPreset?: () => import('./character/sdf').CharacterSdfPresetEnvelope | null;
@@ -171,6 +176,8 @@ declare global {
     };
     __characterClothReadbackStats?: () => ReturnType<ClothSimulation['getReadbackStats']>;
     __duelStats?: () => CharacterDuelStats;
+    __duelFighterModels?: () => { readonly fighterA: string; readonly fighterB: string };
+    __duelSwapFighterModel?: (fighter: 'A' | 'B', modelId: string) => Promise<void>;
     __duelPhysicsPoseStats?: (fighter?: 'A' | 'B') => {
       enabled: boolean;
       pairCount: number;
@@ -779,6 +786,12 @@ async function bootstrapCharacterPreview(
     rig.getPhysicsPoseRig().snapDisplayToTarget();
   };
   window.__characterBoneSdfs = () => rig.getBoneSdfSummary();
+  window.__characterBoneSdfsForCloth = () => rig.getBoneSdfSummaryForCloth();
+  window.__characterPatchSdfSquashConfig = (patch) => {
+    rig.setSdfSquashConfig(patch);
+    rig.resetSdfSquashState();
+  };
+  window.__characterSdfSquashReport = () => rig.getSdfSquashReport();
   window.__characterBoneSdfFitReport = () => rig.getBoneSdfFitReport();
   window.__characterBoneSdfMeshCoverageReport = () => rig.getBoneSdfMeshCoverageReport();
   window.__characterSdfPreset = () => rig.getCharacterSdfPreset();
@@ -2032,7 +2045,7 @@ async function bootstrapAnimationBrowser(
 }
 
 function syncCharacterBoneSdfsToGpu(cloth: ClothSimulation, rig: AnimatedCharacterSceneRig): void {
-  cloth.setBoneSdfCapsules(rig.getBoneSdfSummary());
+  cloth.setBoneSdfCapsules(rig.getBoneSdfSummaryForCloth());
 }
 
 async function bootstrap(): Promise<void> {

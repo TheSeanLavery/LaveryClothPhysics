@@ -181,7 +181,7 @@ export async function warmupCharacterClothCollision(
   ]) {
     cloth.settings.mannequinMargin = margin;
     cloth.applySettings();
-    cloth.setBoneSdfCapsules(mergeBoneSdfCapsules(rigs.map((rig) => rig.getBoneSdfSummary())));
+    cloth.setBoneSdfCapsules(mergeBoneSdfCapsules(rigs.map((rig) => rig.getBoneSdfSummaryForCloth())));
     for (let i = 0; i < 6; i += 1) {
       onFrame?.();
       await waitForAnimationFrames(1);

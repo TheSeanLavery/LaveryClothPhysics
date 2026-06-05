@@ -26,6 +26,11 @@ import {
   type CharacterSdfCapsuleBlueprint,
   type CharacterSdfFitQualityReport,
   type CharacterSdfPresetEnvelope,
+  DEFAULT_SDF_SQUASH_CONFIG,
+  patchSdfSquashConfig,
+  SdfSquashTracker,
+  type SdfSquashConfig,
+  type SdfSquashReport,
 } from './sdf';
 import { EyeBlinkSystem, type EyeBlinkConfig } from './eyeBlink';
 import { measureRigForwardYaw } from './rigForwardMeasure.ts';
@@ -236,7 +241,7 @@ export class AnimatedCharacterSceneRig {
   readonly root = new THREE.Group();
   readonly sdfDebugGroup = new THREE.Group();
 
-  private readonly assetUrl: string;
+  private assetUrl: string;
   private readonly tposeAnimationUrl: string;
   private readonly idleAnimationUrl: string;
   private readonly animationUrl: string;
@@ -297,6 +302,9 @@ export class AnimatedCharacterSceneRig {
   private boneSdfRadiusScale = 1;
   private characterSdfPreset: CharacterSdfPresetEnvelope | null = null;
   private includeSoftCollisionExtras = true;
+  private readonly sdfSquashTracker = new SdfSquashTracker();
+  private sdfSquashConfig: SdfSquashConfig = { ...DEFAULT_SDF_SQUASH_CONFIG };
+  private lastSquashReport: SdfSquashReport | null = null;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -313,6 +321,73 @@ export class AnimatedCharacterSceneRig {
     this.sdfDebugGroup.name = 'animated-character-bone-sdf-xray';
     this.sdfDebugGroup.visible = false;
     this.scene.add(this.root, this.sdfDebugGroup);
+  }
+
+  getAssetUrl(): string {
+    return this.assetUrl;
+  }
+
+  async reloadCharacterModel(assetUrl: string): Promise<void> {
+    this.teardownLoadedCharacter();
+    this.assetUrl = assetUrl;
+    await this.load();
+  }
+
+  private teardownLoadedCharacter(): void {
+    if (this.mixer) {
+      this.mixer.stopAllAction();
+      this.mixer.uncacheRoot(this.mixer.getRoot());
+    }
+    this.mixer = null;
+    this.tposeAction = null;
+    this.idleAction = null;
+    this.danceAction = null;
+    this.activeAction = null;
+    this.activeClipName = null;
+    this.animationClipCount = 0;
+    this.retargetedTrackCount = 0;
+
+    if (this.loadedRoot) {
+      this.root.remove(this.loadedRoot);
+      disposeObject3D(this.loadedRoot);
+      this.loadedRoot = null;
+    }
+    if (this.targetRig) {
+      this.root.remove(this.targetRig);
+      disposeObject3D(this.targetRig);
+      this.targetRig = null;
+    }
+
+    this.targetBones = [];
+    this.bones.length = 0;
+    this.boneCapsules.length = 0;
+    this.boneSdfBlueprints.length = 0;
+    this.meshCount = 0;
+    this.skinnedMeshCount = 0;
+    this.boundsHeight = 0;
+    this.boundsWidth = 0;
+    this.frameCount = 0;
+    this.characterSdfPreset = null;
+    this.breastBoneLeft = null;
+    this.breastBoneRight = null;
+    this.breastBonesSearched = false;
+    this.breastMorphTargetsBuilt = false;
+    this.buttMorphTargetsBuilt = false;
+    this.buttShapeMorphTargetsBuilt = false;
+    this.breastMorphMeshes.length = 0;
+    this.buttMorphMeshes.length = 0;
+    this.buttShapeMorphMeshes.length = 0;
+    this.lastBreastCollisionModel = null;
+    this.lastButtCollisionModel = null;
+    this.physicsPoseRig.bind([]);
+    this.sdfSquashTracker.reset();
+    this.lastSquashReport = null;
+
+    for (const debugMesh of this.boneSdfMeshes.values()) {
+      this.sdfDebugGroup.remove(debugMesh);
+      disposeObject3D(debugMesh);
+    }
+    this.boneSdfMeshes.clear();
   }
 
   async load(): Promise<void> {
@@ -625,6 +700,34 @@ export class AnimatedCharacterSceneRig {
       start: vectorTuple(capsule.start),
       end: vectorTuple(capsule.end),
     }));
+  }
+
+  getBoneSdfSummaryForCloth(): ReturnType<AnimatedCharacterSceneRig['getBoneSdfSummary']> {
+    const raw = this.getBoneSdfSummary();
+    if (!this.sdfSquashConfig.enabled) {
+      this.lastSquashReport = null;
+      return raw;
+    }
+    const result = this.sdfSquashTracker.apply(raw, this.sdfSquashConfig);
+    this.lastSquashReport = result.report;
+    return result.capsules;
+  }
+
+  getSdfSquashConfig(): SdfSquashConfig {
+    return this.sdfSquashConfig;
+  }
+
+  setSdfSquashConfig(patch: Partial<SdfSquashConfig>): void {
+    this.sdfSquashConfig = patchSdfSquashConfig(this.sdfSquashConfig, patch);
+  }
+
+  getSdfSquashReport(): SdfSquashReport | null {
+    return this.lastSquashReport;
+  }
+
+  resetSdfSquashState(): void {
+    this.sdfSquashTracker.reset();
+    this.lastSquashReport = null;
   }
 
   getBoneSdfFitReport(): BoneSdfFitReport {
@@ -3280,6 +3383,18 @@ function closestCapsuleSignedDistance(
   }
 
   return { distance: bestDistance, normal: bestNormal.clone(), name: bestName };
+}
+
+function disposeObject3D(object: THREE.Object3D): void {
+  object.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      child.geometry.dispose();
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      for (const material of materials) {
+        material.dispose();
+      }
+    }
+  });
 }
 
 function vectorTuple(vector: THREE.Vector3): [number, number, number] {
