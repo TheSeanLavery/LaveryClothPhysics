@@ -1,0 +1,18 @@
+.floating-drag-handle {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.lil-gui .lil-title.floating-drag-handle {
+  cursor: grab;
+}
+
+.floating-drag-handle--dragging,
+body.floating-panel-dragging .floating-drag-handle {
+  cursor: grabbing;
+}
+
+body.floating-panel-dragging {
+  user-select: none;
+}

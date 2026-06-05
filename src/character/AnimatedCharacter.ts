@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import GUI from 'lil-gui';
+import { makeDraggableLilGui } from '../ui/draggableFloating.ts';
 import type { WebGPURenderer } from 'three/webgpu';
 import {
   createTShirtAssembly,
@@ -19,8 +20,12 @@ import {
   buildCharacterSdfBlueprints,
   compileCharacterSdfCapsulesFromBlueprints,
   compileFallbackCharacterSdfCapsules,
+  createCharacterSdfFitQualityReport,
+  createCharacterSdfPresetEnvelope,
   type CharacterSdfCapsule,
   type CharacterSdfCapsuleBlueprint,
+  type CharacterSdfFitQualityReport,
+  type CharacterSdfPresetEnvelope,
 } from './sdf';
 import { EyeBlinkSystem, type EyeBlinkConfig } from './eyeBlink';
 import { measureRigForwardYaw } from './rigForwardMeasure.ts';
@@ -290,6 +295,8 @@ export class AnimatedCharacterSceneRig {
   private lastBreastCollisionModel: BreastCollisionModel | null = null;
   private lastButtCollisionModel: ButtCollisionModel | null = null;
   private boneSdfRadiusScale = 1;
+  private characterSdfPreset: CharacterSdfPresetEnvelope | null = null;
+  private includeSoftCollisionExtras = true;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -368,6 +375,11 @@ export class AnimatedCharacterSceneRig {
     }
 
     root.updateMatrixWorld(true);
+    this.characterSdfPreset = createCharacterSdfPresetEnvelope(
+      'Character cloth SDF',
+      'meshy-visible-character',
+      this.assetUrl,
+    );
     this.buildBoneSdfBlueprints();
     this.updateBoneSdfs();
     this.buildBoneSdfDebugVisuals();
@@ -524,6 +536,74 @@ export class AnimatedCharacterSceneRig {
 
   setBoneSdfRadiusScale(scale: number): void {
     this.boneSdfRadiusScale = Math.max(0.5, Math.min(1.5, scale));
+  }
+
+  getBoneSdfRuntimeScale(): number {
+    return this.boneSdfRadiusScale;
+  }
+
+  getCharacterSdfPreset(): CharacterSdfPresetEnvelope | null {
+    return this.characterSdfPreset;
+  }
+
+  setCharacterSdfPreset(preset: CharacterSdfPresetEnvelope): void {
+    this.characterSdfPreset = createCharacterSdfPresetEnvelope(
+      preset.name,
+      preset.characterId,
+      this.assetUrl,
+      { ...preset, assetUrl: this.assetUrl },
+    );
+    this.rebuildCharacterSdfsFromPreset();
+  }
+
+  patchCharacterSdfPreset(
+    patch: Partial<
+      Pick<
+        CharacterSdfPresetEnvelope,
+        'globalRadiusScale' | 'globalRadiusBias' | 'surfaceBand' | 'boneOverrides' | 'manualCapsules' | 'vertexRules'
+      >
+    >,
+  ): void {
+    if (!this.characterSdfPreset) {
+      return;
+    }
+    this.characterSdfPreset = createCharacterSdfPresetEnvelope(
+      this.characterSdfPreset.name,
+      this.characterSdfPreset.characterId,
+      this.assetUrl,
+      { ...this.characterSdfPreset, ...patch },
+    );
+    this.rebuildCharacterSdfsFromPreset();
+  }
+
+  setIncludeSoftCollisionExtras(enabled: boolean): void {
+    if (this.includeSoftCollisionExtras === enabled) {
+      return;
+    }
+    this.includeSoftCollisionExtras = enabled;
+    this.updateBoneSdfs(0);
+    this.syncBoneSdfDebugVisuals();
+  }
+
+  getIncludeSoftCollisionExtras(): boolean {
+    return this.includeSoftCollisionExtras;
+  }
+
+  rebuildCharacterSdfsFromPreset(): void {
+    this.buildBoneSdfBlueprints();
+    this.updateBoneSdfs(0);
+    this.syncBoneSdfDebugVisuals();
+  }
+
+  getCharacterSdfFitReport(): CharacterSdfFitQualityReport | null {
+    if (!this.loadedRoot || this.boneCapsules.length === 0 || !this.characterSdfPreset) {
+      return null;
+    }
+    return createCharacterSdfFitQualityReport(
+      this.loadedRoot,
+      this.boneCapsules,
+      this.characterSdfPreset.surfaceBand,
+    );
   }
 
   getBoneSdfSummary(): Array<{
@@ -951,7 +1031,9 @@ export class AnimatedCharacterSceneRig {
     }
     this.loadedRoot.updateMatrixWorld(true);
     this.boneSdfBlueprints.length = 0;
-    this.boneSdfBlueprints.push(...buildCharacterSdfBlueprints(this.loadedRoot, this.bones));
+    this.boneSdfBlueprints.push(...buildCharacterSdfBlueprints(this.loadedRoot, this.bones, {
+      preset: this.characterSdfPreset,
+    }));
   }
 
   private updateBoneSdfs(delta = 0): void {
@@ -960,13 +1042,18 @@ export class AnimatedCharacterSceneRig {
     }
     this.loadedRoot.updateMatrixWorld(true);
     this.boneCapsules.length = 0;
+    const preset = this.characterSdfPreset ?? undefined;
     if (this.boneSdfBlueprints.length > 0) {
-      this.boneCapsules.push(...compileCharacterSdfCapsulesFromBlueprints(this.boneSdfBlueprints));
-      this.addSoftChestJiggleSdfs(delta);
+      this.boneCapsules.push(...compileCharacterSdfCapsulesFromBlueprints(this.boneSdfBlueprints, { preset }));
+      if (this.includeSoftCollisionExtras) {
+        this.addSoftChestJiggleSdfs(delta);
+      }
       return;
     }
-    this.boneCapsules.push(...compileFallbackCharacterSdfCapsules(this.bones));
-    this.addSoftChestJiggleSdfs(delta);
+    this.boneCapsules.push(...compileFallbackCharacterSdfCapsules(this.bones, { preset }));
+    if (this.includeSoftCollisionExtras) {
+      this.addSoftChestJiggleSdfs(delta);
+    }
   }
 
   private buildBreastCollisionModel(delta: number, stepPhysics: boolean): BreastCollisionModel | null {
@@ -3251,5 +3338,6 @@ export function createAnimatedCharacterControls(preview: AnimatedCharacterPrevie
     preview.setShirtVisible(value);
   });
 
+  makeDraggableLilGui(gui);
   return gui;
 }

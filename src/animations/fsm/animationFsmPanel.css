@@ -37,6 +37,9 @@
   gap: 8px;
   padding: 10px 12px;
   border-bottom: 1px solid var(--fsm-border);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
 }
 
 .animation-fsm-panel__title {

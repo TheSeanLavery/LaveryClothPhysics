@@ -2,6 +2,7 @@ import * as THREE from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import GUI from 'lil-gui';
+import { makeDraggableLilGui } from '../ui/draggableFloating.ts';
 import type { WebGPURenderer } from 'three/webgpu';
 import { normalFlat, uniform } from 'three/tsl';
 import {
@@ -211,5 +212,6 @@ export function createFabricPlaneControls(preview: FabricPlanePreview): GUI {
   lightingFolder.add(settings, 'keyLightIntensity', 0, 10, 0.01).name('Key light').onChange(sync);
   lightingFolder.add(settings, 'fillLightIntensity', 0, 10, 0.01).name('Fill light').onChange(sync);
 
+  makeDraggableLilGui(gui);
   return gui;
 }

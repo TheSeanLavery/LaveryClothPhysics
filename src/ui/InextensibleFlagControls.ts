@@ -1,6 +1,7 @@
 import GUI from 'lil-gui';
 import type { InextensibleFlagSimulation } from '../sim/InextensibleFlagSimulation';
 import { embedGuiInDock } from './ControlsDock.ts';
+import { makeDraggableLilGui } from './draggableFloating.ts';
 import { cloneFlagSettings } from '../sim/settingsPreset';
 import {
   deleteFlagSettingsPreset,
@@ -63,6 +64,7 @@ export function createInextensibleFlagControls(
     gui.domElement.style.zIndex = '20';
     gui.domElement.style.maxHeight = 'calc(100vh - 24px)';
     gui.domElement.style.overflow = 'auto';
+    makeDraggableLilGui(gui);
   }
 
   const settings = sim.settings;

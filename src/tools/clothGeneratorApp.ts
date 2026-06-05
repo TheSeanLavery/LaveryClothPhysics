@@ -1,4 +1,5 @@
 import GUI from 'lil-gui';
+import { makeDraggableLilGui } from '../ui/draggableFloating.ts';
 import {
   CLOTH_PATTERN_LABELS,
   CLOTH_PRESETS,
@@ -107,6 +108,7 @@ const gui = new GUI({ title: 'Cloth Generator', width: 340 });
 gui.domElement.style.position = 'fixed';
 gui.domElement.style.top = '12px';
 gui.domElement.style.right = '12px';
+makeDraggableLilGui(gui);
 
 const presetOptions = Object.fromEntries([
   ['Custom', 'custom'],

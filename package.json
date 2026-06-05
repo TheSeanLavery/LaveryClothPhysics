@@ -15,7 +15,7 @@
     "audit:mesh-bind": "node --experimental-strip-types tools/audit-mesh-bind.ts",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
-    "test:unit": "node --experimental-strip-types --test src/sim/clothMeshCuts.test.ts src/sim/duelShirtHealth.test.ts src/cloth/patternAssembly.test.ts src/cloth/mergeClothAssemblies.test.ts src/character/shirtDressing.test.ts src/character/mergeBoneSdfCapsules.test.ts src/character/rigForwardMeasure.test.ts src/character/CharacterController.facing.test.ts src/character/facingTurnAudit.test.ts src/character/facingAlignmentAudit.test.ts src/animations/rigDressSequence.test.ts src/animations/characterAnimationProfile.test.ts src/animations/animationClipCalibration.test.ts src/animations/meshBindCalibration.test.ts src/animations/trimAnimationClip.test.ts src/animations/loopMatch.test.ts src/scenes/characterDuel/characterDuelAnimation.test.ts src/sim/boneSdfSweptCollision.test.ts src/character/breastPhysics.test.ts src/character/physicsPoseRig.test.ts src/garments/garmentSchema.test.ts",
+    "test:unit": "node --experimental-strip-types --test src/sim/clothMeshCuts.test.ts src/sim/duelShirtHealth.test.ts src/cloth/patternAssembly.test.ts src/cloth/multiMaterialTestAssembly.test.ts src/cloth/clothMaterialBend.test.ts src/cloth/mergeClothAssemblies.test.ts src/character/shirtDressing.test.ts src/character/mergeBoneSdfCapsules.test.ts src/character/rigForwardMeasure.test.ts src/character/CharacterController.facing.test.ts src/character/facingTurnAudit.test.ts src/character/facingAlignmentAudit.test.ts src/animations/rigDressSequence.test.ts src/animations/characterAnimationProfile.test.ts src/animations/animationClipCalibration.test.ts src/animations/meshBindCalibration.test.ts src/animations/trimAnimationClip.test.ts src/animations/loopMatch.test.ts src/scenes/characterDuel/characterDuelAnimation.test.ts src/sim/boneSdfSweptCollision.test.ts src/character/breastPhysics.test.ts src/character/physicsPoseRig.test.ts src/garments/garmentSchema.test.ts",
     "test:unit:ci": "npm run audit:clips && npm run test:unit",
     "test:strands": "playwright test --config playwright.strand-threads.config.ts",
     "test:bb": "playwright test tests/bb-motion.spec.ts",
@@ -28,7 +28,12 @@
     "test:garment-studio": "playwright test tests/garment-studio.spec.ts --headed",
     "test:duel": "playwright test tests/duel-boot-fast.spec.ts tests/duel-shirt-health.spec.ts --headed",
     "test:duel:fast": "playwright test tests/duel-boot-fast.spec.ts --headed",
-    "test:cloth-cube": "playwright test --config playwright.cloth-cube.config.ts"
+    "test:cloth-cube": "playwright test --config playwright.cloth-cube.config.ts",
+    "test:multi-material": "playwright test --config playwright.multi-material.config.ts",
+    "test:multi-material:baseline": "playwright test tests/multi-material-cloth-baseline.spec.ts tests/multi-material-materials-differ.spec.ts --config playwright.multi-material.config.ts",
+    "test:multi-material:baseline:update": "UPDATE_MULTI_MATERIAL_BASELINE=1 playwright test tests/multi-material-cloth-baseline.spec.ts --config playwright.multi-material.config.ts",
+    "test:character-baseline": "playwright test --config playwright.character-baseline.config.ts",
+    "test:character-baseline:update": "UPDATE_CHARACTER_CLOTH_BASELINE=1 playwright test --config playwright.character-baseline.config.ts"
   },
   "type": "module",
   "keywords": [],

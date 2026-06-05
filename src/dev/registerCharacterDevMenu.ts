@@ -6,6 +6,7 @@ import {
 } from '../garments/GarmentStudioControls';
 import type { GarmentPresetEnvelope } from '../garments/garmentSchema';
 import { embedGuiInDock } from '../ui/ControlsDock.ts';
+import { makeDraggable } from '../ui/draggableFloating.ts';
 import { createDevMenuShell, type DevMenuShell } from './DevMenuShell.ts';
 import {
   createBreastPhysicsPanelDefinition,
@@ -13,6 +14,7 @@ import {
   createEyeBlinkPanelDefinition,
 } from './panels/characterBodyPanels.ts';
 import { createClothPanelDefinition } from './panels/clothPanel.ts';
+import { createCharacterSdfPanelDefinition } from './panels/characterSdfPanel.ts';
 import { createPhysicsPosePanelDefinition } from './panels/physicsPosePanel.ts';
 import type { DevPanelDefinition } from './DevMenuShell.ts';
 
@@ -45,6 +47,14 @@ export function registerCharacterDevMenu(
     collisionUi: 'boneSdf',
     defaultOpen: true,
   }));
+  menu.register(createCharacterSdfPanelDefinition({
+    id: 'character-sdf',
+    title: 'Bone SDF tuning',
+    testId: 'character-sdf-controls',
+    side: 'left',
+    defaultOpen: true,
+    rig: options.rig,
+  }));
 
   const garmentControls = createGarmentStudioControls({
     title: 'Character Clothing Generator',
@@ -73,6 +83,10 @@ export function registerCharacterDevMenu(
         .add(garmentDebugState, 'fitDebugVisible')
         .name('Show fit debug')
         .onChange(options.onGarmentFitDebugChange);
+      const garmentTitle = garmentControls.gui.domElement.querySelector<HTMLElement>('.lil-title');
+      if (garmentTitle) {
+        makeDraggable(container, { handle: garmentTitle });
+      }
       return garmentControls.gui;
     },
   };

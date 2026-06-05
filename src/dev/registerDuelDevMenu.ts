@@ -2,6 +2,7 @@ import type { ClothSimulation } from '../cloth';
 import type { CharacterDuelScene } from '../scenes/characterDuel/CharacterDuelScene.ts';
 import { createDevMenuShell, type DevMenuShell } from './DevMenuShell.ts';
 import { createClothPanelDefinition } from './panels/clothPanel.ts';
+import { createCharacterSdfPanelDefinition } from './panels/characterSdfPanel.ts';
 import { createDuelShirtPanelDefinition } from './panels/duelShirtPanel.ts';
 import { createPhysicsPosePanelDefinition } from './panels/physicsPosePanel.ts';
 
@@ -25,6 +26,15 @@ export function registerDuelDevMenu(options: RegisterDuelDevMenuOptions): DevMen
     testId: 'duel-controls',
     collisionUi: 'boneSdf',
     defaultOpen: true,
+  }));
+  menu.register(createCharacterSdfPanelDefinition({
+    id: 'duel-sdf',
+    title: 'Bone SDF tuning',
+    testId: 'duel-sdf-controls',
+    side: 'left',
+    defaultOpen: true,
+    rigA: options.duel.rigA,
+    rigB: options.duel.rigB,
   }));
   menu.register(createPhysicsPosePanelDefinition({
     id: 'duel-physics-pose',

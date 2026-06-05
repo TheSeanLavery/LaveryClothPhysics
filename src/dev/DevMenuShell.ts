@@ -1,5 +1,6 @@
 import GUI from 'lil-gui';
 import { embedGuiInDock, type ControlsDockSide } from '../ui/ControlsDock.ts';
+import { makeDraggable } from '../ui/draggableFloating.ts';
 import './devMenuShell.css';
 
 export interface DevPanelHandle {
@@ -85,6 +86,7 @@ export function createDevMenuShell(options: CreateDevMenuShellOptions = {}): Dev
   popoverActions.append(showAllBtn, hideAllBtn);
   popover.appendChild(popoverActions);
   document.body.appendChild(popover);
+  const stopPopoverDrag = makeDraggable(popover, { handle: popoverTitle });
 
   let menuBtn: HTMLButtonElement | undefined;
   let popoverOpen = false;
@@ -189,6 +191,12 @@ export function createDevMenuShell(options: CreateDevMenuShellOptions = {}): Dev
     const entry: RegisteredPanel = { definition, shell, handle, open };
     panels.set(definition.id, entry);
     shell.style.display = open ? '' : 'none';
+    const lilTitle = shell.querySelector<HTMLElement>('.lil-title');
+    if (lilTitle) {
+      makeDraggable(shell, { handle: lilTitle });
+    } else {
+      makeDraggable(shell);
+    }
 
     const row = document.createElement('label');
     row.className = 'dev-menu-popover__row';
@@ -209,6 +217,7 @@ export function createDevMenuShell(options: CreateDevMenuShellOptions = {}): Dev
   };
 
   const destroy = (): void => {
+    stopPopoverDrag();
     setPopoverOpen(false);
     for (const entry of panels.values()) {
       entry.handle.destroy();

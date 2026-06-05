@@ -37,6 +37,7 @@ import {
 } from '../../character/rigForwardMeasure.ts';
 import { registerDuelDevMenu } from '../../dev/registerDuelDevMenu.ts';
 import { createDuelHealthBars } from './duelHealthBars.ts';
+import { wireClothCanvasInteraction } from '../../ui/wireClothCanvasInteraction.ts';
 
 export async function bootstrapCharacterDuel(
   statusEl: HTMLElement,
@@ -57,15 +58,6 @@ export async function bootstrapCharacterDuel(
   const resetBtn = document.querySelector<HTMLButtonElement>('#reset-flag-btn');
   if (resetBtn) {
     resetBtn.textContent = 'Reset view';
-  }
-
-  const grabToggleBtn = document.querySelector<HTMLButtonElement>('#grab-toggle-btn');
-  if (grabToggleBtn) {
-    grabToggleBtn.style.display = 'none';
-  }
-  const shootToggleBtn = document.querySelector<HTMLButtonElement>('#shoot-toggle-btn');
-  if (shootToggleBtn) {
-    shootToggleBtn.style.display = 'none';
   }
 
   const toolbar = document.querySelector<HTMLElement>('#toolbar');
@@ -209,8 +201,14 @@ export async function bootstrapCharacterDuel(
   });
 
   cloth.setSimGridDebugVisible(false);
-  cloth.setGrabModeEnabled(false);
-  cloth.setShootModeEnabled(false);
+
+  const duelInteraction = wireClothCanvasInteraction({
+    cloth,
+    initialGrabEnabled: false,
+    initialShootEnabled: false,
+    onResetView: () => cloth.controls.reset(),
+  });
+  window.__duelInteractionState = () => duelInteraction.getState();
 
   registerDuelDevMenu({ cloth, duel, toolbar });
   const healthBars = createDuelHealthBars();
@@ -300,6 +298,24 @@ export async function bootstrapCharacterDuel(
   window.__duelPhysicsPoseConfig = (fighter: 'A' | 'B' = 'A') => duelRigForFighter(fighter).getPhysicsPoseConfig();
   window.__duelPhysicsPoseSnapDisplay = (fighter: 'A' | 'B' = 'A') => {
     duelRigForFighter(fighter).getPhysicsPoseRig().snapDisplayToTarget();
+  };
+  window.__duelSdfPreset = (fighter: 'A' | 'B' = 'A') => duelRigForFighter(fighter).getCharacterSdfPreset();
+  window.__duelSdfQualityReport = (fighter: 'A' | 'B' = 'A') => duelRigForFighter(fighter).getCharacterSdfFitReport();
+  window.__duelPatchSdfGlobalRadiusScale = (scale: number, fighter: 'A' | 'B' | 'Both' = 'Both') => {
+    const rigs = fighter === 'Both'
+      ? [duel.rigA, duel.rigB]
+      : [duelRigForFighter(fighter)];
+    for (const rig of rigs) {
+      rig.patchCharacterSdfPreset({ globalRadiusScale: scale });
+    }
+  };
+  window.__duelSetSdfRuntimeScale = (scale: number, fighter: 'A' | 'B' | 'Both' = 'Both') => {
+    const rigs = fighter === 'Both'
+      ? [duel.rigA, duel.rigB]
+      : [duelRigForFighter(fighter)];
+    for (const rig of rigs) {
+      rig.setBoneSdfRadiusScale(scale);
+    }
   };
 
   window.__duelAuditFacingTurn = async (options: {

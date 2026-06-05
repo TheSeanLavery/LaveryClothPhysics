@@ -1,4 +1,5 @@
 import { APP_MODE_LINKS, getAppMode } from './routes';
+import { makeDraggable } from '../ui/draggableFloating.ts';
 
 const DASHBOARD_OPEN_CLASS = 'dev-dashboard-open';
 
@@ -61,4 +62,5 @@ export function setupDeveloperDashboard(): void {
   surface.append(header, links, hint);
   dashboard.appendChild(surface);
   document.body.prepend(dashboard);
+  makeDraggable(surface, { handle: header });
 }

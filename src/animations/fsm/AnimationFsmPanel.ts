@@ -1,4 +1,5 @@
 import './animationFsmPanel.css';
+import { makeDraggable } from '../../ui/draggableFloating.ts';
 import type { CharacterController } from '../../character/CharacterController.ts';
 import { getAllAnimations } from '../animationLoader.ts';
 import { bindingFromSubclip, listSubclips, refreshSubclipLibraryFromServer } from '../animationSubclip.ts';
@@ -110,6 +111,7 @@ export function createAnimationFsmPanel(options: AnimationFsmPanelOptions): Anim
   body.append(targetTabs, profileRow, graphSvg, detail, pulse);
   panel.append(header, body);
   document.body.append(panel);
+  makeDraggable(panel, { handle: header });
 
   const unsubscribes: (() => void)[] = [];
   let fsmUnsub: (() => void) | null = null;

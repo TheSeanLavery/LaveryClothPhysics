@@ -48,6 +48,9 @@ export interface MatteCottonFlagMaterialOptions {
   particleGpuEdgeCull?: {
     edgeActiveBuffer: NonNullable<MatteCottonFlagMaterialOptions['edgeActiveBuffer']>;
   };
+  clothSegmentCountUniform?: ReturnType<typeof uniform>;
+  segmentScalars1Buffer?: ReturnType<typeof import('three/tsl').instancedArray>;
+  segmentHealthBuffer?: ReturnType<typeof import('three/tsl').instancedArray>;
 }
 
 export interface MatteCottonFlagMaterialUniforms {
@@ -118,18 +121,42 @@ export function configureMatteCottonFlagMaterial(
     return texture(normalMap, fabricUv);
   });
 
+  const segmentScalars1Buffer = options.segmentScalars1Buffer;
+  const segmentHealthBuffer = options.segmentHealthBuffer;
+  const clothSegmentCountUniform = options.clothSegmentCountUniform;
+
+  const sampleSegmentBaseColor = Fn(() => {
+    const segId = uint(attribute('renderSegmentId').floor());
+    const segColor = segmentScalars1Buffer!.element(segId).xyz;
+    const health = segmentHealthBuffer!.element(segId).x.clamp(float(0.05), float(1));
+    const damageTint = vec3(0.35, 0.08, 0.06);
+    return mix(segColor.mul(health), damageTint, float(1).sub(health).mul(float(0.55)));
+  });
+
+  const useSegmentColors =
+    segmentScalars1Buffer !== undefined &&
+    segmentHealthBuffer !== undefined &&
+    clothSegmentCountUniform !== undefined;
+
   const computeProceduralColor = Fn(() => {
     const mapSample = sampleWeave();
     const strength = clothUniforms.fabricNormalStrength;
+    const baseTint = useSegmentColors
+      ? select(
+          clothSegmentCountUniform!.greaterThan(uint(0)),
+          sampleSegmentBaseColor(),
+          clothUniforms.baseColor,
+        )
+      : clothUniforms.baseColor;
 
-    const warpTint = clothUniforms.baseColor.mul(1.05);
-    const weftTint = clothUniforms.baseColor.mul(0.95);
+    const warpTint = baseTint.mul(1.05);
+    const weftTint = baseTint.mul(0.95);
     const warpOver = mapSample.r.greaterThan(mapSample.g);
     const macroColor = mix(weftTint, warpTint, select(warpOver, float(1), float(0)));
 
     const groove = float(1).sub(float(1).sub(mapSample.b).mul(0.14).mul(strength));
-    const woven = max(macroColor.mul(groove), clothUniforms.baseColor.mul(0.82));
-    return mix(clothUniforms.baseColor, woven, strength.clamp(0, 1));
+    const woven = max(macroColor.mul(groove), baseTint.mul(0.82));
+    return mix(baseTint, woven, strength.clamp(0, 1));
   });
 
   const useWeaveNormals = clothUniforms.fabricNormalStrength.greaterThan(float(0.001));

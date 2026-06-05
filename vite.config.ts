@@ -163,6 +163,59 @@ function animationRatingsPlugin(): Plugin {
   };
 }
 
+function clothMaterialsPlugin(): Plugin {
+  return {
+    name: 'cloth-materials-library',
+    configureServer(server) {
+      const materialsPath = path.resolve(server.config.root, 'data/clothMaterials.json');
+
+      server.middlewares.use('/__cloth/materials', async (req, res) => {
+        if (req.method === 'GET') {
+          try {
+            const data = await readFile(materialsPath, 'utf8');
+            res.statusCode = 200;
+            res.setHeader('content-type', 'application/json');
+            res.end(data);
+          } catch {
+            res.statusCode = 200;
+            res.setHeader('content-type', 'application/json');
+            res.end('{"version":1,"materials":[]}');
+          }
+          return;
+        }
+
+        if (req.method === 'POST') {
+          try {
+            const chunks: Buffer[] = [];
+            for await (const chunk of req) {
+              chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+            }
+            const raw = Buffer.concat(chunks).toString('utf8');
+            const parsed = JSON.parse(raw);
+            await mkdir(path.dirname(materialsPath), { recursive: true });
+            await writeFile(materialsPath, `${JSON.stringify(parsed, null, 2)}\n`, 'utf8');
+            res.statusCode = 200;
+            res.setHeader('content-type', 'application/json');
+            res.end(JSON.stringify({ ok: true }));
+          } catch (error) {
+            res.statusCode = 500;
+            res.setHeader('content-type', 'application/json');
+            res.end(JSON.stringify({
+              ok: false,
+              error: error instanceof Error ? error.message : String(error),
+            }));
+          }
+          return;
+        }
+
+        res.statusCode = 405;
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ ok: false, error: 'Method not allowed' }));
+      });
+    },
+  };
+}
+
 function characterDuelAnimationPlugin(): Plugin {
   return {
     name: 'character-duel-animation',
@@ -276,6 +329,7 @@ export default defineConfig({
     animationRatingsPlugin(),
     animationSubclipsPlugin(),
     characterDuelAnimationPlugin(),
+    clothMaterialsPlugin(),
   ],
   server: {
     host: 'localhost',
@@ -286,6 +340,7 @@ export default defineConfig({
       ignored: [
         '**/data/animationSubclips.json',
         '**/data/characterDuelAnimation.json',
+        '**/data/clothMaterials.json',
       ],
     },
   },

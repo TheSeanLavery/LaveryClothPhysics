@@ -110,14 +110,17 @@ canvas {
 
 body.grab-mode canvas {
   cursor: grab;
+  touch-action: none;
 }
 
 body.grab-mode.grabbing canvas {
   cursor: grabbing;
+  touch-action: none;
 }
 
 body.shoot-mode canvas {
   cursor: crosshair;
+  touch-action: none;
 }
 
 .dev-dashboard {

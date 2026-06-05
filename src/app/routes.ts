@@ -7,7 +7,8 @@ export type AppMode =
   | 'character-sdf'
   | 'garment'
   | 'animations'
-  | 'cloth-cube';
+  | 'cloth-cube'
+  | 'multi-material';
 
 export interface AppModeLink {
   mode: AppMode;
@@ -65,6 +66,12 @@ export const APP_MODE_LINKS: readonly AppModeLink[] = [
     href: '/?mode=animations',
     description: 'Animation browser and rating studio',
   },
+  {
+    mode: 'multi-material',
+    label: 'Multi-Material',
+    href: '/?mode=multi-material',
+    description: 'Banner strips and dangling strips with per-segment materials',
+  },
 ];
 
 export function getAppMode(search = window.location.search): AppMode {
@@ -77,7 +84,8 @@ export function getAppMode(search = window.location.search): AppMode {
     mode === 'character-sdf' ||
     mode === 'garment' ||
     mode === 'animations' ||
-    mode === 'cloth-cube'
+    mode === 'cloth-cube' ||
+    mode === 'multi-material'
   ) {
     return mode;
   }

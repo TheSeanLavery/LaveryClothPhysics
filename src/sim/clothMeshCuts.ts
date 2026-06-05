@@ -1100,6 +1100,7 @@ export interface GpuParticleRenderSurface {
   readonly simGridCoords: Float32Array;
   readonly fabricUvs: Float32Array;
   readonly indices: Uint32Array;
+  readonly renderSegmentId: Float32Array;
   readonly particleTriEdge0: Float32Array;
   readonly particleTriEdge1: Float32Array;
   readonly particleTriEdge2: Float32Array;
@@ -1114,6 +1115,7 @@ export function buildGpuParticleRenderSurface(
   simGridCoordArray: Float32Array,
   fabricUvArray: Float32Array,
   triangleEdgeIds: Int32Array,
+  renderSegmentIdArray?: Float32Array,
 ): GpuParticleRenderSurface {
   const triCount = baseIndices.length / 3;
   const vertCount = triCount * 3;
@@ -1125,6 +1127,7 @@ export function buildGpuParticleRenderSurface(
   const particleTriSimV0 = new Float32Array(vertCount);
   const particleTriSimV1 = new Float32Array(vertCount);
   const particleTriSimV2 = new Float32Array(vertCount);
+  const renderSegmentId = new Float32Array(vertCount);
   const indices = new Uint32Array(vertCount);
 
   const simVertexForRenderIndex = (index: number): number =>
@@ -1156,6 +1159,7 @@ export function buildGpuParticleRenderSurface(
       particleTriSimV0[out] = v0;
       particleTriSimV1[out] = v1;
       particleTriSimV2[out] = v2;
+      renderSegmentId[out] = renderSegmentIdArray?.[src] ?? 0;
     }
   }
 
@@ -1163,6 +1167,7 @@ export function buildGpuParticleRenderSurface(
     simGridCoords,
     fabricUvs,
     indices,
+    renderSegmentId,
     particleTriEdge0,
     particleTriEdge1,
     particleTriEdge2,

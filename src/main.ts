@@ -20,9 +20,13 @@ import {
   type TubeAssemblySpawnKind,
 } from './app/tubeAssemblies';
 import { setupDeveloperDashboard } from './app/devDashboard';
+import { makeDraggable } from './ui/draggableFloating.ts';
+import { wireClothCanvasInteraction } from './ui/wireClothCanvasInteraction.ts';
 import { getAppMode } from './app/routes';
 import { bootstrapCharacterDuel } from './scenes/characterDuel/bootstrapCharacterDuel.ts';
 import { bootstrapClothRenderTest } from './scenes/clothRenderTest/bootstrapClothRenderTest.ts';
+import { bootstrapMultiMaterialTest } from './scenes/multiMaterialTest/bootstrapMultiMaterialTest.ts';
+import { applyMyPresetToCharacterCloth } from './cloth/myPresetDefaults.ts';
 import type { CharacterDuelStats } from './scenes/characterDuel/bootstrapCharacterDuel.ts';
 import type { DuelControlMode } from './scenes/characterDuel/characterDuelConfig.ts';
 import {
@@ -88,6 +92,10 @@ declare global {
     __characterBoneSdfs?: () => ReturnType<AnimatedCharacterSceneRig['getBoneSdfSummary']>;
     __characterBoneSdfFitReport?: () => BoneSdfFitReport;
     __characterBoneSdfMeshCoverageReport?: () => BoneSdfMeshCoverageReport;
+    __characterSdfPreset?: () => import('./character/sdf').CharacterSdfPresetEnvelope | null;
+    __characterSdfQualityReport?: () => import('./character/sdf').CharacterSdfFitQualityReport | null;
+    __characterPatchSdfGlobalRadiusScale?: (scale: number) => void;
+    __characterSetSdfRuntimeScale?: (scale: number) => void;
     __characterBreastVisualAlignmentReport?: () => BreastVisualAlignmentReport;
     __characterButtPhysics?: () => ReturnType<ReturnType<AnimatedCharacterSceneRig['getButtPhysics']>['snapshot']>;
     __characterButtMorphInfo?: () => ReturnType<AnimatedCharacterSceneRig['getButtMorphInfo']>;
@@ -110,6 +118,23 @@ declare global {
       name?: string,
     ) => Promise<GarmentAssemblyStats>;
     __characterClothStats?: () => ReturnType<ClothSimulation['getStats']>;
+    /** TEST ONLY — GPU readback of settled shirt vertices for physics regression. */
+    __characterReadClothVertexPositionsForTest?: () => Promise<{
+      particleCount: number;
+      renderVertexCount: number;
+      positions: [number, number, number][];
+      presetSource: string;
+    }>;
+    __characterForceTposeForTest?: () => void;
+    __characterIsShirtReadyForTest?: () => {
+      ready: boolean;
+      characterLoaded: boolean;
+      garmentType: string;
+      garmentVertexCount: number;
+      clothParticleCount: number;
+    };
+    /** TEST ONLY — wall-clock wait; production animation loop keeps simulating. */
+    __characterWaitWallClockForTest?: (seconds: number) => Promise<void>;
     __characterPhysicsPoseStats?: () => {
       enabled: boolean;
       pairCount: number;
@@ -316,101 +341,10 @@ async function bootstrapFlag(
   window.__flagSimAuditVisibleWorldGeometry = (options) => sim.auditVisibleWorldGeometryForTest(options);
   createClothControls(sim, { title: 'Inextensible Flag', testId: 'flag-controls' });
 
-  const canvas = sim.renderer.domElement;
-  const grabToggleBtn = document.querySelector<HTMLButtonElement>('#grab-toggle-btn');
-  const shootToggleBtn = document.querySelector<HTMLButtonElement>('#shoot-toggle-btn');
-
-  const syncInteractionUi = (): void => {
-    document.body.classList.toggle('grab-mode', sim.isGrabModeOn());
-    document.body.classList.toggle('shoot-mode', sim.isShootModeOn());
-    grabToggleBtn?.classList.toggle('active', sim.isGrabModeOn());
-    shootToggleBtn?.classList.toggle('active', sim.isShootModeOn());
-  };
-
-  grabToggleBtn?.addEventListener('click', () => {
-    sim.setGrabModeEnabled(!sim.isGrabModeOn());
-    syncInteractionUi();
-    if (!sim.isGrabModeOn()) {
-      document.body.classList.remove('grabbing');
-      sim.controls.enabled = true;
-    }
+  wireClothCanvasInteraction({
+    cloth: sim,
+    onResetView: () => sim.resetFlag(),
   });
-
-  shootToggleBtn?.addEventListener('click', () => {
-    sim.setShootModeEnabled(!sim.isShootModeOn());
-    syncInteractionUi();
-    if (!sim.isShootModeOn()) {
-      sim.controls.enabled = true;
-    }
-  });
-
-  const updateMouseNdc = (event: PointerEvent): void => {
-    const rect = canvas.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) {
-      return;
-    }
-
-    const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-    sim.setMousePointerNdc(x, y);
-  };
-
-  canvas.addEventListener('pointermove', (event) => {
-    updateMouseNdc(event);
-  });
-
-  canvas.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0) {
-      return;
-    }
-
-    updateMouseNdc(event);
-
-    if (sim.isShootModeOn()) {
-      const rect = canvas.getBoundingClientRect();
-      const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-      sim.fireBb(x, y);
-      return;
-    }
-
-    if (!sim.isGrabModeOn()) {
-      return;
-    }
-
-    if (!sim.canBeginGrabAttempt()) {
-      return;
-    }
-
-    sim.beginGrabAttempt();
-    sim.controls.enabled = false;
-    document.body.classList.add('grabbing');
-    canvas.setPointerCapture(event.pointerId);
-  });
-
-  const releaseGrab = (event: PointerEvent): void => {
-    if (!sim.isGrabPointerDown()) {
-      return;
-    }
-
-    sim.endGrabAttempt();
-    sim.controls.enabled = true;
-    document.body.classList.remove('grabbing');
-
-    if (canvas.hasPointerCapture(event.pointerId)) {
-      canvas.releasePointerCapture(event.pointerId);
-    }
-  };
-
-  canvas.addEventListener('pointerup', releaseGrab);
-  canvas.addEventListener('pointercancel', releaseGrab);
-
-  canvas.addEventListener('pointerleave', () => {
-    sim.clearMousePointer();
-  });
-
-  const resetFlagBtn = document.querySelector<HTMLButtonElement>('#reset-flag-btn');
-  resetFlagBtn?.addEventListener('click', () => sim.resetFlag());
 
   window.addEventListener('resize', () => sim.resize());
 
@@ -531,28 +465,7 @@ async function bootstrapCharacterPreview(
       segmentsY: 36,
     },
   );
-  Object.assign(cloth.settings, {
-    windStrength: 0,
-    windTurbulence: 0,
-    zoneAStrength: 0,
-    zoneBStrength: 0,
-    gravity: 0.000025,
-    clothThickness: 0.003,
-    selfCollision: false,
-    poleCollision: false,
-    mannequinCollision: false,
-    showMannequin: false,
-    renderStrandThreads: false,
-    showSimGridDebug: false,
-    grabStiffness: 0.12,
-    grabMaxStep: 0.002,
-    grabVelocityCarry: 0,
-    grabPointerMaxStep: 0.005,
-    tearStretchThreshold: 999,
-    shapePressure: 0,
-    flagColor: '#ff4fa3',
-    fabricTextureSource: 'procedural',
-  });
+  Object.assign(cloth.settings, applyMyPresetToCharacterCloth(cloth.settings));
   cloth.applySettings();
   await cloth.init();
 
@@ -571,7 +484,6 @@ async function bootstrapCharacterPreview(
   cloth.controls.update();
   statusEl.textContent = 'running (animated character cloth)';
   backendEl.textContent = `backend: ${cloth.renderer.backend.constructor.name} (character cloth)`;
-  particlesEl.textContent = `character cloth particles: ${cloth.getStats().particleCount}`;
   let garmentGenerateQueue = Promise.resolve<GarmentAssemblyStats>(garmentFlow.getStats());
   const characterDevMenu = registerCharacterDevMenu({
     cloth,
@@ -803,6 +715,7 @@ async function bootstrapCharacterPreview(
   });
 
   document.body.appendChild(animPanel);
+  makeDraggable(animPanel, { handle: animTitle });
 
   let animPanelOpen = false;
   animationsBtn.addEventListener('click', () => {
@@ -868,6 +781,14 @@ async function bootstrapCharacterPreview(
   window.__characterBoneSdfs = () => rig.getBoneSdfSummary();
   window.__characterBoneSdfFitReport = () => rig.getBoneSdfFitReport();
   window.__characterBoneSdfMeshCoverageReport = () => rig.getBoneSdfMeshCoverageReport();
+  window.__characterSdfPreset = () => rig.getCharacterSdfPreset();
+  window.__characterSdfQualityReport = () => rig.getCharacterSdfFitReport();
+  window.__characterPatchSdfGlobalRadiusScale = (scale: number) => {
+    rig.patchCharacterSdfPreset({ globalRadiusScale: scale });
+  };
+  window.__characterSetSdfRuntimeScale = (scale: number) => {
+    rig.setBoneSdfRadiusScale(scale);
+  };
   window.__characterBreastVisualAlignmentReport = () => rig.getBreastVisualAlignmentReport();
   window.__characterBlendTo = (kind: 'tpose' | 'idle' | 'dance') => rig.blendToAnimation(kind);
   window.__characterSetTearThreshold = (threshold: number) => garmentFlow.setTearThreshold(threshold);
@@ -886,6 +807,43 @@ async function bootstrapCharacterPreview(
     return garmentFlow.getStats();
   };
   window.__characterClothStats = () => cloth.getStats();
+  window.__characterIsShirtReadyForTest = () => {
+    const character = rig.getStats();
+    const garment = garmentFlow.getStats();
+    const clothStats = cloth.getStats();
+    const clothParticleCount = clothStats.particleCount;
+    const garmentVertexCount = garment.vertexCount;
+    const characterLoaded = character.loaded;
+    const shirtSimSpawned = clothParticleCount >= 3_500 && garmentVertexCount >= 4_000;
+    return {
+      ready: characterLoaded
+        && garment.garmentType === 'tshirt'
+        && shirtSimSpawned
+        && !clothStats.hasNaN,
+      characterLoaded,
+      garmentType: garment.garmentType,
+      garmentVertexCount,
+      clothParticleCount,
+    };
+  };
+  window.__characterForceTposeForTest = () => {
+    rig.setAnimationSpeed(0);
+    rig.transitionToTpose(0);
+    const physicsPose = rig.getPhysicsPoseRig();
+    physicsPose.config.enabled = false;
+    physicsPose.snapDisplayToTarget();
+  };
+  window.__characterWaitWallClockForTest = (seconds: number) => new Promise<void>((resolve) => {
+    window.setTimeout(resolve, Math.max(0, seconds) * 1000);
+  });
+  window.__characterReadClothVertexPositionsForTest = async () => {
+    const snapshot = await cloth.readGarmentVertexPositionsForTest(garmentFlow.getAssembly());
+    return {
+      ...snapshot,
+      positions: snapshot.positions.map((p) => [...p] as [number, number, number]),
+      presetSource: 'src/animations/my-preset.json',
+    };
+  };
   window.__characterTearProtectionReport = () => garmentFlow.tearProtectionReport();
   window.__characterShirtSdfClearanceReport = () => garmentFlow.sdfClearanceReport();
   window.__characterShirtPerCapsuleClearanceReport = () => garmentFlow.perCapsuleClearanceReport();
@@ -2019,6 +1977,7 @@ async function bootstrapAnimationBrowser(
   });
 
   document.body.appendChild(panel);
+  makeDraggable(panel, { handle: titleEl });
 
   let selectedSourceFile: string | null = 'mixamo/idle.fbx';
 
@@ -2133,6 +2092,11 @@ async function bootstrap(): Promise<void> {
 
   if (mode === 'cloth-cube') {
     await bootstrapClothRenderTest(statusEl, backendEl, particlesEl);
+    return;
+  }
+
+  if (mode === 'multi-material') {
+    await bootstrapMultiMaterialTest(statusEl, backendEl, particlesEl);
     return;
   }
 

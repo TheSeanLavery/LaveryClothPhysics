@@ -1,4 +1,5 @@
 import './animationClipEditorPopup.css';
+import { makeDraggable } from '../../ui/draggableFloating.ts';
 import {
   createAnimationClipEditorPanel,
   type AnimationClipEditorPanel,
@@ -66,6 +67,7 @@ export function createAnimationClipEditorPopup(
     target: () => targetProvider(),
     onLibraryChanged: options.onLibraryChanged,
   });
+  makeDraggable(dialog, { handle: '.animation-clip-editor__header' });
 
   let open = false;
   let lockSubclipId = false;

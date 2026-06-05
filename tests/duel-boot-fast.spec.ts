@@ -30,6 +30,13 @@ test.describe('Duel boot (fast fail)', () => {
     const simAfter = await readDuelSimFrameCount(page);
     expect(simAfter).toBeGreaterThan(frameCount);
 
+    await expect(page.locator('[data-testid="grab-toggle-btn"]')).toBeVisible();
+    await expect(page.locator('[data-testid="shoot-toggle-btn"]')).toBeVisible();
+    await page.locator('[data-testid="grab-toggle-btn"]').click();
+    await expect(page.locator('body')).toHaveClass(/grab-mode/);
+    const duelGrab = await page.evaluate(() => window.__duelInteractionState?.());
+    expect(duelGrab?.grabMode).toBe(true);
+
     expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
   });
 });

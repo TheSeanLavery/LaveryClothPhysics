@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import GUI from 'lil-gui';
+import { makeDraggableLilGui } from '../../ui/draggableFloating.ts';
 import type { WebGPURenderer } from 'three/webgpu';
 import {
   buildCharacterSdfBlueprints,
@@ -211,6 +212,7 @@ export class CharacterSdfTool {
       gui.controllersRecursive().forEach((controller) => controller.updateDisplay());
     };
     updateDisplays();
+    makeDraggableLilGui(gui);
     return gui;
   }
 

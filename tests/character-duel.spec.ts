@@ -11,8 +11,15 @@ test.describe('Character duel scene', () => {
     });
     await expect(page.locator('#overlay h1')).toHaveText('Character Duel');
     await expect(page.locator('[data-testid="duel-controls"]')).toBeVisible();
+    await expect(page.locator('[data-testid="duel-sdf-controls"]')).toBeVisible();
     await expect(page.locator('[data-testid="duel-shirt-controls"]')).toBeVisible();
     await expect(page.locator('[data-testid="dev-menu-btn"]')).toBeVisible();
+    const duelRadiusBefore = (await page.evaluate(() => window.__duelSdfPreset?.('A')?.globalRadiusScale)) ?? 1;
+    await page.evaluate(() => window.__duelPatchSdfGlobalRadiusScale?.(0.8, 'Both'));
+    expect(await page.evaluate(() => window.__duelSdfPreset?.('A')?.globalRadiusScale)).toBe(0.8);
+    expect(await page.evaluate(() => window.__duelSdfPreset?.('B')?.globalRadiusScale)).toBe(0.8);
+    expect(duelRadiusBefore).toBeGreaterThan(0.79);
+
     const poseStatsA = await page.evaluate(() => window.__duelPhysicsPoseStats?.('A'));
     expect(poseStatsA?.enabled).toBe(true);
     expect(poseStatsA?.pairCount ?? 0).toBeGreaterThan(20);

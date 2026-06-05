@@ -10,6 +10,8 @@ export interface ClothTopologyParticle {
   readonly gridX: number;
   readonly gridY: number;
   readonly isFixed: boolean;
+  /** Per-particle bend multiplier (assembly materials). */
+  readonly bendScale: number;
 }
 
 export interface ClothTopologyConstraint {
@@ -70,7 +72,7 @@ export function buildGridClothTopology(options: GridClothTopologyOptions): Cloth
     isFixed: boolean,
   ): number => {
     const id = particles.length;
-    particles.push({ id, position: new THREE.Vector3(x, y, z), gridX, gridY, isFixed });
+    particles.push({ id, position: new THREE.Vector3(x, y, z), gridX, gridY, isFixed, bendScale: 1 });
     return id;
   };
 
@@ -163,7 +165,21 @@ export function buildGridClothTopology(options: GridClothTopologyOptions): Cloth
   };
 }
 
-export function buildAssemblyClothTopology(assembly: ClothAssembly): ClothTopology {
+export interface AssemblyClothTopologyOptions {
+  /** Pin particles whose merged dress vertices all lie at or above this world Y. */
+  readonly pinVertexYAtOrAbove?: number;
+  /** Pin particles on this Y (±1e-5) when any merged vertex patchId contains the substring. */
+  readonly pinVertexYEqual?: number;
+  readonly pinOnlyPatchIdContaining?: string;
+  /** Material-key → bend scale; use with resolvePatchMaterialKey. */
+  readonly materialBendScaleByKey?: Readonly<Record<string, number>>;
+  readonly resolvePatchMaterialKey?: (patchId: string) => string;
+}
+
+export function buildAssemblyClothTopology(
+  assembly: ClothAssembly,
+  options: AssemblyClothTopologyOptions = {},
+): ClothTopology {
   const parent = new Uint32Array(assembly.vertices.length);
   for (let i = 0; i < parent.length; i++) {
     parent[i] = i;
@@ -220,8 +236,32 @@ export function buildAssemblyClothTopology(assembly: ClothAssembly): ClothTopolo
     }
     average.multiplyScalar(1 / vertexIds.length);
 
+    const pinYMin = options.pinVertexYAtOrAbove;
+    const pinAtY = options.pinVertexYEqual;
+    const pinPatchNeedle = options.pinOnlyPatchIdContaining;
+    const shouldPin = (
+      pinYMin !== undefined
+      && vertexIds.every((vertexId) => assembly.vertices[vertexId]!.position[1] >= pinYMin - 1e-5)
+    ) || (
+      pinAtY !== undefined
+      && pinPatchNeedle !== undefined
+      && vertexIds.every((vertexId) => Math.abs(assembly.vertices[vertexId]!.position[1] - pinAtY) <= 1e-5)
+      && vertexIds.some((vertexId) => assembly.vertices[vertexId]!.patchId.includes(pinPatchNeedle))
+    );
+
+    let bendScale = 1;
+    const bendByKey = options.materialBendScaleByKey;
+    const resolveKey = options.resolvePatchMaterialKey;
+    if (bendByKey && resolveKey) {
+      for (const vertexId of vertexIds) {
+        const patchId = assembly.vertices[vertexId]!.patchId;
+        const key = resolveKey(patchId);
+        bendScale = Math.max(bendScale, bendByKey[key] ?? 1);
+      }
+    }
+
     const id = particles.length;
-    particles.push({ id, position: average, gridX: id, gridY: 0, isFixed: false });
+    particles.push({ id, position: average, gridX: id, gridY: 0, isFixed: shouldPin, bendScale });
     particleByRoot.set(root, id);
     for (const vertexId of vertexIds) {
       renderVertexToParticle[vertexId] = id;

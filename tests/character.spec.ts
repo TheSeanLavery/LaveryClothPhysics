@@ -34,6 +34,7 @@ test.describe('Animated Mixamo character preview', () => {
     });
     await expect(page.locator('#overlay h1')).toHaveText('Animated Mixamo Character');
     await expect(page.locator('[data-testid="character-controls"]')).toBeVisible();
+    await expect(page.locator('[data-testid="character-sdf-controls"]')).toBeVisible();
     await expect(page.locator('[data-testid="grab-toggle-btn"]')).toHaveText('Grab');
     await expect(page.locator('[data-testid="shoot-toggle-btn"]')).toHaveText('Shoot');
     await expect(page.locator('[data-testid="bones-toggle-btn"]')).toHaveText('Bones');
@@ -315,5 +316,25 @@ test.describe('Animated Mixamo character preview', () => {
     expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
     expect(consoleCapture.warnings, formatCapturedConsole(consoleCapture)).toEqual([]);
     expect(consoleCapture.threeMessages, consoleCapture.threeMessages.join('\n')).toEqual([]);
+  });
+
+  test('dev menu bone SDF tuning scales colliders in real time', async ({ page }) => {
+    await page.goto('/?mode=character');
+    await expect(page.locator('[data-testid="sim-status"]')).toHaveText('running (animated character cloth)', {
+      timeout: 20_000,
+    });
+    await expect(page.locator('[data-testid="character-sdf-controls"]')).toBeVisible();
+    await page.waitForFunction(
+      () => (window.__characterBoneSdfs?.().length ?? 0) > 15,
+      undefined,
+      { timeout: 15_000 },
+    );
+
+    const beforeRadius = (await page.evaluate(() => window.__characterBoneSdfs?.()))?.[0]?.radius ?? 0;
+    await page.evaluate(() => window.__characterPatchSdfGlobalRadiusScale?.(0.82));
+    await page.evaluate(() => window.__characterSetSdfRuntimeScale?.(0.9));
+    const afterRadius = (await page.evaluate(() => window.__characterBoneSdfs?.()))?.[0]?.radius ?? 0;
+    expect(afterRadius).toBeLessThan(beforeRadius);
+    expect(await page.evaluate(() => window.__characterSdfPreset?.()?.globalRadiusScale)).toBe(0.82);
   });
 });

@@ -542,7 +542,8 @@ test('buildGpuParticleRenderSurface unshares corners for shader topology cull', 
   assert.deepEqual(surface.indices, new Uint32Array([0, 1, 2]));
   assert.equal(surface.simGridCoords.length / 2, 3);
   assert.equal(surface.particleTriEdge0[0], 3);
-  assert.equal(surface.particleTriSimV1[2], 0);
+  assert.equal(surface.particleTriSimV2[2], 0);
+  assert.equal(surface.renderSegmentId.length, 3);
 });
 
 test('rebuildParticleRenderIndices drops triangles spanning disconnected components', () => {

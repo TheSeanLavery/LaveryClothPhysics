@@ -125,6 +125,7 @@ import type { ClothAssembly } from '../cloth/patternAssembly';
 import {
   buildAssemblyClothTopology,
   buildGridClothTopology,
+  type AssemblyClothTopologyOptions,
   type ClothTopology,
 } from './clothTopology';
 
@@ -199,6 +200,7 @@ interface ClothVertex {
   gridX: number;
   gridY: number;
   isFixed: boolean;
+  bendScale: number;
   springIds: number[]; // incident PBD edge constraint ids (not force springs)
 }
 
@@ -419,6 +421,7 @@ export class InextensibleFlagSimulation {
   private readonly initialShape: 'plane' | 'tube';
   private readonly tubeRadius: number;
   private activeAssembly: ClothAssembly | null;
+  private assemblyTopologyOptions: AssemblyClothTopologyOptions = {};
   private activeTopology: ClothTopology | null = null;
   private assemblyRenderVertexSimIds: number[] = [];
   private topologyMode: 'grid' | 'tube' | 'assembly';
@@ -515,6 +518,7 @@ export class InextensibleFlagSimulation {
   private springVertexIdBuffer!: ReturnType<typeof instancedArray>;
   private springRestLengthBuffer!: ReturnType<typeof instancedArray>;
   private edgeKindBuffer!: ReturnType<typeof instancedArray>;
+  private edgeBendScaleBuffer!: ReturnType<typeof instancedArray>;
   private springCorrectionBuffer!: ReturnType<typeof instancedArray>;
   private springListBuffer!: ReturnType<typeof instancedArray>;
   private edgeActiveBuffer!: ReturnType<typeof instancedArray>;
@@ -884,6 +888,10 @@ export class InextensibleFlagSimulation {
     this.isGrabActive = true;
     this.grabTryLatch = true;
     this.grabActiveUniform.value = 1;
+  }
+
+  setGrabPickRadiusNdc(radius: number): void {
+    this.grabPickRadiusUniform.value = Math.max(0.005, radius);
   }
 
   canBeginGrabAttempt(): boolean {
@@ -1445,9 +1453,13 @@ export class InextensibleFlagSimulation {
     this.isReady = true;
   }
 
-  async loadClothAssembly(assembly: ClothAssembly): Promise<void> {
+  async loadClothAssembly(
+    assembly: ClothAssembly,
+    options: AssemblyClothTopologyOptions = {},
+  ): Promise<void> {
     this.isReady = false;
     this.activeAssembly = assembly;
+    this.assemblyTopologyOptions = options;
     this.activeTopology = null;
     this.topologyMode = 'assembly';
     this.clothNumSegmentsX = Math.max(1, assembly.vertices.length - 1);
@@ -1795,6 +1807,25 @@ export class InextensibleFlagSimulation {
       faces: baseAssembly.faces,
       edges: baseAssembly.edges,
       stitchEdges: baseAssembly.stitchEdges,
+    };
+  }
+
+  /**
+   * TEST / FIXTURE ONLY — GPU readback of garment render vertex positions after settle.
+   * Not for gameplay hot paths (see gpu-readback-audit).
+   */
+  async readGarmentVertexPositionsForTest(
+    baseAssembly: ClothAssembly,
+  ): Promise<{
+    readonly particleCount: number;
+    readonly renderVertexCount: number;
+    readonly positions: readonly (readonly [number, number, number])[];
+  }> {
+    const updated = await this.readCurrentClothAssembly(baseAssembly);
+    return {
+      particleCount: this.clothVertices.length,
+      renderVertexCount: updated.vertices.length,
+      positions: updated.vertices.map((vertex) => vertex.position),
     };
   }
 
@@ -2644,7 +2675,7 @@ export class InextensibleFlagSimulation {
   private setupClothGeometry(): void {
     this.applyClothTopology(
       this.activeAssembly
-        ? buildAssemblyClothTopology(this.activeAssembly)
+        ? buildAssemblyClothTopology(this.activeAssembly, this.assemblyTopologyOptions)
         : buildGridClothTopology({
             width: this.clothWidth,
             height: this.clothHeight,
@@ -2682,6 +2713,7 @@ export class InextensibleFlagSimulation {
         gridX: particle.gridX,
         gridY: particle.gridY,
         isFixed: particle.isFixed,
+        bendScale: particle.bendScale,
         springIds: [],
       };
       this.clothVertices.push(vertex);
@@ -2891,6 +2923,7 @@ export class InextensibleFlagSimulation {
     const springVertexIdArray = new Uint32Array(edgeCount * 2);
     const springRestLengthArray = new Float32Array(edgeCount);
     const edgeKindArray = new Uint32Array(edgeCount);
+    const edgeBendScaleArray = new Float32Array(edgeCount).fill(1);
 
     for (let i = 0; i < edgeCount; i++) {
       const edge = this.clothEdges[i]!;
@@ -2900,6 +2933,7 @@ export class InextensibleFlagSimulation {
         edge.restLengthOverride ?? edge.vertex0.position.distanceTo(edge.vertex1.position);
       edgeKindArray[i] =
         edge.kind === 'bend' ? 1 : edge.kind === 'shear' ? 2 : 0;
+      edgeBendScaleArray[i] = Math.sqrt(edge.vertex0.bendScale * edge.vertex1.bendScale);
     }
 
     const structuralLookup = createSimStructuralEdgeLookup(
@@ -2916,6 +2950,7 @@ export class InextensibleFlagSimulation {
     this.springVertexIdBuffer = instancedArray(springVertexIdArray, 'uvec2').setPBO(true);
     this.springRestLengthBuffer = instancedArray(springRestLengthArray, 'float');
     this.edgeKindBuffer = instancedArray(edgeKindArray, 'uint');
+    this.edgeBendScaleBuffer = instancedArray(edgeBendScaleArray, 'float');
     this.springCorrectionBuffer = instancedArray(edgeCount, 'vec3');
     this.edgeActiveBuffer = instancedArray(new Uint32Array(edgeCount).fill(1), 'uint').setPBO(true);
     this.edgeVisualBuffer = instancedArray(new Uint32Array(edgeCount).fill(1), 'uint').setPBO(true);
@@ -4110,6 +4145,7 @@ export class InextensibleFlagSimulation {
     const springVertexIdBuffer = this.springVertexIdBuffer;
     const springRestLengthBuffer = this.springRestLengthBuffer;
     const edgeKindBuffer = this.edgeKindBuffer;
+    const edgeBendScaleBuffer = this.edgeBendScaleBuffer;
     const edgeActiveBuffer = this.edgeActiveBuffer;
     const springCorrectionBuffer = this.springCorrectionBuffer;
     const springListBuffer = this.springListBuffer;
@@ -4306,8 +4342,9 @@ export class InextensibleFlagSimulation {
       const isBend = edgeKind.equal(uint(1));
       const stretch = dist.sub(restLength).max(float(0));
       const squeeze = restLength.mul(minCompressionUniform).sub(dist).max(float(0)).mul(float(0.55));
-      const structuralViolation = stretch.sub(squeeze);
-      const bendViolation = dist.sub(restLength).mul(bendStiffnessUniform);
+      const materialScale = edgeBendScaleBuffer.element(instanceIndex);
+      const structuralViolation = stretch.sub(squeeze).mul(materialScale);
+      const bendViolation = dist.sub(restLength).mul(bendStiffnessUniform).mul(materialScale);
       const violation = select(isBend, bendViolation, structuralViolation);
       const correction = delta.mul(violation.div(dist)).mul(constraintRelaxationUniform);
       springCorrectionBuffer.element(instanceIndex).assign(correction);

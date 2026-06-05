@@ -33,6 +33,7 @@ export function createControlsDock(options: CreateControlsDockOptions): Controls
     shell.style.left = 'auto';
     shell.style.right = '12px';
   }
+
   document.body.appendChild(shell);
 
   return {

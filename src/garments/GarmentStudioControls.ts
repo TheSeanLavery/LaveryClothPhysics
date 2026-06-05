@@ -8,6 +8,7 @@ import {
   type GarmentPresetEnvelope,
   type GarmentType,
 } from './garmentSchema';
+import { makeDraggableLilGui } from '../ui/draggableFloating.ts';
 import {
   deleteGarmentPreset,
   getGarmentPreset,
@@ -56,6 +57,7 @@ export function createGarmentStudioControls(
   gui.domElement.style.zIndex = '25';
   gui.domElement.style.maxHeight = 'calc(100vh - 24px)';
   gui.domElement.style.overflow = 'auto';
+  makeDraggableLilGui(gui);
 
   let garmentType: GarmentType = initialGarmentType;
   let currentParams = mutableParams(options.initialPreset?.params ?? defaultGarmentParams(garmentType));
