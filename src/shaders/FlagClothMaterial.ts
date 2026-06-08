@@ -62,6 +62,7 @@ export interface MatteCottonFlagMaterialUniforms {
   fabricTiling: ReturnType<typeof uniform<number>>;
   fabricColorTint: ReturnType<typeof uniform<number>>;
   tearFringeWidth: ReturnType<typeof uniform<number>>;
+  tearSdfCornerRadius: ReturnType<typeof uniform<number>>;
   showBridgeSplinters: ReturnType<typeof uniform<number>>;
 }
 
@@ -98,6 +99,7 @@ export function configureMatteCottonFlagMaterial(
     fabricTiling: uniform(settings.fabricTiling),
     fabricColorTint: uniform(settings.fabricColorTint),
     tearFringeWidth: uniform(settings.tearFringeWidth),
+    tearSdfCornerRadius: uniform(settings.tearSdfCornerRadius),
     showBridgeSplinters: uniform(settings.showBridgeSplinters ? 1 : 0),
   };
 
@@ -203,8 +205,30 @@ export function configureMatteCottonFlagMaterial(
         const broken2 = e2
           .greaterThanEqual(float(0))
           .and(particleEdgeCullBuffer.element(uint(e2)).equal(uint(0)));
-        const intact = broken0.not().and(broken1.not()).and(broken2.not());
-        return select(intact, float(1), float(0));
+        const brokenCount = select(broken0, uint(1), uint(0))
+          .add(select(broken1, uint(1), uint(0)))
+          .add(select(broken2, uint(1), uint(0)));
+        const noneBroken = brokenCount.equal(uint(0));
+        const multiBroken = brokenCount.greaterThan(uint(1));
+        const bary = attribute('particleBary');
+        const cornerRadius = clothUniforms.tearSdfCornerRadius.clamp(float(0), float(0.49));
+        const fringe = clothUniforms.tearFringeWidth.max(float(0.001));
+        const tearDist = select(
+          broken0,
+          bary.x,
+          select(broken1, bary.y, select(broken2, bary.z, float(1))),
+        );
+        const roundedKeep = tearDist.sub(cornerRadius).div(fringe).clamp(float(0), float(1));
+        const singleBrokenKeep = select(
+          cornerRadius.greaterThan(float(0)),
+          roundedKeep,
+          float(0),
+        );
+        return select(
+          noneBroken,
+          float(1),
+          select(multiBroken, float(0), singleBrokenKeep),
+        );
       })()
     : null;
 
@@ -404,6 +428,7 @@ export function updateMatteCottonFlagMaterial(
   clothUniforms.fabricTiling.value = settings.fabricTiling;
   clothUniforms.fabricColorTint.value = settings.fabricColorTint;
   clothUniforms.tearFringeWidth.value = settings.tearFringeWidth;
+  clothUniforms.tearSdfCornerRadius.value = settings.tearSdfCornerRadius;
   clothUniforms.showBridgeSplinters.value = settings.showBridgeSplinters ? 1 : 0;
 
   material.roughness = settings.roughness;

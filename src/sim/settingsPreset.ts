@@ -15,3 +15,6 @@ export function normalizeFlagSettings(
     ...partial,
   };
 }
+
+/** Alias used by cloth entry points and scene bootstraps. */
+export const normalizeClothSettings = normalizeFlagSettings;

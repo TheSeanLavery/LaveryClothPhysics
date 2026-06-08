@@ -52,6 +52,42 @@ test.describe('GPU readback scheduling', () => {
     expect(consoleCapture.threeMessages, consoleCapture.threeMessages.join('\n')).toEqual([]);
   });
 
+  test('character grab interaction does not schedule full cloth readbacks', async ({ page }) => {
+    const consoleCapture = attachConsoleCapture(page);
+
+    await page.goto('/?mode=character');
+    await expect(page.locator('[data-testid="sim-status"]')).toHaveText('running (animated character cloth)', {
+      timeout: 45_000,
+    });
+    await page.waitForFunction(() => Boolean(window.__characterClothReadbackStats), undefined, {
+      timeout: 5_000,
+    });
+    await waitForCharacterSimFrames(page, 65);
+
+    const before = await readCharacterReadbackStats(page);
+    await page.evaluate(() => window.__characterSetGrabMode?.(true));
+    await expect(page.locator('body')).toHaveClass(/grab-mode/);
+
+    const canvas = page.locator('canvas');
+    const box = await canvas.boundingBox();
+    expect(box).toBeTruthy();
+    const centerX = box!.x + box!.width * 0.5;
+    const centerY = box!.y + box!.height * 0.45;
+
+    await page.mouse.move(centerX, centerY);
+    await page.mouse.down();
+    await page.mouse.move(centerX + 40, centerY - 30, { steps: 8 });
+    await countAnimationFrames(page, 500);
+    await page.mouse.up();
+
+    const after = await readCharacterReadbackStats(page);
+
+    expect(after.healthStarted).toBe(before.healthStarted);
+    expect(after.topologyStarted).toBe(before.topologyStarted);
+    expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
+    expect(consoleCapture.threeMessages, consoleCapture.threeMessages.join('\n')).toEqual([]);
+  });
+
   test('character mode advances frames while disabled tear topology readbacks are skipped', async ({ page }) => {
     const consoleCapture = attachConsoleCapture(page);
 
@@ -62,12 +98,12 @@ test.describe('GPU readback scheduling', () => {
     await page.waitForFunction(() => Boolean(window.__characterClothReadbackStats), undefined, {
       timeout: 5_000,
     });
+    await waitForCharacterSimFrames(page, 65);
 
     const before = await readCharacterReadbackStats(page);
-    const renderedFrames = await countAnimationFrames(page, 1_000);
+    await waitForCharacterSimFrames(page, 125);
     const after = await readCharacterReadbackStats(page);
 
-    expect(renderedFrames).toBeGreaterThan(15);
     expect(after.healthStarted).toBe(before.healthStarted);
     expect(after.healthSkippedRuntime).toBeGreaterThan(before.healthSkippedRuntime);
     expect(after.topologySkippedDisabled).toBeGreaterThan(before.topologySkippedDisabled);
@@ -84,12 +120,12 @@ test.describe('GPU readback scheduling', () => {
     await page.waitForFunction(() => Boolean(window.__garmentStudioReadbackStats), undefined, {
       timeout: 5_000,
     });
+    await waitForGarmentSimFrames(page, 65);
 
     const before = await readGarmentReadbackStats(page);
-    const renderedFrames = await countAnimationFrames(page, 1_000);
+    await waitForGarmentSimFrames(page, 125);
     const after = await readGarmentReadbackStats(page);
 
-    expect(renderedFrames).toBeGreaterThan(20);
     expect(after.healthStarted).toBe(before.healthStarted);
     expect(after.healthSkippedRuntime).toBeGreaterThan(before.healthSkippedRuntime);
     expect(after.topologySkippedDisabled).toBeGreaterThan(before.topologySkippedDisabled);
@@ -163,6 +199,22 @@ async function readCharacterReadbackStats(page: Page): Promise<ReadbackStats> {
   const stats = await page.evaluate(() => window.__characterClothReadbackStats?.());
   expect(stats).toBeTruthy();
   return stats!;
+}
+
+async function waitForCharacterSimFrames(page: Page, minFrame: number): Promise<void> {
+  await page.waitForFunction(
+    (frame) => (window.__characterClothStats?.().frameCount ?? 0) >= frame,
+    minFrame,
+    { timeout: 20_000 },
+  );
+}
+
+async function waitForGarmentSimFrames(page: Page, minFrame: number): Promise<void> {
+  await page.waitForFunction(
+    (frame) => (window.__garmentStudioPhysicsStats?.().frameCount ?? 0) >= frame,
+    minFrame,
+    { timeout: 20_000 },
+  );
 }
 
 async function readGarmentReadbackStats(page: Page): Promise<ReadbackStats> {

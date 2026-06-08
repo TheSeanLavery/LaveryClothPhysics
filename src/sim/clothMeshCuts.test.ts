@@ -5,6 +5,8 @@ import {
   buildClothSdfRenderMesh,
   collectStrandThreadEdgeIds,
   collectRequiredStrandThreadEdgeIds,
+  collectAssemblyStrandThreadEdgeIds,
+  collectParticleRenderCoveredEdgeIds,
   rebuildClothIndicesFromEdgeState,
   rebuildClothIndicesFromSdfEdgeState,
   buildGpuParticleRenderSurface,
@@ -544,6 +546,52 @@ test('buildGpuParticleRenderSurface unshares corners for shader topology cull', 
   assert.equal(surface.particleTriEdge0[0], 3);
   assert.equal(surface.particleTriSimV2[2], 0);
   assert.equal(surface.renderSegmentId.length, 3);
+  assert.deepEqual(surface.particleBary.slice(0, 9), new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]));
+});
+
+test('collectAssemblyStrandThreadEdgeIds requires uncovered active structural edges', () => {
+  const simGridCoords = new Float32Array([
+    0, 0,
+    1, 0,
+    0, 1,
+  ]);
+  const baseIndices = new Uint32Array([0, 1, 2]);
+  const triangleEdgeIds = new Int32Array([2, -1, 0]);
+  const edgeActive = new Uint32Array([1, 1, 1]);
+  edgeActive[2] = 0;
+  const components = new Uint32Array([1, 1, 1]);
+  const structural = [
+    { id: 0, v0: 0, v1: 2 },
+    { id: 1, v0: 1, v1: 2 },
+    { id: 2, v0: 0, v1: 1 },
+  ];
+
+  const required = collectAssemblyStrandThreadEdgeIds(
+    structural,
+    edgeActive,
+    () => false,
+    { baseIndices, triangleEdgeIds, simGridCoordArray: simGridCoords, components },
+  );
+
+  assert.deepEqual(required.sort(), [0, 1]);
+});
+
+test('collectParticleRenderCoveredEdgeIds marks intact triangle edges', () => {
+  const simGridCoords = new Float32Array([0, 0, 1, 0, 0, 1]);
+  const baseIndices = new Uint32Array([0, 1, 2]);
+  const triangleEdgeIds = new Int32Array([2, 1, 0]);
+  const edgeActive = new Uint32Array([1, 1, 1]);
+  const components = new Uint32Array([3, 3, 3]);
+
+  const covered = collectParticleRenderCoveredEdgeIds(
+    baseIndices,
+    triangleEdgeIds,
+    edgeActive,
+    components,
+    simGridCoords,
+  );
+
+  assert.deepEqual([...covered].sort(), [0, 1, 2]);
 });
 
 test('rebuildParticleRenderIndices drops triangles spanning disconnected components', () => {

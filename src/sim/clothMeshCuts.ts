@@ -1057,6 +1057,87 @@ export function buildClothSdfRenderMesh(
   };
 }
 
+export interface AssemblyStrandThreadCollectionOptions {
+  readonly baseIndices: Uint32Array;
+  readonly triangleEdgeIds: Int32Array;
+  readonly simGridCoordArray: Float32Array;
+  readonly components: Uint32Array;
+}
+
+/** Active structural edges with no intact particle render triangle covering them. */
+export function collectAssemblyStrandThreadEdgeIds(
+  structuralEdges: readonly StructuralGraphEdge[],
+  edgeActive: Uint32Array,
+  isVertexFixed: (vertexId: number) => boolean,
+  options: AssemblyStrandThreadCollectionOptions,
+): number[] {
+  const covered = collectParticleRenderCoveredEdgeIds(
+    options.baseIndices,
+    options.triangleEdgeIds,
+    edgeActive,
+    options.components,
+    options.simGridCoordArray,
+  );
+  const required: number[] = [];
+
+  for (const edge of structuralEdges) {
+    if (edgeActive[edge.id] === 0 || isVertexFixed(edge.v0) || isVertexFixed(edge.v1)) {
+      continue;
+    }
+    if (!covered.has(edge.id)) {
+      required.push(edge.id);
+    }
+  }
+
+  return required;
+}
+
+export function collectParticleRenderCoveredEdgeIds(
+  baseIndices: Uint32Array,
+  triangleEdgeIds: Int32Array,
+  edgeActive: Uint32Array,
+  components: Uint32Array,
+  simGridCoordArray: Float32Array,
+): Set<number> {
+  const covered = new Set<number>();
+  const simVertexForRenderIndex = (index: number): number =>
+    Math.round(simGridCoordArray[index * 2] ?? 0);
+
+  for (let i = 0; i < baseIndices.length; i += 3) {
+    const i0 = baseIndices[i]!;
+    const i1 = baseIndices[i + 1]!;
+    const i2 = baseIndices[i + 2]!;
+    const v0 = simVertexForRenderIndex(i0);
+    const v1 = simVertexForRenderIndex(i1);
+    const v2 = simVertexForRenderIndex(i2);
+    const sameComponent = components[v0] === components[v1] && components[v0] === components[v2];
+    if (!sameComponent) {
+      continue;
+    }
+
+    let intact = true;
+    for (let e = 0; e < 3; e++) {
+      const edgeId = triangleEdgeIds[i + e]!;
+      if (edgeId >= 0 && edgeActive[edgeId] === 0) {
+        intact = false;
+        break;
+      }
+    }
+    if (!intact) {
+      continue;
+    }
+
+    for (let e = 0; e < 3; e++) {
+      const edgeId = triangleEdgeIds[i + e]!;
+      if (edgeId >= 0) {
+        covered.add(edgeId);
+      }
+    }
+  }
+
+  return covered;
+}
+
 export function rebuildParticleRenderIndices(
   baseIndices: Uint32Array,
   simGridCoordArray: Float32Array,
@@ -1107,6 +1188,7 @@ export interface GpuParticleRenderSurface {
   readonly particleTriSimV0: Float32Array;
   readonly particleTriSimV1: Float32Array;
   readonly particleTriSimV2: Float32Array;
+  readonly particleBary: Float32Array;
 }
 
 /** Unshared corners so each triangle can carry edge ids for GPU shader culling. */
@@ -1127,6 +1209,7 @@ export function buildGpuParticleRenderSurface(
   const particleTriSimV0 = new Float32Array(vertCount);
   const particleTriSimV1 = new Float32Array(vertCount);
   const particleTriSimV2 = new Float32Array(vertCount);
+  const particleBary = new Float32Array(vertCount * 3);
   const renderSegmentId = new Float32Array(vertCount);
   const indices = new Uint32Array(vertCount);
 
@@ -1159,6 +1242,9 @@ export function buildGpuParticleRenderSurface(
       particleTriSimV0[out] = v0;
       particleTriSimV1[out] = v1;
       particleTriSimV2[out] = v2;
+      particleBary[out * 3] = c === 0 ? 1 : 0;
+      particleBary[out * 3 + 1] = c === 1 ? 1 : 0;
+      particleBary[out * 3 + 2] = c === 2 ? 1 : 0;
       renderSegmentId[out] = renderSegmentIdArray?.[src] ?? 0;
     }
   }
@@ -1174,6 +1260,7 @@ export function buildGpuParticleRenderSurface(
     particleTriSimV0,
     particleTriSimV1,
     particleTriSimV2,
+    particleBary,
   };
 }
 

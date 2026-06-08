@@ -17,6 +17,8 @@ import { createClothPanelDefinition } from './panels/clothPanel.ts';
 import { createCharacterSdfPanelDefinition } from './panels/characterSdfPanel.ts';
 import { createPhysicsPosePanelDefinition } from './panels/physicsPosePanel.ts';
 import type { DevPanelDefinition } from './DevMenuShell.ts';
+import { createWrappedGarmentPanelDefinition } from './panels/wrappedGarmentPanel.ts';
+import type { WrappedGarmentBuilderOptions, WrappedGarmentProofKind, WrappedGarmentProofReport } from '../garments/wrappedGarmentBuilder.ts';
 
 export interface RegisterCharacterDevMenuOptions {
   readonly cloth: ClothSimulation;
@@ -25,6 +27,10 @@ export interface RegisterCharacterDevMenuOptions {
   readonly initialGarmentPreset: GarmentPresetEnvelope;
   readonly onGarmentGenerate: (preset: GarmentPresetEnvelope) => Promise<void>;
   readonly onGarmentFitDebugChange: (visible: boolean) => void;
+  readonly onLoadWrappedProof?: (
+    proof: WrappedGarmentProofKind,
+    options?: WrappedGarmentBuilderOptions,
+  ) => Promise<WrappedGarmentProofReport>;
 }
 
 export interface CharacterDevMenu extends DevMenuShell {
@@ -91,6 +97,12 @@ export function registerCharacterDevMenu(
     },
   };
   menu.register(garmentPanel);
+
+  if (options.onLoadWrappedProof) {
+    menu.register(createWrappedGarmentPanelDefinition({
+      onLoadProof: options.onLoadWrappedProof,
+    }));
+  }
 
   menu.register(createPhysicsPosePanelDefinition({
     id: 'character-physics-pose',

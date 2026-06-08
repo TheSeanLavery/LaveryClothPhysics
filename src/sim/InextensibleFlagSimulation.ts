@@ -100,6 +100,7 @@ import {
   buildClothRenderQuads,
   buildClothSdfRenderMesh,
   collectStrandThreadEdgeIds,
+  collectAssemblyStrandThreadEdgeIds,
   auditStrandThreadCoverage,
   countBrokenEdges,
   createSimEdgeLookup,
@@ -117,11 +118,9 @@ import {
 } from './clothMeshCuts';
 import { createGpuBbProjectileMesh } from '../shaders/BbProjectileVisual';
 import {
-  createStrandThreadInstancedMesh,
-  syncStrandThreadInstancedMesh,
-  updateStrandThreadMaterial,
-  type StrandThreadEdge,
-} from '../shaders/StrandThreadVisual';
+  createGpuStrandThreadMesh,
+  updateGpuStrandThreadMaterial,
+} from '../shaders/GpuStrandThreadVisual';
 import {
   loadDenim512ClothTextures,
   type BakedClothTextureSet,
@@ -207,6 +206,9 @@ interface ClothVertex {
   isFixed: boolean;
   bendScale: number;
   dampeningScale: number;
+  structuralScale: number;
+  compressionScale: number;
+  tearThresholdScale: number;
   springIds: number[]; // incident PBD edge constraint ids (not force springs)
 }
 
@@ -455,7 +457,8 @@ export class InextensibleFlagSimulation {
   private lastConnectivitySignature = '';
   private bbVisualRefreshPending = false;
   private strandThreadMesh: THREE.InstancedMesh | null = null;
-  private strandThreadEdgeVertices: StrandThreadEdge[] = [];
+  private strandEdgeIdBuffer!: ReturnType<typeof instancedArray>;
+  private strandThreadRadiusUniform!: ReturnType<typeof uniform>;
   private strandThreadReadbackPending = false;
   private lastStrandThreadEdgeIds: number[] = [];
   private lastSyncedEdgeActive: Uint32Array | null = null;
@@ -497,7 +500,6 @@ export class InextensibleFlagSimulation {
   private readonly idleClothTopologyRefreshInterval = 12;
   private readonly tearReadbackIdleThreshold = 2.5;
   private readonly healthReadbackInterval = 60;
-  private readonly strandPositionRefreshInterval = 4;
   private healthReadbacksStarted = 0;
   private healthReadbacksCompleted = 0;
   private healthReadbacksSkippedPending = 0;
@@ -530,6 +532,7 @@ export class InextensibleFlagSimulation {
   private springRestLengthBuffer!: ReturnType<typeof instancedArray>;
   private edgeKindBuffer!: ReturnType<typeof instancedArray>;
   private edgeBendScaleBuffer!: ReturnType<typeof instancedArray>;
+  private edgeTearThresholdBuffer!: ReturnType<typeof instancedArray>;
   private springCorrectionBuffer!: ReturnType<typeof instancedArray>;
   private springListBuffer!: ReturnType<typeof instancedArray>;
   private edgeActiveBuffer!: ReturnType<typeof instancedArray>;
@@ -586,6 +589,7 @@ export class InextensibleFlagSimulation {
   private bendStiffnessUniform!: ReturnType<typeof uniform>;
   private minCompressionUniform!: ReturnType<typeof uniform>;
   private clothThicknessUniform!: ReturnType<typeof uniform>;
+  private assemblySelfCollisionRadiusUniform!: ReturnType<typeof uniform>;
   private flatShadingUniform!: ReturnType<typeof uniform>;
   private renderNormalStepUniform!: ReturnType<typeof uniform>;
   private renderGeometrySmoothingUniform!: ReturnType<typeof uniform>;
@@ -1492,6 +1496,26 @@ export class InextensibleFlagSimulation {
     this.isReady = true;
   }
 
+  refreshAssemblyMaterialScalars(options: Partial<AssemblyClothTopologyOptions> = {}): void {
+    if (!this.activeAssembly || this.topologyMode !== 'assembly') {
+      return;
+    }
+
+    this.assemblyTopologyOptions = { ...this.assemblyTopologyOptions, ...options };
+    const topology = buildAssemblyClothTopology(this.activeAssembly, this.assemblyTopologyOptions);
+    for (let i = 0; i < this.clothVertices.length; i += 1) {
+      const particle = topology.particles[i];
+      const vertex = this.clothVertices[i];
+      if (!particle || !vertex) {
+        continue;
+      }
+      vertex.bendScale = particle.bendScale;
+      vertex.dampeningScale = particle.dampeningScale;
+      vertex.tearThresholdScale = particle.tearThresholdScale;
+    }
+    this.uploadAssemblyMaterialScalarBuffers();
+  }
+
   applySettings(): void {
     const s = this.settings;
 
@@ -1535,6 +1559,9 @@ export class InextensibleFlagSimulation {
     this.grabMaxStepUniform.value = s.grabMaxStep;
     this.grabVelocityCarryUniform.value = s.grabVelocityCarry;
     this.tearStretchUniform.value = s.tearStretchThreshold;
+    if (this.topologyMode === 'assembly') {
+      this.refreshAssemblyTearThresholds(s.tearStretchThreshold);
+    }
     this.bbHitRadiusUniform.value = s.bbHitRadius;
     this.bbVisualRadiusUniform.value = s.bbVisualRadius;
     this.bbForceStrengthUniform.value = s.bbForceStrength;
@@ -1652,7 +1679,7 @@ export class InextensibleFlagSimulation {
         this.renderer.compute(this.applyDistanceCorrections);
       }
 
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < 4; i += 1) {
         if (this.settings.poleCollision) {
           this.renderer.compute(this.resolvePoleCollision);
         }
@@ -1665,6 +1692,11 @@ export class InextensibleFlagSimulation {
           }
         }
         if (this.shouldRunSelfCollision()) {
+          this.renderer.compute(this.resolveSelfCollision);
+        }
+      }
+      if (this.shouldRunSelfCollision()) {
+        for (let extraPass = 0; extraPass < this.extraAssemblySelfCollisionPasses(); extraPass += 1) {
           this.renderer.compute(this.resolveSelfCollision);
         }
       }
@@ -1688,7 +1720,7 @@ export class InextensibleFlagSimulation {
         // Grabbing is an explicit screen-space override, so resolve body
         // contacts again after it runs. Otherwise the user can drag vertices
         // through character arm capsules after the main collision pass.
-        for (let grabContactPass = 0; grabContactPass < 4; grabContactPass++) {
+        for (let grabContactPass = 0; grabContactPass < 4; grabContactPass += 1) {
           if (this.settings.poleCollision) {
             this.renderer.compute(this.resolvePoleCollision);
           }
@@ -1701,6 +1733,11 @@ export class InextensibleFlagSimulation {
             }
           }
           if (this.shouldRunSelfCollision()) {
+            this.renderer.compute(this.resolveSelfCollision);
+          }
+        }
+        if (this.shouldRunSelfCollision()) {
+          for (let extraPass = 0; extraPass < this.extraAssemblySelfCollisionPasses(); extraPass += 1) {
             this.renderer.compute(this.resolveSelfCollision);
           }
         }
@@ -1717,8 +1754,8 @@ export class InextensibleFlagSimulation {
     if (this.shouldScheduleClothTopologyReadback()) {
       void this.refreshClothTopologyFromGpu();
     }
-    if (this.settings.renderStrandThreads) {
-      void this.refreshStrandThreadPositionsFromGpu();
+    if (this.shouldScheduleAssemblyStrandEdgeRefresh()) {
+      void this.refreshAssemblyStrandEdgesFromGpu();
     }
 
     this.frameCount += 1;
@@ -2729,6 +2766,11 @@ export class InextensibleFlagSimulation {
         isFixed: particle.isFixed,
         bendScale: particle.bendScale,
         dampeningScale: particle.dampeningScale,
+        structuralScale: particle.structuralScale,
+        compressionScale: particle.compressionScale,
+        tearThresholdScale: topology.kind === 'assembly'
+          ? particle.tearThresholdScale
+          : this.settings.tearStretchThreshold,
         springIds: [],
       };
       this.clothVertices.push(vertex);
@@ -2960,12 +3002,91 @@ export class InextensibleFlagSimulation {
     this.segmentHealthBuffer = instancedArray(healthArray, 'float');
   }
 
+  private buildEdgeBendScaleArray(): Float32Array {
+    const edgeCount = this.clothEdges.length;
+    const edgeBendScaleArray = new Float32Array(edgeCount).fill(1);
+    for (let i = 0; i < edgeCount; i += 1) {
+      const edge = this.clothEdges[i]!;
+      edgeBendScaleArray[i] = Math.sqrt(edge.vertex0.bendScale * edge.vertex1.bendScale);
+    }
+    return edgeBendScaleArray;
+  }
+
+  private buildEdgeTearThresholdArray(): Float32Array {
+    const edgeCount = this.clothEdges.length;
+    const globalTear = Math.max(this.settings.tearStretchThreshold, 0.5);
+    const edgeTearThresholdArray = new Float32Array(edgeCount).fill(globalTear);
+    for (let i = 0; i < edgeCount; i += 1) {
+      const edge = this.clothEdges[i]!;
+      const v0Tear = edge.vertex0.tearThresholdScale > 0
+        ? edge.vertex0.tearThresholdScale
+        : globalTear;
+      const v1Tear = edge.vertex1.tearThresholdScale > 0
+        ? edge.vertex1.tearThresholdScale
+        : globalTear;
+      edgeTearThresholdArray[i] = Math.sqrt(v0Tear * v1Tear);
+    }
+    return edgeTearThresholdArray;
+  }
+
+  private refreshAssemblyTearThresholds(globalTearStretchThreshold: number): void {
+    if (!this.activeAssembly || this.topologyMode !== 'assembly') {
+      return;
+    }
+    const globalTear = Math.max(globalTearStretchThreshold, 0.5);
+    const tearByKey = this.assemblyTopologyOptions.materialAbsoluteTearThresholdByKey;
+    const resolveKey = this.assemblyTopologyOptions.resolvePatchMaterialKey;
+    if (!tearByKey || !resolveKey || !this.activeAssembly) {
+      for (const vertex of this.clothVertices) {
+        vertex.tearThresholdScale = globalTear;
+      }
+      this.uploadEdgeTearThresholdBuffer();
+      return;
+    }
+
+    const topology = buildAssemblyClothTopology(this.activeAssembly, {
+      ...this.assemblyTopologyOptions,
+      globalTearStretchThreshold: globalTear,
+    });
+    for (let i = 0; i < this.clothVertices.length; i += 1) {
+      const particle = topology.particles[i];
+      const vertex = this.clothVertices[i];
+      if (!particle || !vertex) {
+        continue;
+      }
+      vertex.tearThresholdScale = particle.tearThresholdScale;
+    }
+    this.uploadEdgeTearThresholdBuffer();
+  }
+
+  private uploadEdgeTearThresholdBuffer(): void {
+    const tearAttr = this.edgeTearThresholdBuffer.value as StorageInstancedBufferAttribute;
+    tearAttr.array.set(this.buildEdgeTearThresholdArray());
+    tearAttr.needsUpdate = true;
+  }
+
+  private uploadAssemblyMaterialScalarBuffers(): void {
+    const vertexCount = this.clothVertices.length;
+    const dampeningAttr = this.vertexDampeningScaleBuffer.value as StorageInstancedBufferAttribute;
+    const dampeningArray = dampeningAttr.array as Float32Array;
+    for (let i = 0; i < vertexCount; i += 1) {
+      dampeningArray[i] = this.clothVertices[i]!.dampeningScale;
+    }
+    dampeningAttr.needsUpdate = true;
+
+    const bendAttr = this.edgeBendScaleBuffer.value as StorageInstancedBufferAttribute;
+    bendAttr.array.set(this.buildEdgeBendScaleArray());
+    bendAttr.needsUpdate = true;
+    this.uploadEdgeTearThresholdBuffer();
+  }
+
   private setupEdgeBuffers(): void {
     const edgeCount = this.clothEdges.length;
     const springVertexIdArray = new Uint32Array(edgeCount * 2);
     const springRestLengthArray = new Float32Array(edgeCount);
     const edgeKindArray = new Uint32Array(edgeCount);
-    const edgeBendScaleArray = new Float32Array(edgeCount).fill(1);
+    const edgeBendScaleArray = this.buildEdgeBendScaleArray();
+    const edgeTearThresholdArray = this.buildEdgeTearThresholdArray();
 
     for (let i = 0; i < edgeCount; i++) {
       const edge = this.clothEdges[i]!;
@@ -2975,7 +3096,6 @@ export class InextensibleFlagSimulation {
         edge.restLengthOverride ?? edge.vertex0.position.distanceTo(edge.vertex1.position);
       edgeKindArray[i] =
         edge.kind === 'bend' ? 1 : edge.kind === 'shear' ? 2 : 0;
-      edgeBendScaleArray[i] = Math.sqrt(edge.vertex0.bendScale * edge.vertex1.bendScale);
     }
 
     const structuralLookup = createSimStructuralEdgeLookup(
@@ -2990,9 +3110,12 @@ export class InextensibleFlagSimulation {
     );
 
     this.springVertexIdBuffer = instancedArray(springVertexIdArray, 'uvec2').setPBO(true);
+    this.strandEdgeIdBuffer = instancedArray(new Uint32Array(edgeCount).fill(0), 'uint').setPBO(true);
+    this.strandThreadRadiusUniform = uniform(this.settings.strandThreadRadius);
     this.springRestLengthBuffer = instancedArray(springRestLengthArray, 'float');
     this.edgeKindBuffer = instancedArray(edgeKindArray, 'uint');
     this.edgeBendScaleBuffer = instancedArray(edgeBendScaleArray, 'float');
+    this.edgeTearThresholdBuffer = instancedArray(edgeTearThresholdArray, 'float');
     this.springCorrectionBuffer = instancedArray(edgeCount, 'vec3');
     this.edgeActiveBuffer = instancedArray(new Uint32Array(edgeCount).fill(1), 'uint').setPBO(true);
     this.edgeVisualBuffer = instancedArray(new Uint32Array(edgeCount).fill(1), 'uint').setPBO(true);
@@ -3053,6 +3176,9 @@ export class InextensibleFlagSimulation {
 
     const adjacency: number[][] = Array.from({ length: vertexCount }, () => []);
     for (const edge of this.clothEdges) {
+      if (edge.kind === 'bend') {
+        continue;
+      }
       adjacency[edge.vertex0.id]!.push(edge.vertex1.id);
       adjacency[edge.vertex1.id]!.push(edge.vertex0.id);
     }
@@ -3064,7 +3190,7 @@ export class InextensibleFlagSimulation {
 
       for (let cursor = 0; cursor < queue.length; cursor++) {
         const { id, depth } = queue[cursor]!;
-        if (depth >= 2) {
+        if (depth >= 1) {
           continue;
         }
 
@@ -3100,6 +3226,7 @@ export class InextensibleFlagSimulation {
     this.bendStiffnessUniform = uniform(s.bendStiffness);
     this.minCompressionUniform = uniform(s.minCompression);
     this.clothThicknessUniform = uniform(s.clothThickness);
+    this.assemblySelfCollisionRadiusUniform = uniform(Math.max(s.clothThickness * 4, 0.03));
     this.flatShadingUniform = uniform(s.flatShading ? 1 : 0);
     this.renderNormalStepUniform = uniform(0.5 / Math.max(1, s.renderSubdivisions));
     this.renderGeometrySmoothingUniform = uniform(s.renderGeometrySmoothing);
@@ -3870,6 +3997,46 @@ export class InextensibleFlagSimulation {
     this.lastBrokenEdgeCount = 0;
   }
 
+  private shouldScheduleAssemblyStrandEdgeRefresh(): boolean {
+    if (!this.particleRenderBaseIndices || !this.settings.renderStrandThreads) {
+      return false;
+    }
+    const refreshInterval =
+      this.lastBrokenEdgeCount > 0 || this.settings.renderStrandThreads
+        ? this.activeClothTopologyRefreshInterval
+        : this.idleClothTopologyRefreshInterval;
+    return this.frameCount % refreshInterval === 0;
+  }
+
+  private async refreshAssemblyStrandEdgesFromGpu(): Promise<void> {
+    if (
+      !this.isReady ||
+      !this.particleRenderBaseIndices ||
+      !this.particleRenderTriangleEdgeIds ||
+      !this.clothSimGridCoords ||
+      !this.settings.renderStrandThreads ||
+      !this.strandThreadMesh
+    ) {
+      return;
+    }
+    if (this.strandThreadReadbackPending) {
+      return;
+    }
+
+    this.strandThreadReadbackPending = true;
+    try {
+      const activeAttr = this.edgeActiveBuffer.value as StorageInstancedBufferAttribute;
+      const buffer = await this.renderer.getArrayBufferAsync(activeAttr);
+      const { edgeActive: syncedEdgeActive, components } =
+        this.syncClothConnectivityFromEdgeState(new Uint32Array(buffer));
+      this.lastSyncedEdgeActive = syncedEdgeActive;
+      this.lastBrokenEdgeCount = countBrokenEdges(syncedEdgeActive);
+      this.syncStrandThreadsFromState(syncedEdgeActive, undefined, true, components);
+    } finally {
+      this.strandThreadReadbackPending = false;
+    }
+  }
+
   private shouldScheduleClothTopologyReadback(): boolean {
     const topologyRefreshInterval =
       this.lastBrokenEdgeCount > 0 || this.settings.renderStrandThreads
@@ -3952,7 +4119,7 @@ export class InextensibleFlagSimulation {
       if (this.settings.renderStrandThreads && !this.strandThreadReadbackPending) {
         this.strandThreadReadbackPending = true;
         try {
-          await this.syncStrandThreadsFromState(syncedEdgeActive, visibleMesh.indices, true);
+          this.syncStrandThreadsFromState(syncedEdgeActive, visibleMesh.indices, true, components);
         } finally {
           this.strandThreadReadbackPending = false;
         }
@@ -4004,12 +4171,7 @@ export class InextensibleFlagSimulation {
   }
 
   async auditStrandThreadCoverage(): Promise<StrandThreadAuditResult | null> {
-    if (
-      !this.isReady ||
-      !this.simEdgeLookup ||
-      !this.clothSimGridCoords ||
-      this.clothRenderQuads.length === 0
-    ) {
+    if (!this.isReady || !this.clothSimGridCoords) {
       return null;
     }
 
@@ -4018,16 +4180,54 @@ export class InextensibleFlagSimulation {
     const { edgeActive, components } = this.syncClothConnectivityFromEdgeState(new Uint32Array(edgeBuffer));
     this.lastSyncedEdgeActive = edgeActive;
     const brokenEdgeCount = countBrokenEdges(edgeActive);
-    const visible = this.rebuildVisibleClothMesh(edgeActive, brokenEdgeCount, components);
 
     for (let wait = 0; this.strandThreadReadbackPending && wait < 5; wait++) {
       await this.waitForFrame();
     }
 
+    if (this.particleRenderBaseIndices && this.particleRenderTriangleEdgeIds) {
+      if (this.settings.renderStrandThreads && !this.strandThreadReadbackPending) {
+        this.strandThreadReadbackPending = true;
+        try {
+          this.syncStrandThreadsFromState(edgeActive, undefined, true, components);
+        } finally {
+          this.strandThreadReadbackPending = false;
+        }
+      }
+
+      const required = collectAssemblyStrandThreadEdgeIds(
+        this.structuralGraphEdges,
+        edgeActive,
+        (vertexId) => this.clothVertices[vertexId]?.isFixed ?? true,
+        {
+          baseIndices: this.particleRenderBaseIndices,
+          triangleEdgeIds: this.particleRenderTriangleEdgeIds,
+          simGridCoordArray: this.clothSimGridCoords,
+          components,
+        },
+      );
+      const requiredSet = new Set(required);
+      const renderedSet = new Set(this.lastStrandThreadEdgeIds);
+      return {
+        frameCount: this.frameCount,
+        brokenEdgeCount,
+        requiredCount: required.length,
+        renderedCount: this.lastStrandThreadEdgeIds.length,
+        missingEdgeIds: required.filter((edgeId) => !renderedSet.has(edgeId)),
+        extraEdgeIds: this.lastStrandThreadEdgeIds.filter((edgeId) => !requiredSet.has(edgeId)),
+      };
+    }
+
+    if (!this.simEdgeLookup || this.clothRenderQuads.length === 0) {
+      return null;
+    }
+
+    const visible = this.rebuildVisibleClothMesh(edgeActive, brokenEdgeCount, components);
+
     if (this.settings.renderStrandThreads && !this.strandThreadReadbackPending) {
       this.strandThreadReadbackPending = true;
       try {
-        await this.syncStrandThreadsFromState(edgeActive, visible.indices, true);
+        this.syncStrandThreadsFromState(edgeActive, visible.indices, true, components);
       } finally {
         this.strandThreadReadbackPending = false;
       }
@@ -4052,44 +4252,65 @@ export class InextensibleFlagSimulation {
     };
   }
 
-  private async syncStrandThreadsFromState(
+  private syncStrandThreadsFromState(
     syncedEdgeActive: Uint32Array,
-    visibleIndices: Uint32Array,
+    visibleIndices: Uint32Array | undefined,
     recomputeEdgeIds: boolean,
-  ): Promise<void> {
+    components?: Uint32Array,
+  ): void {
     if (!this.settings.renderStrandThreads || !this.strandThreadMesh) {
       return;
     }
 
     let strandEdgeIds = this.lastStrandThreadEdgeIds;
     if (recomputeEdgeIds) {
-      strandEdgeIds = collectStrandThreadEdgeIds(
-        this.structuralGraphEdges,
-        syncedEdgeActive,
-        this.clothVertices.length,
-        (vertexId) => this.clothVertices[vertexId]?.isFixed ?? true,
-        this.strandThreadCollectionOptions(visibleIndices),
-      );
+      if (
+        this.particleRenderBaseIndices &&
+        this.particleRenderTriangleEdgeIds &&
+        this.clothSimGridCoords &&
+        components
+      ) {
+        strandEdgeIds = collectAssemblyStrandThreadEdgeIds(
+          this.structuralGraphEdges,
+          syncedEdgeActive,
+          (vertexId) => this.clothVertices[vertexId]?.isFixed ?? true,
+          {
+            baseIndices: this.particleRenderBaseIndices,
+            triangleEdgeIds: this.particleRenderTriangleEdgeIds,
+            simGridCoordArray: this.clothSimGridCoords,
+            components,
+          },
+        );
+      } else if (visibleIndices) {
+        strandEdgeIds = collectStrandThreadEdgeIds(
+          this.structuralGraphEdges,
+          syncedEdgeActive,
+          this.clothVertices.length,
+          (vertexId) => this.clothVertices[vertexId]?.isFixed ?? true,
+          this.strandThreadCollectionOptions(visibleIndices),
+        );
+      } else {
+        strandEdgeIds = [];
+      }
       this.lastStrandThreadEdgeIds = strandEdgeIds;
     }
 
-    if (strandEdgeIds.length === 0) {
-      this.strandThreadMesh.count = 0;
-      this.strandThreadMesh.visible = false;
+    this.uploadStrandEdgeIds(strandEdgeIds);
+  }
+
+  private uploadStrandEdgeIds(edgeIds: readonly number[]): void {
+    if (!this.strandThreadMesh) {
       return;
     }
 
-    const positionAttr = this.vertexPositionBuffer.value as StorageInstancedBufferAttribute;
-    const positionBuffer = await this.renderer.getArrayBufferAsync(positionAttr);
-    syncStrandThreadInstancedMesh(
-      this.strandThreadMesh,
-      strandEdgeIds,
-      this.strandThreadEdgeVertices,
-      new Float32Array(positionBuffer),
-      positionAttr.itemSize,
-      this.settings.strandThreadRadius,
-    );
-    this.strandThreadMesh.visible = true;
+    const attr = this.strandEdgeIdBuffer.value as StorageInstancedBufferAttribute;
+    const array = attr.array as Uint32Array;
+    for (let i = 0; i < edgeIds.length; i++) {
+      array[i] = edgeIds[i]!;
+    }
+    attr.needsUpdate = true;
+    this.strandThreadMesh.count = edgeIds.length;
+    this.strandThreadMesh.visible = this.settings.renderStrandThreads && edgeIds.length > 0;
   }
 
   private disposeStrandThreadVisual(): void {
@@ -4101,17 +4322,17 @@ export class InextensibleFlagSimulation {
     this.strandThreadMesh.geometry.dispose();
     (this.strandThreadMesh.material as THREE.Material).dispose();
     this.strandThreadMesh = null;
-    this.strandThreadEdgeVertices = [];
   }
 
   private setupStrandThreadVisual(): void {
     this.disposeStrandThreadVisual();
-    this.strandThreadEdgeVertices = this.clothEdges.map((edge) => ({
-      v0: edge.vertex0.id,
-      v1: edge.vertex1.id,
-    }));
-    this.strandThreadMesh = createStrandThreadInstancedMesh(
-      this.clothEdges.length,
+    const edgeCount = Math.max(this.clothEdges.length, 1);
+    this.strandThreadMesh = createGpuStrandThreadMesh(
+      this.strandEdgeIdBuffer,
+      this.springVertexIdBuffer,
+      this.vertexPositionBuffer,
+      edgeCount,
+      this.strandThreadRadiusUniform,
       new THREE.Color(this.settings.flagColor),
     );
     this.scene.add(this.strandThreadMesh);
@@ -4125,7 +4346,8 @@ export class InextensibleFlagSimulation {
 
     const enabled = this.settings.renderStrandThreads;
     this.strandThreadMesh.visible = enabled && this.strandThreadMesh.count > 0;
-    updateStrandThreadMaterial(
+    this.strandThreadRadiusUniform.value = this.settings.strandThreadRadius;
+    updateGpuStrandThreadMaterial(
       this.strandThreadMesh,
       new THREE.Color(this.settings.flagColor),
       this.settings.strandThreadRadius,
@@ -4139,40 +4361,8 @@ export class InextensibleFlagSimulation {
     }
   }
 
-  private async refreshStrandThreadPositionsFromGpu(): Promise<void> {
-    if (
-      !this.isReady ||
-      !this.settings.renderStrandThreads ||
-      !this.lastSyncedEdgeActive ||
-      !this.strandThreadMesh ||
-      this.strandThreadReadbackPending ||
-      this.clothTopologyReadbackPending ||
-      this.lastStrandThreadEdgeIds.length === 0 ||
-      this.frameCount % this.strandPositionRefreshInterval !== 0
-    ) {
-      return;
-    }
-
-    this.strandThreadReadbackPending = true;
-
-    try {
-      const positionAttr = this.vertexPositionBuffer.value as StorageInstancedBufferAttribute;
-      const positionBuffer = await this.renderer.getArrayBufferAsync(positionAttr);
-      syncStrandThreadInstancedMesh(
-        this.strandThreadMesh,
-        this.lastStrandThreadEdgeIds,
-        this.strandThreadEdgeVertices,
-        new Float32Array(positionBuffer),
-        positionAttr.itemSize,
-        this.settings.strandThreadRadius,
-      );
-      this.strandThreadMesh.visible = true;
-    } finally {
-      this.strandThreadReadbackPending = false;
-    }
-  }
-
   private setupComputeShaders(): void {
+    this.refreshAssemblySelfCollisionRadius();
     const vertexCount = this.clothVertices.length;
     const edgeCount = this.clothEdges.length;
 
@@ -4188,6 +4378,8 @@ export class InextensibleFlagSimulation {
     const springRestLengthBuffer = this.springRestLengthBuffer;
     const edgeKindBuffer = this.edgeKindBuffer;
     const edgeBendScaleBuffer = this.edgeBendScaleBuffer;
+    const edgeTearThresholdBuffer = this.edgeTearThresholdBuffer;
+    const useAssemblyTearThresholds = this.topologyMode === 'assembly';
     const edgeActiveBuffer = this.edgeActiveBuffer;
     const springCorrectionBuffer = this.springCorrectionBuffer;
     const springListBuffer = this.springListBuffer;
@@ -4202,6 +4394,7 @@ export class InextensibleFlagSimulation {
     const bendStiffnessUniform = this.bendStiffnessUniform;
     const minCompressionUniform = this.minCompressionUniform;
     const clothThicknessUniform = this.clothThicknessUniform;
+    const assemblySelfCollisionRadiusUniform = this.assemblySelfCollisionRadiusUniform;
     const poleAxisXUniform = this.poleAxisXUniform;
     const poleCenterYUniform = this.poleCenterYUniform;
     const poleHalfHeightUniform = this.poleHalfHeightUniform;
@@ -4735,7 +4928,9 @@ export class InextensibleFlagSimulation {
       const position = vertexPositionBuffer.element(instanceIndex).toVar('position');
       const gridSelf = vertexGridBuffer.element(instanceIndex);
       const repulsion = vec3(float(0), float(0), float(0)).toVar('repulsion');
-      const minSeparation = clothThicknessUniform.mul(2.0);
+      const minSeparation = this.topologyMode === 'assembly'
+        ? assemblySelfCollisionRadiusUniform
+        : clothThicknessUniform.mul(2.0);
       const vertexCountVar = uint(vertexCount);
 
       Loop({ start: uint(0), end: vertexCountVar, type: 'uint', condition: '<' }, ({ i: otherIndex }) => {
@@ -4761,7 +4956,8 @@ export class InextensibleFlagSimulation {
           .notEqual(instanceIndex)
           .and(isTopologicallyDistant)
           .and(dist.lessThan(minSeparation));
-        const penetration = select(active, minSeparation.sub(dist).mul(float(0.5)), float(0));
+        const correctionScale = this.topologyMode === 'assembly' ? float(0.65) : float(0.5);
+        const penetration = select(active, minSeparation.sub(dist).mul(correctionScale), float(0));
 
         repulsion.addAssign(offset.mul(penetration.div(dist)));
       });
@@ -4994,7 +5190,10 @@ export class InextensibleFlagSimulation {
       const restLength = springRestLengthBuffer.element(instanceIndex);
       const stretchRatio = dist.div(restLength);
 
-      If(stretchRatio.greaterThan(tearStretchUniform), () => {
+      const tearLimit = useAssemblyTearThresholds
+        ? edgeTearThresholdBuffer.element(instanceIndex)
+        : tearStretchUniform;
+      If(stretchRatio.greaterThan(tearLimit), () => {
         edgeActiveBuffer.element(instanceIndex).assign(uint(0));
       });
     })()
@@ -5347,6 +5546,34 @@ export class InextensibleFlagSimulation {
     return this.settings.selfCollision && this.selfCollisionDenseExclusions;
   }
 
+  private extraAssemblySelfCollisionPasses(): number {
+    return this.topologyMode === 'assembly' ? 2 : 0;
+  }
+
+  private computeAssemblySelfCollisionRadius(): number {
+    const surfaceEdges = this.clothEdges.filter(
+      (edge) => edge.kind === 'structural' || edge.kind === 'shear',
+    );
+    if (surfaceEdges.length === 0) {
+      return Math.max(this.settings.clothThickness * 4, 0.03);
+    }
+
+    let restLengthSum = 0;
+    for (const edge of surfaceEdges) {
+      restLengthSum += edge.restLengthOverride
+        ?? edge.vertex0.position.distanceTo(edge.vertex1.position);
+    }
+    const averageRestLength = restLengthSum / surfaceEdges.length;
+    return Math.max(this.settings.clothThickness * 4, averageRestLength * 1.2);
+  }
+
+  private refreshAssemblySelfCollisionRadius(): void {
+    if (this.topologyMode !== 'assembly') {
+      return;
+    }
+    this.assemblySelfCollisionRadiusUniform.value = this.computeAssemblySelfCollisionRadius();
+  }
+
   private shouldPropagateVertexComponentsGpu(): boolean {
     // vertexComponentBuffer drives constraint connectivity in distance-correction kernels.
     // Parallel GPU relabel (init to instanceIndex + min-propagation) overwrites the CPU
@@ -5590,6 +5817,7 @@ export class InextensibleFlagSimulation {
     geometry.setAttribute('particleTriSimV0', new THREE.BufferAttribute(gpuSurface.particleTriSimV0, 1));
     geometry.setAttribute('particleTriSimV1', new THREE.BufferAttribute(gpuSurface.particleTriSimV1, 1));
     geometry.setAttribute('particleTriSimV2', new THREE.BufferAttribute(gpuSurface.particleTriSimV2, 1));
+    geometry.setAttribute('particleBary', new THREE.BufferAttribute(gpuSurface.particleBary, 3));
     if (renderSurface.renderSegmentIds) {
       geometry.setAttribute('renderSegmentId', new THREE.BufferAttribute(gpuSurface.renderSegmentId, 1));
     }

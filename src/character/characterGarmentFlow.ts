@@ -8,6 +8,12 @@ import {
   type GarmentAssemblyStats,
 } from '../garments/garmentGenerator';
 import {
+  auditWrappedGarmentProof,
+  buildWrappedGarmentAssembly,
+  type WrappedGarmentProofKind,
+  type WrappedGarmentProofReport,
+} from '../garments/wrappedGarmentBuilder';
+import {
   createGarmentPresetEnvelope,
   type GarmentPresetEnvelope,
 } from '../garments/garmentSchema';
@@ -123,6 +129,53 @@ export class CharacterGarmentFlow {
   async loadPreset(preset: GarmentPresetEnvelope): Promise<GarmentAssemblyStats> {
     await this.loadPresetForSimulation(preset);
     return this.getStats();
+  }
+
+  async loadWrappedProof(
+    proof: WrappedGarmentProofKind,
+    options?: import('../garments/wrappedGarmentBuilder').WrappedGarmentBuilderOptions,
+  ): Promise<WrappedGarmentProofReport> {
+    this.startTearProtection();
+    this.cloth.setBoneSdfCapsules([]);
+    this.rig.root.updateMatrixWorld(true);
+    this.dressTimeAnchors = this.rig.getCharacterAnchors();
+    this.dressTimeSdfs = this.rig.getBoneSdfSummary();
+    this.assembly = buildWrappedGarmentAssembly(this.rig, proof, options);
+    this.activePreset = createGarmentPresetEnvelope(`Wrapped ${proof}`, 'tshirt', DEFAULT_CHARACTER_T_SHIRT_OPTIONS);
+    this.activeStats = {
+      garmentType: `wrapped:${proof}`,
+      vertexCount: this.assembly.vertices.length,
+      faceCount: this.assembly.faces.length,
+      edgeCount: this.assembly.edges.length,
+      stitchEdgeCount: this.assembly.stitchEdges.length,
+      patchCount: new Set(this.assembly.vertices.map((vertex) => vertex.patchId)).size,
+      validationIssueCount: 0,
+    };
+    this.activeFitReport = null;
+    if (this.fitDebugGroup.visible) {
+      this.updateFitDebugVisuals();
+    }
+    await this.cloth.loadClothAssembly(this.assembly);
+    await this.warmupCollision();
+    this.finishTearProtectionAfterDelay();
+    this.updateParticleLabel();
+    return auditWrappedGarmentProof(
+      this.assembly,
+      proof,
+      this.dressTimeSdfs,
+      SHIRT_SDF_CLEARANCE,
+      options?.gridSpacing,
+    );
+  }
+
+  wrappedProofReport(proof: WrappedGarmentProofKind): WrappedGarmentProofReport {
+    return auditWrappedGarmentProof(
+      this.assembly,
+      proof,
+      this.dressTimeSdfs,
+      SHIRT_SDF_CLEARANCE,
+      this.activePreset.params.gridSpacing,
+    );
   }
 
   private async loadPresetForSimulation(preset: GarmentPresetEnvelope): Promise<void> {

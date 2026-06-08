@@ -166,6 +166,13 @@ declare global {
     __characterProbeBoneSdfCollision?: () => BoneSdfCollisionProbe;
     __characterShirtAnchorReport?: () => ShirtAnchorReport;
     __characterTShirtDressAlignmentReport?: () => import('./character/shirtDressing.ts').TShirtDressAlignmentReport;
+    __characterLoadWrappedGarmentProof?: (
+      proof: import('./garments/wrappedGarmentBuilder.ts').WrappedGarmentProofKind,
+      options?: import('./garments/wrappedGarmentBuilder.ts').WrappedGarmentBuilderOptions,
+    ) => Promise<import('./garments/wrappedGarmentBuilder.ts').WrappedGarmentProofReport>;
+    __characterWrappedGarmentProofReport?: (
+      proof: import('./garments/wrappedGarmentBuilder.ts').WrappedGarmentProofKind,
+    ) => import('./garments/wrappedGarmentBuilder.ts').WrappedGarmentProofReport;
     __characterSdfToolStats?: () => CharacterSdfToolStats;
     __characterSdfToolCapsules?: () => ReturnType<CharacterSdfTool['getCapsules']>;
     __characterSdfToolReport?: () => CharacterSdfFitQualityReport;
@@ -177,6 +184,7 @@ declare global {
       isRecording: () => boolean;
     };
     __characterClothReadbackStats?: () => ReturnType<ClothSimulation['getReadbackStats']>;
+    __characterSetGrabMode?: (enabled: boolean) => void;
     __duelStats?: () => CharacterDuelStats;
     __duelFighterModels?: () => { readonly fighterA: string; readonly fighterB: string };
     __duelSwapFighterModel?: (fighter: 'A' | 'B', modelId: string) => Promise<void>;
@@ -522,6 +530,7 @@ async function bootstrapCharacterPreview(
       return garmentGenerateQueue;
     },
     onGarmentFitDebugChange: (visible) => garmentFlow.setFitDebugVisible(visible),
+    onLoadWrappedProof: (proof, wrapOptions) => garmentFlow.loadWrappedProof(proof, wrapOptions),
   });
   const reloadCurrentCharacterGarment = (): Promise<GarmentAssemblyStats> => {
     garmentGenerateQueue = garmentGenerateQueue.then(() =>
@@ -894,6 +903,8 @@ async function bootstrapCharacterPreview(
   });
   window.__characterShirtAnchorReport = () => garmentFlow.anchorReport();
   window.__characterTShirtDressAlignmentReport = () => garmentFlow.dressAlignmentReport();
+  window.__characterLoadWrappedGarmentProof = (proof, options) => garmentFlow.loadWrappedProof(proof, options);
+  window.__characterWrappedGarmentProofReport = (proof) => garmentFlow.wrappedProofReport(proof);
 
   let characterReproRecorder!: ReturnType<typeof createCharacterReproRecorder>;
 
@@ -1100,6 +1111,10 @@ async function bootstrapCharacterPreview(
     isRecording: () => characterReproRecorder.isRecording(),
   };
   window.__characterClothReadbackStats = () => cloth.getReadbackStats();
+  window.__characterSetGrabMode = (enabled: boolean) => {
+    cloth.setGrabModeEnabled(enabled);
+    syncInteractionUi();
+  };
 
   const setRecordButtonState = (state: 'idle' | 'recording' | 'saving' | 'saved' | 'downloaded' | 'error'): void => {
     recordReproBtn.classList.toggle('active', state === 'recording');

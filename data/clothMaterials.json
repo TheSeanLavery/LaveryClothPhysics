@@ -7,7 +7,7 @@
       "name": "My preset",
       "color": "#4fa3ff",
       "createdAt": 1780606489232,
-      "updatedAt": 1780884151888,
+      "updatedAt": 1780887057825,
       "settings": {
         "segmentsX": 9123,
         "segmentsY": 0,
@@ -108,7 +108,7 @@
       "name": "Banner A",
       "color": "#4fa3ff",
       "createdAt": 1780606489232,
-      "updatedAt": 1780884151888,
+      "updatedAt": 1780887057825,
       "settings": {
         "segmentsX": 9123,
         "segmentsY": 0,
@@ -209,7 +209,7 @@
       "name": "Banner B",
       "color": "#ff6b4a",
       "createdAt": 1780606489232,
-      "updatedAt": 1780884151888,
+      "updatedAt": 1780887057825,
       "settings": {
         "segmentsX": 9123,
         "segmentsY": 0,
@@ -310,7 +310,7 @@
       "name": "Banner C",
       "color": "#7ee787",
       "createdAt": 1780606489232,
-      "updatedAt": 1780884151888,
+      "updatedAt": 1780887057825,
       "settings": {
         "segmentsX": 9123,
         "segmentsY": 0,
@@ -411,7 +411,7 @@
       "name": "Dangle soft",
       "color": "#d2a8ff",
       "createdAt": 1780606489232,
-      "updatedAt": 1780884151888,
+      "updatedAt": 1780887057825,
       "settings": {
         "segmentsX": 9123,
         "segmentsY": 0,
@@ -482,7 +482,7 @@
         "backLightIntensity": 1.25,
         "rimLightIntensity": 0.95,
         "showSimGridDebug": false,
-        "tearStretchThreshold": 4,
+        "tearStretchThreshold": 1.25,
         "tearFringeWidth": 0.075,
         "tearMeshing": "sdf",
         "tearSdfCornerRadius": 0.35,
@@ -512,7 +512,7 @@
       "name": "Dangle stiff",
       "color": "#ffdc5a",
       "createdAt": 1780606489232,
-      "updatedAt": 1780884151888,
+      "updatedAt": 1780887057825,
       "settings": {
         "segmentsX": 9123,
         "segmentsY": 0,
@@ -583,7 +583,7 @@
         "backLightIntensity": 1.25,
         "rimLightIntensity": 0.95,
         "showSimGridDebug": false,
-        "tearStretchThreshold": 4,
+        "tearStretchThreshold": 6.5,
         "tearFringeWidth": 0.075,
         "tearMeshing": "sdf",
         "tearSdfCornerRadius": 0.35,

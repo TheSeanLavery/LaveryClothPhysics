@@ -19,7 +19,11 @@ test.describe('Multi-material physics', () => {
     );
 
     const dampeningScales = await page.evaluate(() => window.__multiMaterialMaterialDampeningScales?.());
+    const tearScales = await page.evaluate(() => window.__multiMaterialMaterialTearThresholdScales?.());
+    const structuralScales = await page.evaluate(() => window.__multiMaterialMaterialStructuralScales?.());
     expect(dampeningScales?.['dangle-soft'] ?? 0).toBeGreaterThan((dampeningScales?.['dangle-stiff'] ?? 1) + 0.005);
+    expect(tearScales?.['dangle-soft'] ?? 0).toBeGreaterThan(0);
+    expect(structuralScales?.['banner-a'] ?? 0).toBeGreaterThan(0);
 
     const patchColors = await page.evaluate(() => window.__multiMaterialPatchColors?.());
     expect(patchColors?.['banner-a']).toBe('#4fa3ff');

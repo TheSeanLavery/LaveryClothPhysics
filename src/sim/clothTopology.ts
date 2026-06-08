@@ -14,6 +14,12 @@ export interface ClothTopologyParticle {
   readonly bendScale: number;
   /** Per-particle dampening multiplier relative to the global dampening uniform. */
   readonly dampeningScale: number;
+  /** Per-particle structural/shear stiffness multiplier. */
+  readonly structuralScale: number;
+  /** Per-particle compression resistance multiplier vs minCompression uniform. */
+  readonly compressionScale: number;
+  /** Per-particle tear strain multiplier vs global tearStretchThreshold uniform. */
+  readonly tearThresholdScale: number;
 }
 
 export interface ClothTopologyConstraint {
@@ -83,6 +89,9 @@ export function buildGridClothTopology(options: GridClothTopologyOptions): Cloth
       isFixed,
       bendScale: 1,
       dampeningScale: 1,
+      structuralScale: 1,
+      compressionScale: 1,
+      tearThresholdScale: 1,
     });
     return id;
   };
@@ -186,6 +195,14 @@ export interface AssemblyClothTopologyOptions {
   readonly materialBendScaleByKey?: Readonly<Record<string, number>>;
   /** Material-key → dampening scale; use with resolvePatchMaterialKey. */
   readonly materialDampeningScaleByKey?: Readonly<Record<string, number>>;
+  /** Material-key → structural/shear stiffness scale. */
+  readonly materialStructuralScaleByKey?: Readonly<Record<string, number>>;
+  /** Material-key → compression resistance scale. */
+  readonly materialCompressionScaleByKey?: Readonly<Record<string, number>>;
+  /** Scene-wide tear strain ratio used when a patch has no material override. */
+  readonly globalTearStretchThreshold?: number;
+  /** Material-key → absolute tear strain ratio (rest-length multiplier). */
+  readonly materialAbsoluteTearThresholdByKey?: Readonly<Record<string, number>>;
   /** Material-key → display color (RGB hex) for GPU segment shading. */
   readonly patchSegmentColorByKey?: Readonly<Record<string, string>>;
   readonly resolvePatchMaterialKey?: (patchId: string) => string;
@@ -266,8 +283,16 @@ export function buildAssemblyClothTopology(
 
     let bendScale = 1;
     let dampeningScale = 1;
+    let structuralScale = 1;
+    let compressionScale = 1;
+    const globalTear = options.globalTearStretchThreshold ?? 4;
+    let tearThresholdScale = globalTear;
+    let hasMaterialTear = false;
     const bendByKey = options.materialBendScaleByKey;
     const dampeningByKey = options.materialDampeningScaleByKey;
+    const structuralByKey = options.materialStructuralScaleByKey;
+    const compressionByKey = options.materialCompressionScaleByKey;
+    const tearByKey = options.materialAbsoluteTearThresholdByKey;
     const resolveKey = options.resolvePatchMaterialKey;
     if (resolveKey) {
       for (const vertexId of vertexIds) {
@@ -278,6 +303,19 @@ export function buildAssemblyClothTopology(
         }
         if (dampeningByKey) {
           dampeningScale = Math.max(dampeningScale, dampeningByKey[key] ?? 1);
+        }
+        if (structuralByKey) {
+          structuralScale = Math.max(structuralScale, structuralByKey[key] ?? 1);
+        }
+        if (compressionByKey) {
+          compressionScale = Math.max(compressionScale, compressionByKey[key] ?? 1);
+        }
+        const materialTear = tearByKey?.[key];
+        if (materialTear !== undefined) {
+          tearThresholdScale = hasMaterialTear
+            ? Math.min(tearThresholdScale, materialTear)
+            : materialTear;
+          hasMaterialTear = true;
         }
       }
     }
@@ -291,6 +329,9 @@ export function buildAssemblyClothTopology(
       isFixed: shouldPin,
       bendScale,
       dampeningScale,
+      structuralScale,
+      compressionScale,
+      tearThresholdScale,
     });
     particleByRoot.set(root, id);
     for (const vertexId of vertexIds) {
@@ -378,11 +419,22 @@ export function buildAssemblyClothTopology(
       renderSegmentIds,
       assembly,
     },
-    selfCollisionExclusions: buildSelfCollisionExclusionsForTopology(particles.length, constraints, 2),
+    selfCollisionExclusions: buildAssemblySelfCollisionExclusions(constraints, particles.length),
   };
 }
 
 const MAX_SELF_COLLISION_EXCLUSION_BYTES = 48 * 1024 * 1024;
+
+/** Immediate structural/shear neighbors only — cross-patch pairs stay collidable. */
+export function buildAssemblySelfCollisionExclusions(
+  constraints: readonly ClothTopologyConstraint[],
+  vertexCount: number,
+): Uint32Array {
+  const surfaceConstraints = constraints.filter(
+    (constraint) => constraint.kind === 'structural' || constraint.kind === 'shear',
+  );
+  return buildSelfCollisionExclusionsForTopology(vertexCount, surfaceConstraints, 1);
+}
 
 function buildSelfCollisionExclusionsForTopology(
   vertexCount: number,

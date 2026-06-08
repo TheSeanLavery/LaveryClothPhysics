@@ -132,15 +132,7 @@ export async function ensureClothMaterialLibrarySeeded(): Promise<ClothMaterialL
     if (!SEEDED_MATERIAL_NAMES.has(material.name)) {
       continue;
     }
-    const existing = byName.get(material.name);
-    if (existing) {
-      byName.set(material.name, {
-        ...material,
-        id: existing.id,
-        createdAt: existing.createdAt,
-      });
-      changed = true;
-    } else {
+    if (!byName.has(material.name)) {
       byName.set(material.name, material);
       changed = true;
     }

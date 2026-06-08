@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import {
   createClothSimulation,
+  normalizeClothSettings,
   type ClothSimulation,
   type ClothSimulationStats,
 } from '../../cloth';
-import { buildMaterialDampeningScaleByPatchKey } from '../../cloth/clothMaterialDampening.ts';
+import { buildAssemblyMaterialScaleMaps, type AssemblyMaterialScaleMaps } from '../../cloth/clothMaterialPhysics.ts';
 import { applyMyPresetToCharacterCloth } from '../../cloth/myPresetDefaults.ts';
 import {
   createMultiMaterialTestAssembly,
@@ -17,6 +18,7 @@ import {
   fetchClothMaterialLibrary,
 } from '../../cloth/clothMaterialsLibrary.ts';
 import { registerMultiMaterialDevMenu } from '../../dev/registerMultiMaterialDevMenu.ts';
+import type { InextensibleFlagSettings } from '../../sim/InextensibleFlagSettings.ts';
 import { wireClothCanvasInteraction } from '../../ui/wireClothCanvasInteraction.ts';
 
 export interface MultiMaterialTestStats {
@@ -128,7 +130,7 @@ export async function bootstrapMultiMaterialTest(
   }
 
   await ensureClothMaterialLibrarySeeded();
-  const library = await fetchClothMaterialLibrary();
+  let library = await fetchClothMaterialLibrary();
 
   const colorByKey: Record<string, string> = {
     'banner-a': library.materials.find((m) => m.name === 'Banner A')?.color ?? '#4fa3ff',
@@ -164,11 +166,22 @@ export async function bootstrapMultiMaterialTest(
   cloth.applySettings();
   await cloth.init();
 
-  const materialDampeningScaleByKey = buildMaterialDampeningScaleByPatchKey(library, cloth.settings);
+  let materialScales = buildAssemblyMaterialScaleMaps(library, cloth.settings);
+  const applyAssemblyMaterialScales = (scales: AssemblyMaterialScaleMaps): void => {
+    cloth.refreshAssemblyMaterialScalars({
+      materialBendScaleByKey: scales.bend,
+      materialDampeningScaleByKey: scales.dampening,
+      materialAbsoluteTearThresholdByKey: scales.tearThreshold,
+      globalTearStretchThreshold: cloth.settings.tearStretchThreshold,
+    });
+  };
 
   await cloth.loadClothAssembly(assembly, {
     pinVertexYAtOrAbove: MULTI_MATERIAL_DEFAULT_PIN_TOP_Y + MULTI_MATERIAL_DEFAULT_BANNER_HEIGHT,
-    materialDampeningScaleByKey,
+    materialBendScaleByKey: materialScales.bend,
+    materialDampeningScaleByKey: materialScales.dampening,
+    materialAbsoluteTearThresholdByKey: materialScales.tearThreshold,
+    globalTearStretchThreshold: cloth.settings.tearStretchThreshold,
     patchSegmentColorByKey: colorByKey,
     resolvePatchMaterialKey: patchIdToMaterialKey,
   });
@@ -183,16 +196,51 @@ export async function bootstrapMultiMaterialTest(
   cloth.controls.target.set(0.35, -0.15, 0);
   cloth.controls.update();
 
+  const applyMaterialLibrary = (nextLibrary: typeof library): void => {
+    materialScales = buildAssemblyMaterialScaleMaps(nextLibrary, cloth.settings);
+    applyAssemblyMaterialScales(materialScales);
+  };
+
   registerMultiMaterialDevMenu({
     toolbar,
     cloth,
     library,
+    onMaterialsChanged: async (nextLibrary) => {
+      library = nextLibrary;
+      applyMaterialLibrary(nextLibrary);
+    },
+    onPreviewMaterial: (materialId, draft) => {
+      const previewLibrary = {
+        ...library,
+        materials: library.materials.map((material) => (
+          material.id === materialId
+            ? {
+                ...material,
+                settings: {
+                  ...material.settings,
+                  dampening: draft.dampening,
+                  bendStiffness: draft.bendStiffness,
+                  tearStretchThreshold: draft.tearStretchThreshold,
+                },
+                physics: {
+                  ...material.physics,
+                  tearThresholdScale: draft.tearThresholdScale,
+                  bendScale: draft.bendScale,
+                },
+              }
+            : material
+        )),
+      };
+      applyMaterialLibrary(previewLibrary);
+    },
   });
 
   const patchIds = new Set(assembly.vertices.map((vertex) => vertex.patchId));
 
   window.__multiMaterialAssembly = () => assembly;
-  window.__multiMaterialMaterialDampeningScales = () => materialDampeningScaleByKey;
+  window.__multiMaterialMaterialDampeningScales = () => materialScales.dampening;
+  window.__multiMaterialMaterialTearThresholdScales = () => materialScales.tearThreshold;
+  window.__multiMaterialMaterialStructuralScales = () => materialScales.structural;
   window.__multiMaterialWaitWallClockForTest = (seconds: number) => new Promise<void>((resolve) => {
     window.setTimeout(resolve, Math.max(0, seconds) * 1000);
   });
@@ -236,7 +284,13 @@ export async function bootstrapMultiMaterialTest(
     materialCount: library.materials.length,
   });
   window.__multiMaterialPatchColors = () => patchColorsByKey;
-  window.__multiMaterialRefreshLibrary = () => ensureClothMaterialLibrarySeeded();
+  window.__multiMaterialRefreshLibrary = async () => {
+    await ensureClothMaterialLibrarySeeded();
+    const nextLibrary = await fetchClothMaterialLibrary();
+    materialScales = buildAssemblyMaterialScaleMaps(nextLibrary, cloth.settings);
+    applyAssemblyMaterialScales(materialScales);
+    return nextLibrary;
+  };
 
   const interaction = wireClothCanvasInteraction({
     cloth,
@@ -250,6 +304,23 @@ export async function bootstrapMultiMaterialTest(
   window.__multiMaterialInteractionState = () => interaction.getState();
   window.__multiMaterialClothStats = (): ClothSimulationStats => cloth.getStats();
   window.__multiMaterialReadbackStats = () => cloth.getReadbackStats();
+  window.__multiMaterialApplySettings = (partial: Partial<InextensibleFlagSettings>) => {
+    cloth.loadSettingsPreset(normalizeClothSettings(partial));
+  };
+  window.__multiMaterialAuditStrandThreads = () => cloth.auditStrandThreadCoverage();
+  window.__multiMaterialForceTearThresholdForTest = async (threshold: number) => {
+    const patchKeys = ['banner-a', 'banner-b', 'banner-c', 'dangle-soft', 'dangle-stiff'];
+    const materialAbsoluteTearThresholdByKey = Object.fromEntries(
+      patchKeys.map((patchKey) => [patchKey, threshold]),
+    );
+    await cloth.loadSettingsPreset(
+      normalizeClothSettings({ ...cloth.settings, tearStretchThreshold: threshold }),
+    );
+    cloth.refreshAssemblyMaterialScalars({
+      materialAbsoluteTearThresholdByKey,
+      globalTearStretchThreshold: threshold,
+    });
+  };
   window.__multiMaterialSetGrabMode = (enabled: boolean) => {
     cloth.setGrabModeEnabled(enabled);
     document.body.classList.toggle('grab-mode', enabled);
