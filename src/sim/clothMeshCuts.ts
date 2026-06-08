@@ -1057,6 +1057,160 @@ export function buildClothSdfRenderMesh(
   };
 }
 
+export interface StrandDressTriangleBuffers {
+  readonly triCount: number;
+  readonly triEdge0: Uint32Array;
+  readonly triEdge1: Uint32Array;
+  readonly triEdge2: Uint32Array;
+  readonly triSimV0: Uint32Array;
+  readonly triSimV1: Uint32Array;
+  readonly triSimV2: Uint32Array;
+}
+
+export function buildSimGridStrandDressTriangles(
+  segmentsX: number,
+  segmentsY: number,
+  edges: ReadonlyArray<{ readonly id: number; readonly vertex0: { readonly id: number }; readonly vertex1: { readonly id: number } }>,
+  vertexIdAt: (gridX: number, gridY: number) => number,
+): StrandDressTriangleBuffers {
+  const pairToEdgeId = new Map<string, number>();
+  const pairKey = (a: number, b: number): string => (a < b ? `${a}:${b}` : `${b}:${a}`);
+  for (const edge of edges) {
+    pairToEdgeId.set(pairKey(edge.vertex0.id, edge.vertex1.id), edge.id);
+  }
+
+  const triCount = segmentsX * segmentsY * 2;
+  const triEdge0 = new Uint32Array(triCount);
+  const triEdge1 = new Uint32Array(triCount);
+  const triEdge2 = new Uint32Array(triCount);
+  const triSimV0 = new Uint32Array(triCount);
+  const triSimV1 = new Uint32Array(triCount);
+  const triSimV2 = new Uint32Array(triCount);
+  const invalid = 0xffffffff;
+  const edgeForPair = (a: number, b: number): number => pairToEdgeId.get(pairKey(a, b)) ?? invalid;
+
+  let t = 0;
+  for (let cellX = 0; cellX < segmentsX; cellX += 1) {
+    for (let cellY = 0; cellY < segmentsY; cellY += 1) {
+      const v00 = vertexIdAt(cellX, cellY);
+      const v10 = vertexIdAt(cellX + 1, cellY);
+      const v01 = vertexIdAt(cellX, cellY + 1);
+      const v11 = vertexIdAt(cellX + 1, cellY + 1);
+
+      triSimV0[t] = v00;
+      triSimV1[t] = v10;
+      triSimV2[t] = v01;
+      triEdge0[t] = edgeForPair(v10, v01);
+      triEdge1[t] = edgeForPair(v01, v00);
+      triEdge2[t] = edgeForPair(v00, v10);
+      t += 1;
+
+      triSimV0[t] = v10;
+      triSimV1[t] = v11;
+      triSimV2[t] = v01;
+      triEdge0[t] = edgeForPair(v11, v01);
+      triEdge1[t] = edgeForPair(v01, v10);
+      triEdge2[t] = edgeForPair(v10, v11);
+      t += 1;
+    }
+  }
+
+  return {
+    triCount,
+    triEdge0,
+    triEdge1,
+    triEdge2,
+    triSimV0,
+    triSimV1,
+    triSimV2,
+  };
+}
+
+export function buildStrandDressTriangleBuffers(
+  indices: Uint32Array,
+  simGridCoordArray: Float32Array,
+  triangleEdgeIds: Int32Array,
+  resolveSimVertexId: (renderIndex: number) => number = (renderIndex) =>
+    Math.round(simGridCoordArray[renderIndex * 2] ?? 0),
+): StrandDressTriangleBuffers {
+  const triCount = indices.length / 3;
+  const triEdge0 = new Uint32Array(triCount);
+  const triEdge1 = new Uint32Array(triCount);
+  const triEdge2 = new Uint32Array(triCount);
+  const triSimV0 = new Uint32Array(triCount);
+  const triSimV1 = new Uint32Array(triCount);
+  const triSimV2 = new Uint32Array(triCount);
+  const invalid = 0xffffffff;
+
+  for (let t = 0; t < triCount; t += 1) {
+    const bi = t * 3;
+    const i0 = indices[bi]!;
+    const i1 = indices[bi + 1]!;
+    const i2 = indices[bi + 2]!;
+    triSimV0[t] = resolveSimVertexId(i0);
+    triSimV1[t] = resolveSimVertexId(i1);
+    triSimV2[t] = resolveSimVertexId(i2);
+    triEdge0[t] = triangleEdgeIds[bi]! >= 0 ? triangleEdgeIds[bi]! : invalid;
+    triEdge1[t] = triangleEdgeIds[bi + 1]! >= 0 ? triangleEdgeIds[bi + 1]! : invalid;
+    triEdge2[t] = triangleEdgeIds[bi + 2]! >= 0 ? triangleEdgeIds[bi + 2]! : invalid;
+  }
+
+  return {
+    triCount,
+    triEdge0,
+    triEdge1,
+    triEdge2,
+    triSimV0,
+    triSimV1,
+    triSimV2,
+  };
+}
+
+export function mirrorGpuStrandRequiredEdgeIds(
+  structuralEdges: readonly StructuralGraphEdge[],
+  edgeActive: Uint32Array,
+  isVertexFixed: (vertexId: number) => boolean,
+  dress: StrandDressTriangleBuffers,
+): number[] {
+  const covered = new Set<number>();
+  const invalid = 0xffffffff;
+
+  for (let t = 0; t < dress.triCount; t += 1) {
+    const v0 = dress.triSimV0[t]!;
+    const v1 = dress.triSimV1[t]!;
+    const v2 = dress.triSimV2[t]!;
+    const edges = [dress.triEdge0[t]!, dress.triEdge1[t]!, dress.triEdge2[t]!];
+
+    let intact = true;
+    for (const edgeId of edges) {
+      if (edgeId !== invalid && edgeActive[edgeId] === 0) {
+        intact = false;
+        break;
+      }
+    }
+    if (!intact) {
+      continue;
+    }
+
+    for (const edgeId of edges) {
+      if (edgeId !== invalid) {
+        covered.add(edgeId);
+      }
+    }
+  }
+
+  const required: number[] = [];
+  for (const edge of structuralEdges) {
+    if (edgeActive[edge.id] === 0 || isVertexFixed(edge.v0) || isVertexFixed(edge.v1)) {
+      continue;
+    }
+    if (!covered.has(edge.id)) {
+      required.push(edge.id);
+    }
+  }
+  return required;
+}
+
 export interface AssemblyStrandThreadCollectionOptions {
   readonly baseIndices: Uint32Array;
   readonly triangleEdgeIds: Int32Array;
@@ -1081,7 +1235,12 @@ export function collectAssemblyStrandThreadEdgeIds(
   const required: number[] = [];
 
   for (const edge of structuralEdges) {
-    if (edgeActive[edge.id] === 0 || isVertexFixed(edge.v0) || isVertexFixed(edge.v1)) {
+    if (
+      edgeActive[edge.id] === 0 ||
+      isVertexFixed(edge.v0) ||
+      isVertexFixed(edge.v1) ||
+      options.components[edge.v0] !== options.components[edge.v1]
+    ) {
       continue;
     }
     if (!covered.has(edge.id)) {

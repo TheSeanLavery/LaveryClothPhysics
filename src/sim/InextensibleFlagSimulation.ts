@@ -99,28 +99,31 @@ import type { StrandThreadAuditResult } from '../testing/strandThreadAudit';
 import {
   buildClothRenderQuads,
   buildClothSdfRenderMesh,
-  collectStrandThreadEdgeIds,
-  collectAssemblyStrandThreadEdgeIds,
-  auditStrandThreadCoverage,
   countBrokenEdges,
   createSimEdgeLookup,
   rebuildClothIndicesFromEdgeState,
   rebuildClothIndicesFromSdfEdgeState,
   buildGpuParticleRenderSurface,
+  buildStrandDressTriangleBuffers,
+  buildSimGridStrandDressTriangles,
+  mirrorGpuStrandRequiredEdgeIds,
   rebuildParticleRenderIndices,
+  type StrandDressTriangleBuffers,
   triangleCrossesBrokenStructuralEdge,
   type ClothRenderQuad,
   type ClothRenderTriangle,
   type ClothSdfRenderMesh,
   type SimEdgeLookup,
   type StructuralGraphEdge,
-  type StrandThreadCollectionOptions,
 } from './clothMeshCuts';
 import { createGpuBbProjectileMesh } from '../shaders/BbProjectileVisual';
 import {
+  createGpuStrandThreadCapMesh,
   createGpuStrandThreadMesh,
+  createStrandThreadGpuCompute,
   updateGpuStrandThreadMaterial,
-} from '../shaders/GpuStrandThreadVisual';
+  type StrandThreadGpuComputePasses,
+} from '../shaders/strandThreadGpu';
 import {
   loadDenim512ClothTextures,
   type BakedClothTextureSet,
@@ -457,10 +460,19 @@ export class InextensibleFlagSimulation {
   private lastConnectivitySignature = '';
   private bbVisualRefreshPending = false;
   private strandThreadMesh: THREE.InstancedMesh | null = null;
-  private strandEdgeIdBuffer!: ReturnType<typeof instancedArray>;
+  private strandThreadCapMesh: THREE.InstancedMesh | null = null;
   private strandThreadRadiusUniform!: ReturnType<typeof uniform>;
-  private strandThreadReadbackPending = false;
-  private lastStrandThreadEdgeIds: number[] = [];
+  private edgeCoveredBuffer!: ReturnType<typeof instancedArray>;
+  private strandEdgeVisibleBuffer!: ReturnType<typeof instancedArray>;
+  private strandDressTriEdge0Buffer: ReturnType<typeof instancedArray> | null = null;
+  private strandDressTriEdge1Buffer: ReturnType<typeof instancedArray> | null = null;
+  private strandDressTriEdge2Buffer: ReturnType<typeof instancedArray> | null = null;
+  private strandDressTriSimV0Buffer: ReturnType<typeof instancedArray> | null = null;
+  private strandDressTriSimV1Buffer: ReturnType<typeof instancedArray> | null = null;
+  private strandDressTriSimV2Buffer: ReturnType<typeof instancedArray> | null = null;
+  private strandDressTriangleCount = 0;
+  private strandDressCpuCache: StrandDressTriangleBuffers | null = null;
+  private strandThreadGpuPasses: StrandThreadGpuComputePasses | null = null;
   private lastSyncedEdgeActive: Uint32Array | null = null;
   private duelFighterAVertexCount: number | null = null;
   private duelParticleFighterMask: Uint8Array | null = null;
@@ -1754,9 +1766,7 @@ export class InextensibleFlagSimulation {
     if (this.shouldScheduleClothTopologyReadback()) {
       void this.refreshClothTopologyFromGpu();
     }
-    if (this.shouldScheduleAssemblyStrandEdgeRefresh()) {
-      void this.refreshAssemblyStrandEdgesFromGpu();
-    }
+    this.runStrandThreadGpu();
 
     this.frameCount += 1;
 
@@ -2215,7 +2225,7 @@ export class InextensibleFlagSimulation {
       bbVisualSkippedPending: this.bbVisualReadbacksSkippedPending,
       bbVisualSkippedNoActive: this.bbVisualReadbacksSkippedNoActive,
       lastBbVisualFrame: this.lastBbVisualReadbackFrame,
-      strandThreadPending: this.strandThreadReadbackPending,
+      strandThreadPending: false,
     };
   }
 
@@ -3110,7 +3120,8 @@ export class InextensibleFlagSimulation {
     );
 
     this.springVertexIdBuffer = instancedArray(springVertexIdArray, 'uvec2').setPBO(true);
-    this.strandEdgeIdBuffer = instancedArray(new Uint32Array(edgeCount).fill(0), 'uint').setPBO(true);
+    this.edgeCoveredBuffer = instancedArray(new Uint32Array(edgeCount).fill(0), 'uint');
+    this.strandEdgeVisibleBuffer = instancedArray(new Uint32Array(edgeCount).fill(0), 'uint');
     this.strandThreadRadiusUniform = uniform(this.settings.strandThreadRadius);
     this.springRestLengthBuffer = instancedArray(springRestLengthArray, 'float');
     this.edgeKindBuffer = instancedArray(edgeKindArray, 'uint');
@@ -3487,6 +3498,7 @@ export class InextensibleFlagSimulation {
     this.applyClothIndexBuffer(mesh.indices);
     this.clothGeometry.setDrawRange(0, mesh.indices.length);
     this.visibleClothSimGridCoords = mesh.simGridCoords;
+    this.refreshStrandDressTrianglesFromVisible(mesh.indices, mesh.simGridCoords);
   }
 
   private buildRenderableComponentMask(components: Uint32Array): Uint8Array {
@@ -3997,46 +4009,6 @@ export class InextensibleFlagSimulation {
     this.lastBrokenEdgeCount = 0;
   }
 
-  private shouldScheduleAssemblyStrandEdgeRefresh(): boolean {
-    if (!this.particleRenderBaseIndices || !this.settings.renderStrandThreads) {
-      return false;
-    }
-    const refreshInterval =
-      this.lastBrokenEdgeCount > 0 || this.settings.renderStrandThreads
-        ? this.activeClothTopologyRefreshInterval
-        : this.idleClothTopologyRefreshInterval;
-    return this.frameCount % refreshInterval === 0;
-  }
-
-  private async refreshAssemblyStrandEdgesFromGpu(): Promise<void> {
-    if (
-      !this.isReady ||
-      !this.particleRenderBaseIndices ||
-      !this.particleRenderTriangleEdgeIds ||
-      !this.clothSimGridCoords ||
-      !this.settings.renderStrandThreads ||
-      !this.strandThreadMesh
-    ) {
-      return;
-    }
-    if (this.strandThreadReadbackPending) {
-      return;
-    }
-
-    this.strandThreadReadbackPending = true;
-    try {
-      const activeAttr = this.edgeActiveBuffer.value as StorageInstancedBufferAttribute;
-      const buffer = await this.renderer.getArrayBufferAsync(activeAttr);
-      const { edgeActive: syncedEdgeActive, components } =
-        this.syncClothConnectivityFromEdgeState(new Uint32Array(buffer));
-      this.lastSyncedEdgeActive = syncedEdgeActive;
-      this.lastBrokenEdgeCount = countBrokenEdges(syncedEdgeActive);
-      this.syncStrandThreadsFromState(syncedEdgeActive, undefined, true, components);
-    } finally {
-      this.strandThreadReadbackPending = false;
-    }
-  }
-
   private shouldScheduleClothTopologyReadback(): boolean {
     const topologyRefreshInterval =
       this.lastBrokenEdgeCount > 0 || this.settings.renderStrandThreads
@@ -4114,16 +4086,12 @@ export class InextensibleFlagSimulation {
       } else {
         this.visibleClothSimGridCoords = this.clothSimGridCoords;
         this.applyClothIndexBuffer(visibleMesh.indices);
+        this.refreshStrandDressTrianglesFromVisible(
+          visibleMesh.indices,
+          visibleMesh.simGridCoords,
+        );
       }
 
-      if (this.settings.renderStrandThreads && !this.strandThreadReadbackPending) {
-        this.strandThreadReadbackPending = true;
-        try {
-          this.syncStrandThreadsFromState(syncedEdgeActive, visibleMesh.indices, true, components);
-        } finally {
-          this.strandThreadReadbackPending = false;
-        }
-      }
       this.topologyReadbacksCompleted += 1;
     } finally {
       this.clothTopologyReadbackPending = false;
@@ -4151,25 +4119,6 @@ export class InextensibleFlagSimulation {
     ).edgeActive;
   }
 
-  private strandThreadCollectionOptions(
-    visibleIndices?: Uint32Array,
-  ): StrandThreadCollectionOptions & {
-    renderQuads: ClothRenderQuad[];
-    simGridCoords: Float32Array;
-    visibleIndices?: Uint32Array;
-  } {
-    return {
-      segmentsX: this.clothNumSegmentsX,
-      segmentsY: this.clothNumSegmentsY,
-      vertexGrid: this.clothVertices,
-      lookup: this.simEdgeLookup!,
-      isVertexFixedGrid: (gridX, gridY) => this.isSimVertexFixed(gridX, gridY),
-      renderQuads: this.clothRenderQuads,
-      simGridCoords: this.visibleClothSimGridCoords ?? this.clothSimGridCoords!,
-      visibleIndices,
-    };
-  }
-
   async auditStrandThreadCoverage(): Promise<StrandThreadAuditResult | null> {
     if (!this.isReady || !this.clothSimGridCoords) {
       return null;
@@ -4181,182 +4130,238 @@ export class InextensibleFlagSimulation {
     this.lastSyncedEdgeActive = edgeActive;
     const brokenEdgeCount = countBrokenEdges(edgeActive);
 
-    for (let wait = 0; this.strandThreadReadbackPending && wait < 5; wait++) {
-      await this.waitForFrame();
+    if (!this.particleRenderBaseIndices && this.simEdgeLookup) {
+      const visible = this.rebuildVisibleClothMesh(edgeActive, brokenEdgeCount, components);
+      this.refreshStrandDressTrianglesFromVisible(visible.indices, visible.simGridCoords);
     }
 
-    if (this.particleRenderBaseIndices && this.particleRenderTriangleEdgeIds) {
-      if (this.settings.renderStrandThreads && !this.strandThreadReadbackPending) {
-        this.strandThreadReadbackPending = true;
-        try {
-          this.syncStrandThreadsFromState(edgeActive, undefined, true, components);
-        } finally {
-          this.strandThreadReadbackPending = false;
-        }
-      }
+    await this.waitForFrame();
+    this.runStrandThreadGpu();
+    await this.waitForFrame();
+    const renderedEdgeIds = await this.readGpuStrandVisibleEdgeIds();
 
-      const required = collectAssemblyStrandThreadEdgeIds(
-        this.structuralGraphEdges,
-        edgeActive,
-        (vertexId) => this.clothVertices[vertexId]?.isFixed ?? true,
-        {
-          baseIndices: this.particleRenderBaseIndices,
-          triangleEdgeIds: this.particleRenderTriangleEdgeIds,
-          simGridCoordArray: this.clothSimGridCoords,
-          components,
-        },
-      );
-      const requiredSet = new Set(required);
-      const renderedSet = new Set(this.lastStrandThreadEdgeIds);
-      return {
-        frameCount: this.frameCount,
-        brokenEdgeCount,
-        requiredCount: required.length,
-        renderedCount: this.lastStrandThreadEdgeIds.length,
-        missingEdgeIds: required.filter((edgeId) => !renderedSet.has(edgeId)),
-        extraEdgeIds: this.lastStrandThreadEdgeIds.filter((edgeId) => !requiredSet.has(edgeId)),
-      };
-    }
+    const dress = this.strandDressCpuCache;
+    const required = dress
+      ? mirrorGpuStrandRequiredEdgeIds(
+          this.structuralGraphEdges,
+          edgeActive,
+          (vertexId) => this.clothVertices[vertexId]?.isFixed ?? true,
+          dress,
+        )
+      : [];
 
-    if (!this.simEdgeLookup || this.clothRenderQuads.length === 0) {
-      return null;
-    }
-
-    const visible = this.rebuildVisibleClothMesh(edgeActive, brokenEdgeCount, components);
-
-    if (this.settings.renderStrandThreads && !this.strandThreadReadbackPending) {
-      this.strandThreadReadbackPending = true;
-      try {
-        this.syncStrandThreadsFromState(edgeActive, visible.indices, true, components);
-      } finally {
-        this.strandThreadReadbackPending = false;
-      }
-    }
-
-    const audit = auditStrandThreadCoverage(
-      this.structuralGraphEdges,
-      edgeActive,
-      this.lastStrandThreadEdgeIds,
-      this.clothVertices.length,
-      (vertexId) => this.clothVertices[vertexId]?.isFixed ?? true,
-      this.strandThreadCollectionOptions(visible.indices),
-    );
-
+    const requiredSet = new Set(required);
+    const renderedSet = new Set(renderedEdgeIds);
     return {
       frameCount: this.frameCount,
       brokenEdgeCount,
-      requiredCount: audit.required.length,
-      renderedCount: audit.rendered.length,
-      missingEdgeIds: audit.missing,
-      extraEdgeIds: audit.extra,
+      requiredCount: required.length,
+      renderedCount: renderedEdgeIds.length,
+      missingEdgeIds: required.filter((edgeId) => !renderedSet.has(edgeId)),
+      extraEdgeIds: renderedEdgeIds.filter((edgeId) => !requiredSet.has(edgeId)),
     };
   }
 
-  private syncStrandThreadsFromState(
-    syncedEdgeActive: Uint32Array,
-    visibleIndices: Uint32Array | undefined,
-    recomputeEdgeIds: boolean,
-    components?: Uint32Array,
-  ): void {
-    if (!this.settings.renderStrandThreads || !this.strandThreadMesh) {
-      return;
-    }
-
-    let strandEdgeIds = this.lastStrandThreadEdgeIds;
-    if (recomputeEdgeIds) {
-      if (
-        this.particleRenderBaseIndices &&
-        this.particleRenderTriangleEdgeIds &&
-        this.clothSimGridCoords &&
-        components
-      ) {
-        strandEdgeIds = collectAssemblyStrandThreadEdgeIds(
-          this.structuralGraphEdges,
-          syncedEdgeActive,
-          (vertexId) => this.clothVertices[vertexId]?.isFixed ?? true,
-          {
-            baseIndices: this.particleRenderBaseIndices,
-            triangleEdgeIds: this.particleRenderTriangleEdgeIds,
-            simGridCoordArray: this.clothSimGridCoords,
-            components,
-          },
-        );
-      } else if (visibleIndices) {
-        strandEdgeIds = collectStrandThreadEdgeIds(
-          this.structuralGraphEdges,
-          syncedEdgeActive,
-          this.clothVertices.length,
-          (vertexId) => this.clothVertices[vertexId]?.isFixed ?? true,
-          this.strandThreadCollectionOptions(visibleIndices),
-        );
-      } else {
-        strandEdgeIds = [];
+  private async readGpuStrandVisibleEdgeIds(): Promise<number[]> {
+    const visibleAttr = this.strandEdgeVisibleBuffer.value as StorageInstancedBufferAttribute;
+    const buffer = await this.renderer.getArrayBufferAsync(visibleAttr);
+    const flags = new Uint32Array(buffer);
+    const edgeIds: number[] = [];
+    for (let edgeId = 0; edgeId < flags.length; edgeId += 1) {
+      if (flags[edgeId] === 1) {
+        edgeIds.push(edgeId);
       }
-      this.lastStrandThreadEdgeIds = strandEdgeIds;
     }
-
-    this.uploadStrandEdgeIds(strandEdgeIds);
+    return edgeIds;
   }
 
-  private uploadStrandEdgeIds(edgeIds: readonly number[]): void {
-    if (!this.strandThreadMesh) {
+  private simVertexIdForRenderIndex(renderIndex: number, simGridCoordArray: Float32Array): number {
+    if (this.particleRenderBaseIndices) {
+      return Math.round(simGridCoordArray[renderIndex * 2] ?? 0);
+    }
+
+    const simX = simGridCoordArray[renderIndex * 2] ?? 0;
+    const simY = simGridCoordArray[renderIndex * 2 + 1] ?? 0;
+    const gridX = THREE.MathUtils.clamp(Math.round(simX), 0, this.clothNumSegmentsX);
+    const gridY = THREE.MathUtils.clamp(Math.round(simY), 0, this.clothNumSegmentsY);
+    return this.clothVertexColumns[gridX]?.[gridY]?.id ?? renderIndex;
+  }
+
+  private uploadStrandDressBuffers(dress: StrandDressTriangleBuffers): void {
+    this.strandDressTriangleCount = dress.triCount;
+    this.strandDressCpuCache = dress;
+
+    if (dress.triCount === 0) {
+      this.strandDressTriEdge0Buffer = null;
+      this.strandDressTriEdge1Buffer = null;
+      this.strandDressTriEdge2Buffer = null;
+      this.strandDressTriSimV0Buffer = null;
+      this.strandDressTriSimV1Buffer = null;
+      this.strandDressTriSimV2Buffer = null;
+      this.strandThreadGpuPasses = null;
       return;
     }
 
-    const attr = this.strandEdgeIdBuffer.value as StorageInstancedBufferAttribute;
-    const array = attr.array as Uint32Array;
-    for (let i = 0; i < edgeIds.length; i++) {
-      array[i] = edgeIds[i]!;
+    this.strandDressTriEdge0Buffer = instancedArray(dress.triEdge0, 'uint');
+    this.strandDressTriEdge1Buffer = instancedArray(dress.triEdge1, 'uint');
+    this.strandDressTriEdge2Buffer = instancedArray(dress.triEdge2, 'uint');
+    this.strandDressTriSimV0Buffer = instancedArray(dress.triSimV0, 'uint');
+    this.strandDressTriSimV1Buffer = instancedArray(dress.triSimV1, 'uint');
+    this.strandDressTriSimV2Buffer = instancedArray(dress.triSimV2, 'uint');
+    this.rebuildStrandThreadGpuPasses();
+  }
+
+  private setupStrandDressTrianglesFromSimGrid(): void {
+    if (!this.simEdgeLookup) {
+      this.uploadStrandDressBuffers({
+        triCount: 0,
+        triEdge0: new Uint32Array(),
+        triEdge1: new Uint32Array(),
+        triEdge2: new Uint32Array(),
+        triSimV0: new Uint32Array(),
+        triSimV1: new Uint32Array(),
+        triSimV2: new Uint32Array(),
+      });
+      return;
     }
-    attr.needsUpdate = true;
-    this.strandThreadMesh.count = edgeIds.length;
-    this.strandThreadMesh.visible = this.settings.renderStrandThreads && edgeIds.length > 0;
+
+    const dress = buildSimGridStrandDressTriangles(
+      this.clothNumSegmentsX,
+      this.clothNumSegmentsY,
+      this.clothEdges,
+      (gridX, gridY) => this.clothVertexColumns[gridX]?.[gridY]?.id ?? 0,
+    );
+    this.uploadStrandDressBuffers(dress);
+  }
+
+  private setupStrandDressTriangles(indices: Uint32Array, simGridCoordArray: Float32Array): void {
+    const triangleEdgeIds = this.buildParticleRenderTriangleEdgeIds(indices, simGridCoordArray);
+    const dress = buildStrandDressTriangleBuffers(
+      indices,
+      simGridCoordArray,
+      triangleEdgeIds,
+      (renderIndex) => this.simVertexIdForRenderIndex(renderIndex, simGridCoordArray),
+    );
+    this.uploadStrandDressBuffers(dress);
+  }
+
+  private refreshStrandDressTrianglesFromVisible(
+    indices: Uint32Array,
+    simGridCoordArray: Float32Array,
+  ): void {
+    if (!this.settings.renderStrandThreads || this.particleRenderBaseIndices) {
+      return;
+    }
+    this.setupStrandDressTriangles(indices, simGridCoordArray);
+  }
+
+  private rebuildStrandThreadGpuPasses(): void {
+    if (
+      this.strandDressTriangleCount === 0 ||
+      !this.strandDressTriEdge0Buffer ||
+      !this.strandDressTriEdge1Buffer ||
+      !this.strandDressTriEdge2Buffer ||
+      !this.strandDressTriSimV0Buffer ||
+      !this.strandDressTriSimV1Buffer ||
+      !this.strandDressTriSimV2Buffer
+    ) {
+      this.strandThreadGpuPasses = null;
+      return;
+    }
+
+    this.strandThreadGpuPasses = createStrandThreadGpuCompute({
+      edgeCount: this.clothEdges.length,
+      dressTriangleCount: this.strandDressTriangleCount,
+      edgeVisualBuffer: this.edgeVisualBuffer,
+      edgeKindBuffer: this.edgeKindBuffer,
+      edgeCoveredBuffer: this.edgeCoveredBuffer,
+      strandEdgeVisibleBuffer: this.strandEdgeVisibleBuffer,
+      vertexComponentBuffer: this.vertexComponentBuffer,
+      vertexParamsBuffer: this.vertexParamsBuffer,
+      springVertexIdBuffer: this.springVertexIdBuffer,
+      dressTriEdge0Buffer: this.strandDressTriEdge0Buffer,
+      dressTriEdge1Buffer: this.strandDressTriEdge1Buffer,
+      dressTriEdge2Buffer: this.strandDressTriEdge2Buffer,
+      dressTriSimV0Buffer: this.strandDressTriSimV0Buffer,
+      dressTriSimV1Buffer: this.strandDressTriSimV1Buffer,
+      dressTriSimV2Buffer: this.strandDressTriSimV2Buffer,
+    });
+  }
+
+  private runStrandThreadGpu(): void {
+    if (
+      !this.isReady ||
+      !this.settings.renderStrandThreads ||
+      !this.strandThreadGpuPasses ||
+      this.strandDressTriangleCount === 0
+    ) {
+      return;
+    }
+
+    this.renderer.compute(this.strandThreadGpuPasses.clearEdgeCovered);
+    this.renderer.compute(this.strandThreadGpuPasses.markEdgeCovered);
+    this.renderer.compute(this.strandThreadGpuPasses.updateStrandVisibility);
   }
 
   private disposeStrandThreadVisual(): void {
-    if (!this.strandThreadMesh) {
-      return;
+    if (this.strandThreadMesh) {
+      this.scene.remove(this.strandThreadMesh);
+      this.strandThreadMesh.geometry.dispose();
+      (this.strandThreadMesh.material as THREE.Material).dispose();
+      this.strandThreadMesh = null;
     }
-
-    this.scene.remove(this.strandThreadMesh);
-    this.strandThreadMesh.geometry.dispose();
-    (this.strandThreadMesh.material as THREE.Material).dispose();
-    this.strandThreadMesh = null;
+    if (this.strandThreadCapMesh) {
+      this.scene.remove(this.strandThreadCapMesh);
+      this.strandThreadCapMesh.geometry.dispose();
+      (this.strandThreadCapMesh.material as THREE.Material).dispose();
+      this.strandThreadCapMesh = null;
+    }
   }
 
   private setupStrandThreadVisual(): void {
     this.disposeStrandThreadVisual();
     const edgeCount = Math.max(this.clothEdges.length, 1);
-    this.strandThreadMesh = createGpuStrandThreadMesh(
-      this.strandEdgeIdBuffer,
-      this.springVertexIdBuffer,
-      this.vertexPositionBuffer,
-      edgeCount,
-      this.strandThreadRadiusUniform,
-      new THREE.Color(this.settings.flagColor),
-    );
+    const meshOptions = {
+      springVertexIdBuffer: this.springVertexIdBuffer,
+      vertexPositionBuffer: this.vertexPositionBuffer,
+      strandEdgeVisibleBuffer: this.strandEdgeVisibleBuffer,
+      maxCount: edgeCount,
+      radius: this.strandThreadRadiusUniform,
+      color: new THREE.Color(this.settings.flagColor),
+    };
+    this.strandThreadMesh = createGpuStrandThreadMesh(meshOptions);
+    this.strandThreadCapMesh = createGpuStrandThreadCapMesh(meshOptions);
     this.scene.add(this.strandThreadMesh);
+    this.scene.add(this.strandThreadCapMesh);
     this.syncStrandThreadVisual();
   }
 
   private syncStrandThreadVisual(): void {
-    if (!this.strandThreadMesh) {
-      return;
+    const edgeCount = Math.max(this.clothEdges.length, 0);
+    const enabled = this.settings.renderStrandThreads && edgeCount > 0;
+
+    if (this.strandThreadMesh) {
+      this.strandThreadMesh.count = enabled ? edgeCount : 0;
+      this.strandThreadMesh.visible = enabled;
+      this.strandThreadRadiusUniform.value = this.settings.strandThreadRadius;
+      updateGpuStrandThreadMaterial(
+        this.strandThreadMesh,
+        new THREE.Color(this.settings.flagColor),
+        this.settings.strandThreadRadius,
+      );
     }
 
-    const enabled = this.settings.renderStrandThreads;
-    this.strandThreadMesh.visible = enabled && this.strandThreadMesh.count > 0;
-    this.strandThreadRadiusUniform.value = this.settings.strandThreadRadius;
-    updateGpuStrandThreadMaterial(
-      this.strandThreadMesh,
-      new THREE.Color(this.settings.flagColor),
-      this.settings.strandThreadRadius,
-    );
+    if (this.strandThreadCapMesh) {
+      this.strandThreadCapMesh.count = enabled ? edgeCount * 2 : 0;
+      this.strandThreadCapMesh.visible = enabled;
+      updateGpuStrandThreadMaterial(
+        this.strandThreadCapMesh,
+        new THREE.Color(this.settings.flagColor),
+        this.settings.strandThreadRadius,
+      );
+    }
 
     if (!enabled) {
-      this.strandThreadMesh.count = 0;
-      this.lastStrandThreadEdgeIds = [];
-    } else {
       this.lastConnectivitySignature = '';
     }
   }
@@ -5771,6 +5776,7 @@ export class InextensibleFlagSimulation {
     geometry.setIndex(indices);
     this.clothGeometry = geometry;
     this.buildClothRenderTopology(simGridCoordArray, indices);
+    this.setupStrandDressTrianglesFromSimGrid();
 
     const mesh = new THREE.Mesh(geometry, clothMaterial);
     const boundsCenter = new THREE.Vector3(0, this.flagHoistTopY - this.clothHeight * 0.5, 0);
@@ -5829,6 +5835,7 @@ export class InextensibleFlagSimulation {
     this.clothRenderQuads = buildClothRenderQuads([...gpuSurface.indices]);
     this.simEdgeLookup = undefined;
     this.particleRenderBaseIndices = baseIndices;
+    this.setupStrandDressTriangles(baseIndices, simGridCoordArray);
     this.lastBrokenEdgeCount = 0;
     this.restoreClothConnectivityCpu();
     geometry.setDrawRange(0, vertexCount);
@@ -5855,14 +5862,13 @@ export class InextensibleFlagSimulation {
     }
 
     const ids = new Int32Array(indices.length).fill(-1);
-    const simVertexForRenderIndex = (index: number): number => Math.round(simGridCoordArray[index * 2] ?? 0);
     for (let i = 0; i < indices.length; i += 3) {
       const r0 = indices[i]!;
       const r1 = indices[i + 1]!;
       const r2 = indices[i + 2]!;
-      const v0 = simVertexForRenderIndex(r0);
-      const v1 = simVertexForRenderIndex(r1);
-      const v2 = simVertexForRenderIndex(r2);
+      const v0 = this.simVertexIdForRenderIndex(r0, simGridCoordArray);
+      const v1 = this.simVertexIdForRenderIndex(r1, simGridCoordArray);
+      const v2 = this.simVertexIdForRenderIndex(r2, simGridCoordArray);
       ids[i] = v0 === v1 ? -1 : pairToEdgeId.get(pairKey(v0, v1)) ?? -1;
       ids[i + 1] = v1 === v2 ? -1 : pairToEdgeId.get(pairKey(v1, v2)) ?? -1;
       ids[i + 2] = v2 === v0 ? -1 : pairToEdgeId.get(pairKey(v2, v0)) ?? -1;

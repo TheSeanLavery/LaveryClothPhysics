@@ -29,7 +29,12 @@ async function waitForStableStrandCoverage(
     lastAudit = await page.evaluate(async () => window.__flagSimAuditStrandThreads?.() ?? null);
     expect(lastAudit, 'strand thread audit API should be available').not.toBeNull();
 
-    if (lastAudit!.missingEdgeIds.length === 0 && lastAudit!.requiredCount === lastAudit!.renderedCount) {
+    if (
+      lastAudit!.brokenEdgeCount > 0 &&
+      lastAudit!.requiredCount > 0 &&
+      lastAudit!.missingEdgeIds.length === 0 &&
+      lastAudit!.requiredCount === lastAudit!.renderedCount
+    ) {
       return lastAudit!;
     }
   }
@@ -57,7 +62,8 @@ test.describe('strand thread coverage', () => {
         showBridgeSplinters: false,
         windStrength: 16,
         windTurbulence: 8,
-        tearStretchThreshold: 1.08,
+        tearStretchThreshold: 1.04,
+        tearMeshing: 'edge-cull',
         selfCollision: false,
         bbSpeed: 28,
         bbForceStrength: 1.8,
