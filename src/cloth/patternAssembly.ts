@@ -15,6 +15,9 @@ export interface StitchEndpoint {
   readonly patchId: string;
   readonly boundary: BoundaryName;
   readonly reversed?: boolean;
+  /** Inclusive slice into the resolved boundary vertex list. */
+  readonly start?: number;
+  readonly end?: number;
 }
 
 export interface StitchDefinition {
@@ -743,7 +746,12 @@ function resolveBoundary(
     throw new Error(`Unknown boundary "${endpoint.boundary}" on patch "${endpoint.patchId}"`);
   }
   const offset = patchOffsets.get(endpoint.patchId)!;
-  const ids = localBoundary.map((localId) => offset + localId);
+  let ids = localBoundary.map((localId) => offset + localId);
+  if (endpoint.start !== undefined || endpoint.end !== undefined) {
+    const start = endpoint.start ?? 0;
+    const end = endpoint.end ?? ids.length - 1;
+    ids = ids.slice(start, end + 1);
+  }
   return endpoint.reversed ? ids.reverse() : ids;
 }
 

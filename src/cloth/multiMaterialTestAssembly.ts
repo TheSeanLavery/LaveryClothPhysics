@@ -3,6 +3,7 @@ import {
   createQuadPatch,
   type ClothAssembly,
   type ClothAssemblyOptions,
+  type ClothPatchDefinition,
   type StitchDefinition,
 } from './patternAssembly.ts';
 
@@ -32,9 +33,39 @@ const DEFAULT_LAYOUT: MultiMaterialTestLayout = {
 export const MULTI_MATERIAL_DEFAULT_PIN_TOP_Y = 0;
 export const MULTI_MATERIAL_DEFAULT_BANNER_HEIGHT = 0.35;
 
+function boundaryVertex(
+  patch: ClothPatchDefinition,
+  boundary: 'bottom' | 'top',
+  index: number,
+): readonly [number, number, number] {
+  const localId = patch.boundaries[boundary]![index]!;
+  return patch.vertices[localId]!;
+}
+
+function resolveDangleBannerAttachment(
+  centerX: number,
+  halfWidth: number,
+  stripWidth: number,
+  stripCount: number,
+  segmentsU: number,
+): { stripIndex: number; uStart: number; uEnd: number } {
+  const stripIndex = Math.min(
+    stripCount - 1,
+    Math.max(0, Math.floor(centerX / stripWidth)),
+  );
+  const x0 = stripIndex * stripWidth;
+  const left = centerX - halfWidth;
+  const right = centerX + halfWidth;
+  let uStart = Math.ceil(((left - x0) / stripWidth) * segmentsU - 1e-9);
+  let uEnd = Math.floor(((right - x0) / stripWidth) * segmentsU + 1e-9);
+  uStart = Math.max(0, Math.min(segmentsU - 1, uStart));
+  uEnd = Math.max(uStart + 1, Math.min(segmentsU, uEnd));
+  return { stripIndex, uStart, uEnd };
+}
+
 /**
- * Horizontal banner strips stitched side-by-side, plus independent dangling strips
- * pinned only along the banner bottom edge.
+ * Horizontal banner strips stitched side-by-side, with dangling strips sewn to
+ * the banner bottom. Only the banner top edge is pinned at load time.
  */
 export function createMultiMaterialTestAssembly(
   options: MultiMaterialTestAssemblyOptions = { layout: DEFAULT_LAYOUT },
@@ -47,10 +78,9 @@ export function createMultiMaterialTestAssembly(
   const segmentsV = options.bannerSegmentsV ?? 4;
   const dangleCount = options.dangleCount ?? 5;
   const dangleLength = options.dangleLength ?? 0.55;
-  const dangleGap = options.dangleGap ?? 0.12;
   const pinTopY = options.pinTopY ?? 0;
 
-  const patches = layout.bannerMaterialIds.map((materialPatchId, index) => {
+  const patches: ClothPatchDefinition[] = layout.bannerMaterialIds.map((materialPatchId, index) => {
     const x0 = index * stripWidth;
     const x1 = x0 + stripWidth;
     return createQuadPatch({
@@ -81,30 +111,49 @@ export function createMultiMaterialTestAssembly(
 
   const bannerSpan = stripCount * stripWidth;
   const dangleWidth = stripWidth * 0.35;
-  const dangleSegmentsU = 2;
   const dangleSegmentsV = 8;
 
   for (let i = 0; i < dangleCount; i += 1) {
     const materialPatchId = layout.dangleMaterialIds[i % layout.dangleMaterialIds.length]!;
     const centerX = (i + 0.5) * (bannerSpan / dangleCount);
     const half = dangleWidth * 0.5;
-    const topY = pinTopY;
+    const dangleId = `${materialPatchId}-dangle-${i}`;
+    const { stripIndex, uStart, uEnd } = resolveDangleBannerAttachment(
+      centerX,
+      half,
+      stripWidth,
+      stripCount,
+      segmentsU,
+    );
+    const hostBanner = layout.bannerMaterialIds[stripIndex]!;
+    const hostPatch = patches[stripIndex]!;
+    // Quad patch v=0 is labeled "bottom" but sits at the banner's high-Y hoist edge;
+    // the banner edge that meets dangles is boundary "top" (low Y).
+    const attachLeft = boundaryVertex(hostPatch, 'top', uStart);
+    const attachRight = boundaryVertex(hostPatch, 'top', uEnd);
     const bottomY = pinTopY - dangleLength;
+
     patches.push(
       createQuadPatch({
-        id: `${materialPatchId}-dangle-${i}`,
+        id: dangleId,
         label: `${materialPatchId} dangle ${i}`,
-        segmentsU: dangleSegmentsU,
+        segmentsU: uEnd - uStart,
         segmentsV: dangleSegmentsV,
         corners: [
-          [centerX - half, topY, 0],
-          [centerX + half, topY, 0],
-          [centerX + half, bottomY, 0],
-          [centerX - half, bottomY, 0],
+          attachLeft,
+          attachRight,
+          [attachRight[0], bottomY, attachRight[2]],
+          [attachLeft[0], bottomY, attachLeft[2]],
         ] as const,
       }),
     );
 
+    stitches.push({
+      id: `stitch-${hostBanner}-${dangleId}`,
+      a: { patchId: hostBanner, boundary: 'top', start: uStart, end: uEnd },
+      b: { patchId: dangleId, boundary: 'bottom' },
+      restLength: 0,
+    });
   }
 
   const assemblyOptions: ClothAssemblyOptions = {

@@ -81,29 +81,29 @@ export function buildDefaultClothMaterialLibrarySeed(): ClothMaterialLibrary {
         color: base.flagColor,
       }),
       createClothMaterialDefinition('Banner A', {
-        settings: { ...base, flagColor: '#4fa3ff', bendStiffness: base.bendStiffness },
+        settings: { ...base, flagColor: '#4fa3ff', dampening: base.dampening },
         color: '#4fa3ff',
         physics: { tearThresholdScale: 1, bendScale: 1, friction: 0.85, damageRate: 1, maxHealth: 1, structuralScale: 1, compressionScale: 1 },
       }),
       createClothMaterialDefinition('Banner B', {
-        settings: { ...base, flagColor: '#ff6b4a', bendStiffness: base.bendStiffness * 1.4 },
+        settings: { ...base, flagColor: '#ff6b4a', dampening: 0.99 },
         color: '#ff6b4a',
-        physics: { tearThresholdScale: 0.85, bendScale: 1.25, friction: 0.7, damageRate: 1.2, maxHealth: 1, structuralScale: 1, compressionScale: 1 },
+        physics: { tearThresholdScale: 1, bendScale: 1, friction: 0.85, damageRate: 1, maxHealth: 1, structuralScale: 1, compressionScale: 1 },
       }),
       createClothMaterialDefinition('Banner C', {
-        settings: { ...base, flagColor: '#7ee787', bendStiffness: base.bendStiffness * 0.75 },
+        settings: { ...base, flagColor: '#7ee787', dampening: 0.9945 },
         color: '#7ee787',
-        physics: { tearThresholdScale: 1.1, bendScale: 0.8, friction: 0.92, damageRate: 0.85, maxHealth: 1, structuralScale: 1, compressionScale: 1 },
+        physics: { tearThresholdScale: 1, bendScale: 1, friction: 0.85, damageRate: 1, maxHealth: 1, structuralScale: 1, compressionScale: 1 },
       }),
       createClothMaterialDefinition('Dangle soft', {
-        settings: { ...base, flagColor: '#d2a8ff', bendStiffness: base.bendStiffness * 0.05 },
+        settings: { ...base, flagColor: '#d2a8ff', dampening: 0.9988 },
         color: '#d2a8ff',
-        physics: { tearThresholdScale: 0.7, bendScale: 0.2, friction: 0.55, damageRate: 1.5, maxHealth: 1, structuralScale: 0.75, compressionScale: 1 },
+        physics: { tearThresholdScale: 1, bendScale: 1, friction: 0.85, damageRate: 1, maxHealth: 1, structuralScale: 1, compressionScale: 1 },
       }),
       createClothMaterialDefinition('Dangle stiff', {
-        settings: { ...base, flagColor: '#ffdc5a', bendStiffness: base.bendStiffness * 6 },
+        settings: { ...base, flagColor: '#ffdc5a', dampening: 0.986 },
         color: '#ffdc5a',
-        physics: { tearThresholdScale: 1.25, bendScale: 3.5, friction: 0.95, damageRate: 0.7, maxHealth: 1, structuralScale: 1.25, compressionScale: 1 },
+        physics: { tearThresholdScale: 1, bendScale: 1, friction: 0.85, damageRate: 1, maxHealth: 1, structuralScale: 1, compressionScale: 1 },
       }),
     ],
   };

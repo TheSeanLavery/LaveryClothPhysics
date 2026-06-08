@@ -7,7 +7,7 @@
       "name": "My preset",
       "color": "#4fa3ff",
       "createdAt": 1780606489232,
-      "updatedAt": 1780608417624,
+      "updatedAt": 1780884151888,
       "settings": {
         "segmentsX": 9123,
         "segmentsY": 0,
@@ -108,7 +108,7 @@
       "name": "Banner A",
       "color": "#4fa3ff",
       "createdAt": 1780606489232,
-      "updatedAt": 1780608417624,
+      "updatedAt": 1780884151888,
       "settings": {
         "segmentsX": 9123,
         "segmentsY": 0,
@@ -209,12 +209,12 @@
       "name": "Banner B",
       "color": "#ff6b4a",
       "createdAt": 1780606489232,
-      "updatedAt": 1780608417624,
+      "updatedAt": 1780884151888,
       "settings": {
         "segmentsX": 9123,
         "segmentsY": 0,
         "constraintIterations": 7,
-        "bendStiffness": 0.013999999999999999,
+        "bendStiffness": 0.01,
         "minCompression": 0.92,
         "clothThickness": 0.003,
         "renderSubdivisions": 3,
@@ -239,7 +239,7 @@
         "zoneBDirX": -0.8,
         "zoneBDirY": 0.08,
         "zoneBDirZ": 0.35,
-        "dampening": 0.9925,
+        "dampening": 0.99,
         "grabRadius": 0.11,
         "grabStiffness": 0.12,
         "grabMaxStep": 0.002,
@@ -296,12 +296,12 @@
         "bbFabricSoftness": 0.58
       },
       "physics": {
-        "tearThresholdScale": 0.85,
+        "tearThresholdScale": 1,
         "structuralScale": 1,
-        "bendScale": 1.25,
+        "bendScale": 1,
         "compressionScale": 1,
-        "friction": 0.7,
-        "damageRate": 1.2,
+        "friction": 0.85,
+        "damageRate": 1,
         "maxHealth": 1
       }
     },
@@ -310,12 +310,12 @@
       "name": "Banner C",
       "color": "#7ee787",
       "createdAt": 1780606489232,
-      "updatedAt": 1780608417624,
+      "updatedAt": 1780884151888,
       "settings": {
         "segmentsX": 9123,
         "segmentsY": 0,
         "constraintIterations": 7,
-        "bendStiffness": 0.0075,
+        "bendStiffness": 0.01,
         "minCompression": 0.92,
         "clothThickness": 0.003,
         "renderSubdivisions": 3,
@@ -340,7 +340,7 @@
         "zoneBDirX": -0.8,
         "zoneBDirY": 0.08,
         "zoneBDirZ": 0.35,
-        "dampening": 0.9925,
+        "dampening": 0.9945,
         "grabRadius": 0.11,
         "grabStiffness": 0.12,
         "grabMaxStep": 0.002,
@@ -397,12 +397,12 @@
         "bbFabricSoftness": 0.58
       },
       "physics": {
-        "tearThresholdScale": 1.1,
+        "tearThresholdScale": 1,
         "structuralScale": 1,
-        "bendScale": 0.8,
+        "bendScale": 1,
         "compressionScale": 1,
-        "friction": 0.92,
-        "damageRate": 0.85,
+        "friction": 0.85,
+        "damageRate": 1,
         "maxHealth": 1
       }
     },
@@ -411,12 +411,12 @@
       "name": "Dangle soft",
       "color": "#d2a8ff",
       "createdAt": 1780606489232,
-      "updatedAt": 1780608417624,
+      "updatedAt": 1780884151888,
       "settings": {
         "segmentsX": 9123,
         "segmentsY": 0,
         "constraintIterations": 7,
-        "bendStiffness": 0.0005,
+        "bendStiffness": 0.01,
         "minCompression": 0.92,
         "clothThickness": 0.003,
         "renderSubdivisions": 3,
@@ -441,7 +441,7 @@
         "zoneBDirX": -0.8,
         "zoneBDirY": 0.08,
         "zoneBDirZ": 0.35,
-        "dampening": 0.9925,
+        "dampening": 0.9988,
         "grabRadius": 0.11,
         "grabStiffness": 0.12,
         "grabMaxStep": 0.002,
@@ -498,12 +498,12 @@
         "bbFabricSoftness": 0.58
       },
       "physics": {
-        "tearThresholdScale": 0.7,
-        "structuralScale": 0.75,
-        "bendScale": 0.2,
+        "tearThresholdScale": 1,
+        "structuralScale": 1,
+        "bendScale": 1,
         "compressionScale": 1,
-        "friction": 0.55,
-        "damageRate": 1.5,
+        "friction": 0.85,
+        "damageRate": 1,
         "maxHealth": 1
       }
     },
@@ -512,12 +512,12 @@
       "name": "Dangle stiff",
       "color": "#ffdc5a",
       "createdAt": 1780606489232,
-      "updatedAt": 1780608417624,
+      "updatedAt": 1780884151888,
       "settings": {
         "segmentsX": 9123,
         "segmentsY": 0,
         "constraintIterations": 7,
-        "bendStiffness": 0.06,
+        "bendStiffness": 0.01,
         "minCompression": 0.92,
         "clothThickness": 0.003,
         "renderSubdivisions": 3,
@@ -542,7 +542,7 @@
         "zoneBDirX": -0.8,
         "zoneBDirY": 0.08,
         "zoneBDirZ": 0.35,
-        "dampening": 0.9925,
+        "dampening": 0.986,
         "grabRadius": 0.11,
         "grabStiffness": 0.12,
         "grabMaxStep": 0.002,
@@ -599,12 +599,12 @@
         "bbFabricSoftness": 0.58
       },
       "physics": {
-        "tearThresholdScale": 1.25,
-        "structuralScale": 1.25,
-        "bendScale": 3.5,
+        "tearThresholdScale": 1,
+        "structuralScale": 1,
+        "bendScale": 1,
         "compressionScale": 1,
-        "friction": 0.95,
-        "damageRate": 0.7,
+        "friction": 0.85,
+        "damageRate": 1,
         "maxHealth": 1
       }
     }

@@ -1,12 +1,13 @@
+import * as THREE from 'three';
 import {
   createClothSimulation,
   type ClothSimulation,
+  type ClothSimulationStats,
 } from '../../cloth';
-import { buildMaterialBendScaleByPatchKey } from '../../cloth/clothMaterialBend.ts';
-import { getMyPresetSettings } from '../../cloth/myPresetDefaults.ts';
+import { buildMaterialDampeningScaleByPatchKey } from '../../cloth/clothMaterialDampening.ts';
+import { applyMyPresetToCharacterCloth } from '../../cloth/myPresetDefaults.ts';
 import {
   createMultiMaterialTestAssembly,
-  materialColorByPatch,
   MULTI_MATERIAL_DEFAULT_BANNER_HEIGHT,
   MULTI_MATERIAL_DEFAULT_PIN_TOP_Y,
   patchIdToMaterialKey,
@@ -23,6 +24,92 @@ export interface MultiMaterialTestStats {
   readonly vertexCount: number;
   readonly patchCount: number;
   readonly materialCount: number;
+}
+
+export interface MultiMaterialPatchGrabTarget {
+  readonly patchKey: string;
+  readonly patchId: string;
+  readonly ndcX: number;
+  readonly ndcY: number;
+}
+
+export interface MultiMaterialGrabDragOptions {
+  readonly ndcX: number;
+  readonly ndcY: number;
+  readonly dragNdcPerFrame?: { readonly x: number; readonly y: number };
+}
+
+export interface MultiMaterialPerformanceMeasureOptions {
+  readonly label: string;
+  readonly durationMs?: number;
+  readonly warmupMs?: number;
+  readonly grabMode?: boolean;
+  readonly grab?: MultiMaterialGrabDragOptions;
+}
+
+export interface MultiMaterialPerformanceSample {
+  readonly label: string;
+  readonly durationMs: number;
+  readonly rafFps: number;
+  readonly simFps: number;
+  readonly particleCount: number;
+  readonly grabMode: boolean;
+  readonly grabActive: boolean;
+  readonly readbackDelta: {
+    readonly healthStarted: number;
+    readonly topologyStarted: number;
+    readonly bbVisualStarted: number;
+    readonly healthSkippedRuntime: number;
+    readonly topologySkippedDisabled: number;
+  };
+}
+
+function readbackDelta(
+  before: ReturnType<ClothSimulation['getReadbackStats']>,
+  after: ReturnType<ClothSimulation['getReadbackStats']>,
+): MultiMaterialPerformanceSample['readbackDelta'] {
+  return {
+    healthStarted: after.healthStarted - before.healthStarted,
+    topologyStarted: after.topologyStarted - before.topologyStarted,
+    bbVisualStarted: after.bbVisualStarted - before.bbVisualStarted,
+    healthSkippedRuntime: after.healthSkippedRuntime - before.healthSkippedRuntime,
+    topologySkippedDisabled: after.topologySkippedDisabled - before.topologySkippedDisabled,
+  };
+}
+
+function buildPatchGrabTargets(
+  assembly: ReturnType<typeof createMultiMaterialTestAssembly>,
+  camera: THREE.PerspectiveCamera,
+): Record<string, MultiMaterialPatchGrabTarget> {
+  const scratch = new THREE.Vector3();
+  const targets: Record<string, MultiMaterialPatchGrabTarget> = {};
+  const sums = new Map<string, { x: number; y: number; z: number; count: number; patchId: string }>();
+
+  for (const vertex of assembly.vertices) {
+    const patchKey = patchIdToMaterialKey(vertex.patchId);
+    const bucket = sums.get(patchKey) ?? { x: 0, y: 0, z: 0, count: 0, patchId: vertex.patchId };
+    bucket.x += vertex.position[0];
+    bucket.y += vertex.position[1];
+    bucket.z += vertex.position[2];
+    bucket.count += 1;
+    sums.set(patchKey, bucket);
+  }
+
+  for (const [patchKey, bucket] of sums) {
+    if (bucket.count <= 0) {
+      continue;
+    }
+    scratch.set(bucket.x / bucket.count, bucket.y / bucket.count, bucket.z / bucket.count);
+    scratch.project(camera);
+    targets[patchKey] = {
+      patchKey,
+      patchId: bucket.patchId,
+      ndcX: scratch.x,
+      ndcY: scratch.y,
+    };
+  }
+
+  return targets;
 }
 
 export async function bootstrapMultiMaterialTest(
@@ -58,11 +145,6 @@ export async function bootstrapMultiMaterialTest(
     },
   });
 
-  const dominantPatch = assembly.vertices[0]?.patchId ?? 'banner-a';
-  const baseSettings = getMyPresetSettings();
-  const materialBendScaleByKey = buildMaterialBendScaleByPatchKey(library, baseSettings);
-  const primaryColor = materialColorByPatch(dominantPatch, colorByKey);
-
   const cloth = await createClothSimulation(
     {
       container: document.body,
@@ -78,38 +160,23 @@ export async function bootstrapMultiMaterialTest(
     },
   );
 
-  Object.assign(cloth.settings, {
-    ...baseSettings,
-    flagColor: primaryColor,
-    gravity: baseSettings.gravity,
-    selfCollision: true,
-    mannequinCollision: false,
-    showMannequin: false,
-    windStrength: 0,
-    windTurbulence: 0,
-    zoneAStrength: 0,
-    zoneBStrength: 0,
-    shapePressure: 0,
-    tearStretchThreshold: Math.max(baseSettings.tearStretchThreshold, 2.5),
-  });
+  Object.assign(cloth.settings, applyMyPresetToCharacterCloth(cloth.settings));
   cloth.applySettings();
   await cloth.init();
 
+  const materialDampeningScaleByKey = buildMaterialDampeningScaleByPatchKey(library, cloth.settings);
+
   await cloth.loadClothAssembly(assembly, {
     pinVertexYAtOrAbove: MULTI_MATERIAL_DEFAULT_PIN_TOP_Y + MULTI_MATERIAL_DEFAULT_BANNER_HEIGHT,
-    pinVertexYEqual: MULTI_MATERIAL_DEFAULT_PIN_TOP_Y,
-    pinOnlyPatchIdContaining: '-dangle-',
-    materialBendScaleByKey,
+    materialDampeningScaleByKey,
+    patchSegmentColorByKey: colorByKey,
     resolvePatchMaterialKey: patchIdToMaterialKey,
   });
   cloth.resetFlag();
 
-  const patchColors = new Map<string, string>();
-  for (const vertex of assembly.vertices) {
-    if (!patchColors.has(vertex.patchId)) {
-      patchColors.set(vertex.patchId, materialColorByPatch(vertex.patchId, colorByKey));
-    }
-  }
+  const patchColorsByKey = Object.fromEntries(
+    Object.entries(colorByKey).map(([patchKey, color]) => [patchKey, color]),
+  );
 
   cloth.clothMesh.visible = true;
   cloth.camera.position.set(0, 0.15, 2.8);
@@ -125,7 +192,7 @@ export async function bootstrapMultiMaterialTest(
   const patchIds = new Set(assembly.vertices.map((vertex) => vertex.patchId));
 
   window.__multiMaterialAssembly = () => assembly;
-  window.__multiMaterialMaterialBendScales = () => materialBendScaleByKey;
+  window.__multiMaterialMaterialDampeningScales = () => materialDampeningScaleByKey;
   window.__multiMaterialWaitWallClockForTest = (seconds: number) => new Promise<void>((resolve) => {
     window.setTimeout(resolve, Math.max(0, seconds) * 1000);
   });
@@ -168,7 +235,7 @@ export async function bootstrapMultiMaterialTest(
     patchCount: patchIds.size,
     materialCount: library.materials.length,
   });
-  window.__multiMaterialPatchColors = () => Object.fromEntries(patchColors);
+  window.__multiMaterialPatchColors = () => patchColorsByKey;
   window.__multiMaterialRefreshLibrary = () => ensureClothMaterialLibrarySeeded();
 
   const interaction = wireClothCanvasInteraction({
@@ -181,6 +248,88 @@ export async function bootstrapMultiMaterialTest(
     },
   });
   window.__multiMaterialInteractionState = () => interaction.getState();
+  window.__multiMaterialClothStats = (): ClothSimulationStats => cloth.getStats();
+  window.__multiMaterialReadbackStats = () => cloth.getReadbackStats();
+  window.__multiMaterialSetGrabMode = (enabled: boolean) => {
+    cloth.setGrabModeEnabled(enabled);
+    document.body.classList.toggle('grab-mode', enabled);
+    cloth.controls.enabled = !enabled;
+  };
+  window.__multiMaterialEndGrab = () => {
+    cloth.endGrabAttempt();
+    document.body.classList.remove('grabbing');
+  };
+  window.__multiMaterialPatchGrabTargets = () => buildPatchGrabTargets(assembly, cloth.camera);
+  window.__multiMaterialMeasurePerformance = async (
+    options: MultiMaterialPerformanceMeasureOptions,
+  ): Promise<MultiMaterialPerformanceSample> => {
+    const durationMs = Math.max(250, options.durationMs ?? 2_000);
+    const warmupMs = Math.max(0, options.warmupMs ?? 400);
+
+    window.__multiMaterialEndGrab?.();
+    window.__multiMaterialSetGrabMode?.(options.grabMode ?? false);
+    cloth.clearMousePointer();
+
+    if (warmupMs > 0) {
+      await new Promise<void>((resolve) => {
+        const startedAt = performance.now();
+        const tick = () => {
+          if (performance.now() - startedAt >= warmupMs) {
+            resolve();
+            return;
+          }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+    }
+
+    let ndcX = options.grab?.ndcX ?? 0;
+    let ndcY = options.grab?.ndcY ?? 0;
+    const grabbing = options.grab !== undefined;
+    if (grabbing) {
+      cloth.setMousePointerNdc(ndcX, ndcY);
+      cloth.beginGrabAttempt();
+      document.body.classList.add('grabbing');
+    }
+
+    const readbackBefore = cloth.getReadbackStats();
+    const simBefore = cloth.getStats().frameCount;
+    let rafFrames = 0;
+    const startedAt = performance.now();
+
+    await new Promise<void>((resolve) => {
+      const tick = () => {
+        if (options.grab?.dragNdcPerFrame) {
+          ndcX += options.grab.dragNdcPerFrame.x;
+          ndcY += options.grab.dragNdcPerFrame.y;
+          cloth.setMousePointerNdc(ndcX, ndcY);
+        }
+        rafFrames += 1;
+        if (performance.now() - startedAt >= durationMs) {
+          resolve();
+          return;
+        }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+
+    const seconds = durationMs / 1_000;
+    const sample: MultiMaterialPerformanceSample = {
+      label: options.label,
+      durationMs,
+      rafFps: rafFrames / seconds,
+      simFps: (cloth.getStats().frameCount - simBefore) / seconds,
+      particleCount: cloth.getStats().particleCount,
+      grabMode: cloth.isGrabModeOn(),
+      grabActive: grabbing,
+      readbackDelta: readbackDelta(readbackBefore, cloth.getReadbackStats()),
+    };
+
+    window.__multiMaterialEndGrab?.();
+    return sample;
+  };
 
   statusEl.textContent = 'running (multi-material cloth test)';
   backendEl.textContent = `backend: ${cloth.renderer.backend.constructor.name}`;

@@ -12,6 +12,8 @@ export interface ClothTopologyParticle {
   readonly isFixed: boolean;
   /** Per-particle bend multiplier (assembly materials). */
   readonly bendScale: number;
+  /** Per-particle dampening multiplier relative to the global dampening uniform. */
+  readonly dampeningScale: number;
 }
 
 export interface ClothTopologyConstraint {
@@ -27,6 +29,7 @@ export interface ClothTopologyRenderSurface {
   readonly fabricUvs?: Float32Array;
   readonly indices?: number[];
   readonly renderVertexToParticle?: readonly number[];
+  readonly renderSegmentIds?: Float32Array;
   readonly assembly?: ClothAssembly;
 }
 
@@ -72,7 +75,15 @@ export function buildGridClothTopology(options: GridClothTopologyOptions): Cloth
     isFixed: boolean,
   ): number => {
     const id = particles.length;
-    particles.push({ id, position: new THREE.Vector3(x, y, z), gridX, gridY, isFixed, bendScale: 1 });
+    particles.push({
+      id,
+      position: new THREE.Vector3(x, y, z),
+      gridX,
+      gridY,
+      isFixed,
+      bendScale: 1,
+      dampeningScale: 1,
+    });
     return id;
   };
 
@@ -173,6 +184,10 @@ export interface AssemblyClothTopologyOptions {
   readonly pinOnlyPatchIdContaining?: string;
   /** Material-key → bend scale; use with resolvePatchMaterialKey. */
   readonly materialBendScaleByKey?: Readonly<Record<string, number>>;
+  /** Material-key → dampening scale; use with resolvePatchMaterialKey. */
+  readonly materialDampeningScaleByKey?: Readonly<Record<string, number>>;
+  /** Material-key → display color (RGB hex) for GPU segment shading. */
+  readonly patchSegmentColorByKey?: Readonly<Record<string, string>>;
   readonly resolvePatchMaterialKey?: (patchId: string) => string;
 }
 
@@ -250,18 +265,33 @@ export function buildAssemblyClothTopology(
     );
 
     let bendScale = 1;
+    let dampeningScale = 1;
     const bendByKey = options.materialBendScaleByKey;
+    const dampeningByKey = options.materialDampeningScaleByKey;
     const resolveKey = options.resolvePatchMaterialKey;
-    if (bendByKey && resolveKey) {
+    if (resolveKey) {
       for (const vertexId of vertexIds) {
         const patchId = assembly.vertices[vertexId]!.patchId;
         const key = resolveKey(patchId);
-        bendScale = Math.max(bendScale, bendByKey[key] ?? 1);
+        if (bendByKey) {
+          bendScale = Math.max(bendScale, bendByKey[key] ?? 1);
+        }
+        if (dampeningByKey) {
+          dampeningScale = Math.max(dampeningScale, dampeningByKey[key] ?? 1);
+        }
       }
     }
 
     const id = particles.length;
-    particles.push({ id, position: average, gridX: id, gridY: 0, isFixed: shouldPin, bendScale });
+    particles.push({
+      id,
+      position: average,
+      gridX: id,
+      gridY: 0,
+      isFixed: shouldPin,
+      bendScale,
+      dampeningScale,
+    });
     particleByRoot.set(root, id);
     for (const vertexId of vertexIds) {
       renderVertexToParticle[vertexId] = id;
@@ -316,6 +346,18 @@ export function buildAssemblyClothTopology(
     indices.push(...face.vertices);
   }
 
+  let renderSegmentIds: Float32Array | undefined;
+  const segmentColors = options.patchSegmentColorByKey;
+  const resolvePatchKey = options.resolvePatchMaterialKey;
+  if (segmentColors && resolvePatchKey) {
+    const keyToSegmentId = new Map(Object.keys(segmentColors).map((key, index) => [key, index]));
+    renderSegmentIds = new Float32Array(assembly.vertices.length);
+    for (const vertex of assembly.vertices) {
+      const key = resolvePatchKey(vertex.patchId);
+      renderSegmentIds[vertex.id] = keyToSegmentId.get(key) ?? 0;
+    }
+  }
+
   return {
     kind: 'assembly',
     particles,
@@ -333,6 +375,7 @@ export function buildAssemblyClothTopology(
       fabricUvs,
       indices,
       renderVertexToParticle,
+      renderSegmentIds,
       assembly,
     },
     selfCollisionExclusions: buildSelfCollisionExclusionsForTopology(particles.length, constraints, 2),

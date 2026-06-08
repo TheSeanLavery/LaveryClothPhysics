@@ -48,7 +48,7 @@ export function registerMultiMaterialDevMenu(options: {
       const editor = {
         name: '',
         color: '#ffffff',
-        bendStiffness: 0.01,
+        dampening: 0.9925,
         tearStretchThreshold: 4,
         friction: 0.85,
       };
@@ -62,7 +62,7 @@ export function registerMultiMaterialDevMenu(options: {
         }
         editor.name = material.name;
         editor.color = material.color;
-        editor.bendStiffness = material.settings.bendStiffness ?? editor.bendStiffness;
+        editor.dampening = material.settings.dampening ?? editor.dampening;
         editor.tearStretchThreshold = material.settings.tearStretchThreshold ?? editor.tearStretchThreshold;
         editor.friction = material.physics.friction;
         panelGui.controllersRecursive().forEach((controller) => controller.updateDisplay());
@@ -83,7 +83,7 @@ export function registerMultiMaterialDevMenu(options: {
 
       panelGui.add(editor, 'name').name('Name');
       panelGui.addColor(editor, 'color').name('Color');
-      panelGui.add(editor, 'bendStiffness', 0.001, 0.2, 0.001).name('Bend stiffness');
+      panelGui.add(editor, 'dampening', 0.9, 0.9999, 0.0001).name('Dampening');
       panelGui.add(editor, 'tearStretchThreshold', 0.5, 8, 0.05).name('Tear threshold');
       panelGui.add(editor, 'friction', 0, 1, 0.01).name('Friction');
 
@@ -100,7 +100,7 @@ export function registerMultiMaterialDevMenu(options: {
             updatedAt: Date.now(),
             settings: {
               ...existing.settings,
-              bendStiffness: editor.bendStiffness,
+              dampening: editor.dampening,
               tearStretchThreshold: editor.tearStretchThreshold,
               flagColor: editor.color,
             },

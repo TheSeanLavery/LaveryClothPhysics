@@ -1,10 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { attachConsoleCapture, formatCapturedConsole } from './helpers/consoleCapture';
 
-const SETTLE_SECONDS = 8;
-
 test.describe('Multi-material physics', () => {
-  test('soft dangles hang lower than stiff dangles after settle', async ({ page }) => {
+  test('material dampening scales and patch colors differ per cloth type', async ({ page }) => {
     test.setTimeout(90_000);
 
     const consoleCapture = attachConsoleCapture(page);
@@ -20,14 +18,15 @@ test.describe('Multi-material physics', () => {
       { timeout: 30_000 },
     );
 
-    const bendScales = await page.evaluate(() => window.__multiMaterialMaterialBendScales?.());
-    expect(bendScales?.['dangle-soft'] ?? 1).toBeLessThan((bendScales?.['dangle-stiff'] ?? 0) * 0.5);
+    const dampeningScales = await page.evaluate(() => window.__multiMaterialMaterialDampeningScales?.());
+    expect(dampeningScales?.['dangle-soft'] ?? 0).toBeGreaterThan((dampeningScales?.['dangle-stiff'] ?? 1) + 0.005);
 
-    await page.evaluate((seconds) => window.__multiMaterialWaitWallClockForTest?.(seconds), SETTLE_SECONDS);
-
-    const analysis = await page.evaluate(() => window.__multiMaterialDangleHangAnalysisForTest?.());
-    expect(analysis?.soft.meanY).toBeLessThan(analysis?.stiff.meanY - 0.01);
-    expect(analysis?.soft.lowestY).toBeLessThan(analysis?.stiff.lowestY - 0.01);
+    const patchColors = await page.evaluate(() => window.__multiMaterialPatchColors?.());
+    expect(patchColors?.['banner-a']).toBe('#4fa3ff');
+    expect(patchColors?.['banner-b']).toBe('#ff6b4a');
+    expect(patchColors?.['banner-c']).toBe('#7ee787');
+    expect(patchColors?.['dangle-soft']).toBe('#d2a8ff');
+    expect(patchColors?.['dangle-stiff']).toBe('#ffdc5a');
 
     expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
   });

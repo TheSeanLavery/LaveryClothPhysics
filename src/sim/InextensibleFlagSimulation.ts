@@ -206,6 +206,7 @@ interface ClothVertex {
   gridY: number;
   isFixed: boolean;
   bendScale: number;
+  dampeningScale: number;
   springIds: number[]; // incident PBD edge constraint ids (not force springs)
 }
 
@@ -520,6 +521,7 @@ export class InextensibleFlagSimulation {
   private initialPositionBuffer!: ReturnType<typeof instancedArray>;
   private substepStartBuffer!: ReturnType<typeof instancedArray>;
   private vertexParamsBuffer!: ReturnType<typeof instancedArray>;
+  private vertexDampeningScaleBuffer!: ReturnType<typeof instancedArray>;
   private vertexGridBuffer!: ReturnType<typeof instancedArray>;
   private vertexComponentBuffer!: ReturnType<typeof instancedArray>;
   private selfCollisionExclusionBuffer!: ReturnType<typeof instancedArray>;
@@ -649,6 +651,11 @@ export class InextensibleFlagSimulation {
   private renderSubdivisionsUniform!: ReturnType<typeof uniform>;
   private tearStretchUniform!: ReturnType<typeof uniform>;
   private simGridSizeYUniform!: ReturnType<typeof uniform>;
+  private dampeningUniform!: ReturnType<typeof uniform>;
+  private clothSegmentCountUniform!: ReturnType<typeof uniform>;
+  private segmentScalars1Buffer!: ReturnType<typeof instancedArray>;
+  private segmentHealthBuffer!: ReturnType<typeof instancedArray>;
+  private clothSegmentCount = 0;
 
   private isGrabModeEnabled = false;
   private isGrabActive = false;
@@ -660,7 +667,6 @@ export class InextensibleFlagSimulation {
   private bbMesh: THREE.InstancedMesh | null = null;
   private nextBbSlot = 0;
   private bbGpuMayHaveActiveProjectiles = false;
-  private readonly grabHitTestPosition = new THREE.Vector3();
   private readonly bbBounds = new THREE.Box3(
     new THREE.Vector3(-4, -2, -4),
     new THREE.Vector3(4, 4, 4),
@@ -903,49 +909,17 @@ export class InextensibleFlagSimulation {
     this.grabPickRadiusUniform.value = Math.max(0.005, radius);
   }
 
+  /**
+   * Cheap gate before pointer capture — actual screen-space pick runs on GPU
+   * (measureGrabScreenDist → selectGrabTarget) via grabTryLatch; never scan CPU/GPU positions here.
+   */
   canBeginGrabAttempt(): boolean {
     if (!this.isReady || !this.isGrabModeEnabled) {
       return false;
     }
 
     const mouse = this.mouseNdcUniform.value;
-    if (mouse.x < -1.5) {
-      return false;
-    }
-
-    const positionAttr = this.vertexPositionBuffer.value as StorageInstancedBufferAttribute;
-    const positions = positionAttr.array as Float32Array;
-    const itemSize = positionAttr.itemSize ?? 3;
-    const pickRadius = this.grabPickRadiusUniform.value;
-
-    this.camera.updateMatrixWorld();
-    for (let i = 0; i < this.clothVertices.length; i++) {
-      if (this.clothVertices[i]?.isFixed) {
-        continue;
-      }
-
-      this.grabHitTestPosition
-        .set(
-          positions[i * itemSize] ?? 0,
-          positions[i * itemSize + 1] ?? 0,
-          positions[i * itemSize + 2] ?? 0,
-        )
-        .project(this.camera);
-
-      if (this.grabHitTestPosition.z < -1 || this.grabHitTestPosition.z > 1) {
-        continue;
-      }
-
-      const dist = Math.hypot(
-        this.grabHitTestPosition.x - mouse.x,
-        this.grabHitTestPosition.y - mouse.y,
-      );
-      if (dist < pickRadius) {
-        return true;
-      }
-    }
-
-    return false;
+    return mouse.x >= -1.5;
   }
 
   endGrabAttempt(): void {
@@ -1491,10 +1465,12 @@ export class InextensibleFlagSimulation {
     this.simVerticalEdgeIds.length = 0;
     this.simShearDownEdgeIds.length = 0;
     this.simShearUpEdgeIds.length = 0;
+    this.clothSegmentCount = 0;
 
     this.setupClothGeometry();
     this.setupVertexBuffers();
     this.setupEdgeBuffers();
+    this.setupAssemblySegmentColors();
     this.setupComputeShaders();
     this.clothMaterial = this.createClothMaterial();
     this.clothMesh = this.setupClothMesh(this.clothMaterial);
@@ -2752,6 +2728,7 @@ export class InextensibleFlagSimulation {
         gridY: particle.gridY,
         isFixed: particle.isFixed,
         bendScale: particle.bendScale,
+        dampeningScale: particle.dampeningScale,
         springIds: [],
       };
       this.clothVertices.push(vertex);
@@ -2902,6 +2879,7 @@ export class InextensibleFlagSimulation {
     const vertexPositionArray = new Float32Array(vertexCount * 3);
     const vertexParamsArray = new Uint32Array(vertexCount * 3);
     const vertexGridArray = new Uint32Array(vertexCount * 2);
+    const vertexDampeningScaleArray = new Float32Array(vertexCount).fill(1);
 
     for (let i = 0; i < vertexCount; i++) {
       const vertex = this.clothVertices[i]!;
@@ -2910,6 +2888,7 @@ export class InextensibleFlagSimulation {
       vertexPositionArray[i * 3 + 2] = vertex.position.z;
       vertexGridArray[i * 2] = vertex.gridX;
       vertexGridArray[i * 2 + 1] = vertex.gridY;
+      vertexDampeningScaleArray[i] = vertex.dampeningScale;
       vertexParamsArray[i * 3] = vertex.isFixed ? 1 : 0;
 
       if (!vertex.isFixed) {
@@ -2924,6 +2903,7 @@ export class InextensibleFlagSimulation {
     this.initialPositionBuffer = instancedArray(vertexPositionArray.slice(), 'vec3');
     this.substepStartBuffer = instancedArray(vertexPositionArray.slice(), 'vec3');
     this.vertexParamsBuffer = instancedArray(vertexParamsArray, 'uvec3');
+    this.vertexDampeningScaleBuffer = instancedArray(vertexDampeningScaleArray, 'float');
     this.vertexGridBuffer = instancedArray(new Uint32Array(vertexGridArray), 'uvec2');
     this.vertexComponentBuffer = instancedArray(new Uint32Array(vertexCount).fill(0), 'uint').setPBO(
       true,
@@ -2954,6 +2934,30 @@ export class InextensibleFlagSimulation {
     this.duelCapsuleCountAUniform = uniform(0);
     this.duelAttachClearanceUniform = uniform(SHIRT_SDF_CLEARANCE);
     this.duelAttachBandUniform = uniform(DUEL_SHIRT_ATTACH_BAND);
+  }
+
+  private setupAssemblySegmentColors(): void {
+    const colorByKey = this.assemblyTopologyOptions.patchSegmentColorByKey;
+    if (!colorByKey || Object.keys(colorByKey).length === 0) {
+      this.clothSegmentCount = 0;
+      return;
+    }
+
+    const keys = Object.keys(colorByKey);
+    this.clothSegmentCount = keys.length;
+    const colorArray = new Float32Array(keys.length * 3);
+    const healthArray = new Float32Array(keys.length).fill(1);
+    const scratch = new THREE.Color();
+    for (let i = 0; i < keys.length; i += 1) {
+      scratch.set(colorByKey[keys[i]!] ?? '#ffffff');
+      colorArray[i * 3] = scratch.r;
+      colorArray[i * 3 + 1] = scratch.g;
+      colorArray[i * 3 + 2] = scratch.b;
+    }
+
+    this.clothSegmentCountUniform = uniform(this.clothSegmentCount);
+    this.segmentScalars1Buffer = instancedArray(colorArray, 'vec3');
+    this.segmentHealthBuffer = instancedArray(healthArray, 'float');
   }
 
   private setupEdgeBuffers(): void {
@@ -4191,6 +4195,7 @@ export class InextensibleFlagSimulation {
     const edgeDependencyIdsBuffer = this.edgeDependencyIdsBuffer;
     const tearStretchUniform = this.tearStretchUniform;
     const dampeningUniform = this.dampeningUniform;
+    const vertexDampeningScaleBuffer = this.vertexDampeningScaleBuffer;
     const constraintRelaxationUniform = this.constraintRelaxationUniform;
     const maxVertexStepUniform = this.maxVertexStepUniform;
     const maxSubstepTravelUniform = this.maxSubstepTravelUniform;
@@ -4267,7 +4272,11 @@ export class InextensibleFlagSimulation {
 
       const current = vertexPositionBuffer.element(instanceIndex).toVar('current');
       const previous = vertexPreviousBuffer.element(instanceIndex);
-      const velocity = current.sub(previous).mul(dampeningUniform).toVar('velocity');
+      const velocity = current
+        .sub(previous)
+        .mul(dampeningUniform)
+        .mul(vertexDampeningScaleBuffer.element(instanceIndex))
+        .toVar('velocity');
 
       velocity.y.subAssign(gravityUniform);
 
@@ -5458,6 +5467,13 @@ export class InextensibleFlagSimulation {
         this.topologyMode === 'assembly'
           ? { edgeActiveBuffer: this.edgeVisualBuffer }
           : undefined,
+      ...(this.clothSegmentCount > 0
+        ? {
+            clothSegmentCountUniform: this.clothSegmentCountUniform,
+            segmentScalars1Buffer: this.segmentScalars1Buffer,
+            segmentHealthBuffer: this.segmentHealthBuffer,
+          }
+        : {}),
     });
 
     return clothMaterial;
@@ -5558,6 +5574,7 @@ export class InextensibleFlagSimulation {
       simGridCoordArray,
       fabricUvArray,
       this.particleRenderTriangleEdgeIds,
+      renderSurface.renderSegmentIds,
     );
 
     const vertexCount = gpuSurface.simGridCoords.length / 2;
@@ -5573,6 +5590,9 @@ export class InextensibleFlagSimulation {
     geometry.setAttribute('particleTriSimV0', new THREE.BufferAttribute(gpuSurface.particleTriSimV0, 1));
     geometry.setAttribute('particleTriSimV1', new THREE.BufferAttribute(gpuSurface.particleTriSimV1, 1));
     geometry.setAttribute('particleTriSimV2', new THREE.BufferAttribute(gpuSurface.particleTriSimV2, 1));
+    if (renderSurface.renderSegmentIds) {
+      geometry.setAttribute('renderSegmentId', new THREE.BufferAttribute(gpuSurface.renderSegmentId, 1));
+    }
     // Non-indexed soup; fragment hides broken-edge + cross-component bridge triangles.
 
     this.clothGeometry = geometry;

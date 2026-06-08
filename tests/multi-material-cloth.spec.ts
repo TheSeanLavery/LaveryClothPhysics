@@ -29,7 +29,7 @@ test.describe('Multi-material cloth test', () => {
 
     const patchColors = await page.evaluate(() => window.__multiMaterialPatchColors?.());
     expect(patchColors?.['banner-a']).toMatch(/^#[0-9a-f]{6}$/i);
-    expect(Object.keys(patchColors ?? {}).length).toBeGreaterThanOrEqual(8);
+    expect(Object.keys(patchColors ?? {}).length).toBe(5);
 
     await expect(page.locator('[data-testid="grab-toggle-btn"]')).toBeVisible();
     await page.waitForFunction(

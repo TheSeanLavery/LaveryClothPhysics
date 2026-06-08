@@ -7,17 +7,18 @@ import {
 } from './clothMaterialBend.ts';
 import { getMyPresetSettings } from './myPresetDefaults.ts';
 
-test('dangle soft bends more than dangle stiff', () => {
+test('multi-material seed uses unified bend scales', () => {
   const library = buildDefaultClothMaterialLibrarySeed();
   const base = getMyPresetSettings();
   const scales = buildMaterialBendScaleByPatchKey(library, base);
-  assert.ok(scales['dangle-soft']! < scales['dangle-stiff']! * 0.5);
+  for (const key of ['banner-a', 'banner-b', 'banner-c', 'dangle-soft', 'dangle-stiff']) {
+    assert.ok(Math.abs(scales[key]! - 1) < 0.01, `${key} bend scale should stay at preset unity`);
+  }
 });
 
-test('materialBendScale combines settings and physics multipliers', () => {
+test('materialBendScale stays at unity when preset bend matches', () => {
   const library = buildDefaultClothMaterialLibrarySeed();
-  const soft = library.materials.find((entry) => entry.name === 'Dangle soft')!;
-  const stiff = library.materials.find((entry) => entry.name === 'Dangle stiff')!;
+  const banner = library.materials.find((entry) => entry.name === 'Banner A')!;
   const base = getMyPresetSettings();
-  assert.ok(materialBendScale(soft, base.bendStiffness) < materialBendScale(stiff, base.bendStiffness) * 0.5);
+  assert.ok(Math.abs(materialBendScale(banner, base.bendStiffness) - 1) < 0.01);
 });
