@@ -94,6 +94,10 @@ export interface InextensibleFlagSettings {
   tearMeshing: 'edge-cull' | 'sdf';
   /** Sim-cell units for rounding fully torn cells in SDF meshing. */
   tearSdfCornerRadius: number;
+  /** Barycentric max below which a single-broken shear tri punches a center hole. */
+  tearCenterHoleRadius: number;
+  /** Barycentric max above which corner fabric stays on single-broken shear tris. */
+  tearCornerKeepWidth: number;
   /** Highlight ultra-stretched render triangles (likely invisible strand bridges). */
   showBridgeSplinters: boolean;
   /** Draw cosmetic thread capsules on single-link sim cell connections (visual only). */
@@ -190,6 +194,8 @@ export const defaultInextensibleFlagSettings = (): InextensibleFlagSettings => (
   tearFringeWidth: 0.075,
   tearMeshing: 'sdf',
   tearSdfCornerRadius: 0.35,
+  tearCenterHoleRadius: 0.38,
+  tearCornerKeepWidth: 0.62,
   showBridgeSplinters: false,
   renderStrandThreads: false,
   strandThreadRadius: 0.008,

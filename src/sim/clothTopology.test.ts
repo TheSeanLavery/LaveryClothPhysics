@@ -72,6 +72,23 @@ test('per-material tear threshold can be lower than the global scene tear', () =
   assert.ok(bannerParticleTears.every((tear) => tear >= 3.9));
 });
 
+test('stitch constraint mode keeps banner and dangle as separate sim particles', () => {
+  const assembly = createMultiMaterialTestAssembly();
+  const topo = buildAssemblyClothTopology(assembly, {
+    stitchWeldMode: 'constraints',
+    resolvePatchMaterialKey: patchIdToMaterialKey,
+  });
+
+  const stitchConstraints = topo.constraints.filter((constraint) => constraint.kind === 'stitch');
+  assert.ok(stitchConstraints.length > 0, 'expected stitch constraints when weld mode is off');
+
+  const bannerVertex = assembly.vertices.find((vertex) => vertex.patchId.startsWith('banner-'))!;
+  const dangleVertex = assembly.vertices.find((vertex) => vertex.patchId.includes('dangle'))!;
+  const bannerParticle = topo.renderSurface.renderVertexToParticle![bannerVertex.id]!;
+  const dangleParticle = topo.renderSurface.renderVertexToParticle![dangleVertex.id]!;
+  assert.notEqual(bannerParticle, dangleParticle);
+});
+
 test('assembly self-collision still skips immediate surface neighbors', () => {
   const assembly = createMultiMaterialTestAssembly();
   const topo = buildAssemblyClothTopology(assembly, {

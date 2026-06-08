@@ -131,6 +131,22 @@ test('rejects stitches with mismatched boundary sample counts', () => {
   );
 });
 
+test('marks quad patch internal diagonals as shear edges', () => {
+  const patch = createQuadPatch({
+    id: 'quad',
+    corners: [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]],
+    segmentsU: 2,
+    segmentsV: 2,
+  });
+  const assembly = buildClothAssembly({ patches: [patch] });
+
+  const shearCount = assembly.edges.filter((edge) => edge.kind === 'shear').length;
+  const structuralCount = assembly.edges.filter((edge) => edge.kind === 'structural').length;
+
+  assert.equal(shearCount, 4);
+  assert.equal(structuralCount, 12);
+});
+
 function assertStitchesAreCoincident(assembly: ReturnType<typeof createStitchedBoxAssembly>): void {
   for (const edge of assembly.stitchEdges) {
     const a = assembly.vertices[edge.a]!.position;

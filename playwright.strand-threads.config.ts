@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
+import { PLAYWRIGHT_DEV_URL, playwrightDevWebServer } from './playwright.shared.ts';
 
-/** Headed strand-thread coverage tests on an isolated dev port. */
+/** Headed strand-thread coverage tests — reuses the Vite dev server on 5173. */
 export default defineConfig({
   testDir: './tests',
   testMatch: 'strand-threads.spec.ts',
@@ -10,7 +11,7 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   reporter: 'list',
   use: {
-    baseURL: 'http://localhost:5180',
+    baseURL: PLAYWRIGHT_DEV_URL,
     ...devices['Desktop Chrome'],
     headless: false,
     launchOptions: {
@@ -22,10 +23,5 @@ export default defineConfig({
       ],
     },
   },
-  webServer: {
-    command: 'npx vite --host localhost --port 5180 --strictPort',
-    url: 'http://localhost:5180',
-    reuseExistingServer: false,
-    timeout: 120_000,
-  },
+  webServer: playwrightDevWebServer,
 });

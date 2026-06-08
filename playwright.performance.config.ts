@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { PLAYWRIGHT_DEV_URL, playwrightDevWebServer } from './playwright.shared.ts';
 
 /** Multi-material grab FPS regression — headed WebGPU, off-screen window. */
 export default defineConfig({
@@ -11,7 +12,7 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   reporter: 'line',
   use: {
-    baseURL: 'http://localhost:5179',
+    baseURL: PLAYWRIGHT_DEV_URL,
     ...devices['Desktop Chrome'],
     headless: false,
     launchOptions: {
@@ -23,10 +24,5 @@ export default defineConfig({
       ],
     },
   },
-  webServer: {
-    command: 'npx vite --host localhost --port 5179 --strictPort',
-    url: 'http://localhost:5179',
-    reuseExistingServer: !process.env.CI,
-    timeout: 30_000,
-  },
+  webServer: playwrightDevWebServer,
 });

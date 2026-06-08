@@ -4,6 +4,7 @@ import { getMyPresetSettings } from './myPresetDefaults.ts';
 import type { ClothMaterialDefinition } from './clothMaterialSchema.ts';
 import {
   buildAssemblyMaterialScaleMaps,
+  buildPatchSegmentColorsFromLibrary,
   materialCompressionScale,
   materialStructuralScale,
   materialTearThresholdScale,
@@ -58,4 +59,12 @@ test('buildAssemblyMaterialScaleMaps exposes distinct dangle dampening and tear 
     library.materials.find((material) => material.name === 'Banner B')!,
   ));
   assert.ok(maps.tearThreshold['dangle-soft']! > 0);
+});
+
+test('buildPatchSegmentColorsFromLibrary maps library materials to stable patch keys', () => {
+  const library = buildDefaultClothMaterialLibrarySeed();
+  const colors = buildPatchSegmentColorsFromLibrary(library);
+
+  assert.equal(colors['banner-a'], '#4fa3ff');
+  assert.equal(colors['dangle-stiff'], '#ffdc5a');
 });

@@ -56,6 +56,11 @@ import {
   updateMatteCottonFlagMaterial,
 } from '../shaders/FlagClothMaterial';
 import { createPropagateVertexComponentsCompute } from '../shaders/propagateVertexComponentsCompute';
+import {
+  createBreakCrossComponentEdgesCompute,
+  createTopologyGapBreakCompute,
+  type TopologyGapBreakGpuPasses,
+} from '../shaders/topologyGapBreakGpu';
 import { createEdgeAwareSimSurfaceSampler } from '../shaders/clothEdgeAwareSurface';
 import {
   createSimGridDebugOverlay,
@@ -72,6 +77,7 @@ import {
 } from './clothEdgeDependencies';
 import {
   buildClothGraphEdges,
+  countConnectedComponents,
   syncClothConnectivity,
   type SyncClothConnectivityOptions,
   type ClothGraphEdge,
@@ -106,8 +112,14 @@ import {
   buildGpuParticleRenderSurface,
   buildStrandDressTriangleBuffers,
   buildSimGridStrandDressTriangles,
+  collectAssemblyStrandThreadEdgeIds,
+  collectSingleNeighborCellEdgeIds,
+  collectTornAdjacentActiveEdgeIds,
+  computeStrandEdgeCoverageCpu,
   mirrorGpuStrandRequiredEdgeIds,
   rebuildParticleRenderIndices,
+  STRAND_SPAN_GAP_RATIO,
+  TOPOLOGY_GAP_BREAK_RATIO,
   type StrandDressTriangleBuffers,
   triangleCrossesBrokenStructuralEdge,
   type ClothRenderQuad,
@@ -212,6 +224,7 @@ interface ClothVertex {
   structuralScale: number;
   compressionScale: number;
   tearThresholdScale: number;
+  renderSegmentId: number;
   springIds: number[]; // incident PBD edge constraint ids (not force springs)
 }
 
@@ -219,7 +232,7 @@ interface ClothEdge {
   id: number;
   vertex0: ClothVertex;
   vertex1: ClothVertex;
-  kind: 'structural' | 'shear' | 'bend';
+  kind: 'structural' | 'shear' | 'bend' | 'stitch';
   restLengthOverride?: number;
 }
 
@@ -470,9 +483,13 @@ export class InextensibleFlagSimulation {
   private strandDressTriSimV0Buffer: ReturnType<typeof instancedArray> | null = null;
   private strandDressTriSimV1Buffer: ReturnType<typeof instancedArray> | null = null;
   private strandDressTriSimV2Buffer: ReturnType<typeof instancedArray> | null = null;
+  private strandDressTriRenderableBuffer: ReturnType<typeof instancedArray> | null = null;
   private strandDressTriangleCount = 0;
   private strandDressCpuCache: StrandDressTriangleBuffers | null = null;
   private strandThreadGpuPasses: StrandThreadGpuComputePasses | null = null;
+  private strandConnectivitySyncPending = false;
+  private assemblyBrokenEdgeCountSyncPending = false;
+  private lastStrandComponents: Uint32Array | null = null;
   private lastSyncedEdgeActive: Uint32Array | null = null;
   private duelFighterAVertexCount: number | null = null;
   private duelParticleFighterMask: Uint8Array | null = null;
@@ -543,6 +560,7 @@ export class InextensibleFlagSimulation {
   private springVertexIdBuffer!: ReturnType<typeof instancedArray>;
   private springRestLengthBuffer!: ReturnType<typeof instancedArray>;
   private edgeKindBuffer!: ReturnType<typeof instancedArray>;
+  private edgeSegmentIdBuffer!: ReturnType<typeof instancedArray>;
   private edgeBendScaleBuffer!: ReturnType<typeof instancedArray>;
   private edgeTearThresholdBuffer!: ReturnType<typeof instancedArray>;
   private springCorrectionBuffer!: ReturnType<typeof instancedArray>;
@@ -582,6 +600,10 @@ export class InextensibleFlagSimulation {
   private applyGrabConstraint!: ReturnType<ReturnType<typeof Fn>['compute']>;
   private breakEdgesByStrain!: ReturnType<ReturnType<typeof Fn>['compute']>;
   private cascadeBrokenEdgeLinks!: ReturnType<ReturnType<typeof Fn>['compute']>;
+  private topologyGapBreakGpuPasses: TopologyGapBreakGpuPasses | null = null;
+  private breakCrossComponentActiveEdges: ReturnType<ReturnType<typeof Fn>['compute']> | null = null;
+  private topologyGapBreakRatioUniform!: ReturnType<typeof uniform>;
+  private tornRimGapBreakRatioUniform!: ReturnType<typeof uniform>;
   private syncEdgeVisualForRender!: ReturnType<ReturnType<typeof Fn>['compute']>;
   private initVertexComponentLabels!: ReturnType<ReturnType<typeof Fn>['compute']>;
   private propagateVertexComponentLabels!: ReturnType<ReturnType<typeof Fn>['compute']>;
@@ -1523,9 +1545,21 @@ export class InextensibleFlagSimulation {
       }
       vertex.bendScale = particle.bendScale;
       vertex.dampeningScale = particle.dampeningScale;
+      vertex.structuralScale = particle.structuralScale;
+      vertex.compressionScale = particle.compressionScale;
       vertex.tearThresholdScale = particle.tearThresholdScale;
+      vertex.renderSegmentId = particle.renderSegmentId;
     }
     this.uploadAssemblyMaterialScalarBuffers();
+    if (options.patchSegmentColorByKey) {
+      this.uploadAssemblySegmentColors();
+    }
+  }
+
+  async waitForPresentationCompile(): Promise<void> {
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
   }
 
   applySettings(): void {
@@ -1662,6 +1696,10 @@ export class InextensibleFlagSimulation {
       this.bbSubstepDtUniform.value = timePerStep;
 
       this.renderer.compute(this.breakEdgesByStrain);
+      if (this.topologyGapBreakGpuPasses && this.lastBrokenEdgeCount > 0) {
+        this.renderer.compute(this.topologyGapBreakGpuPasses.breakEdgesOnFabricHoles);
+        this.renderer.compute(this.topologyGapBreakGpuPasses.breakEdgesBySpanningGap);
+      }
       for (let cascadePass = 0; cascadePass < 4; cascadePass++) {
         this.renderer.compute(this.cascadeBrokenEdgeLinks);
       }
@@ -1761,10 +1799,20 @@ export class InextensibleFlagSimulation {
     if (this.shouldPropagateVertexComponentsGpu()) {
       this.runVertexComponentPropagationGpu();
     }
+    if (this.breakCrossComponentActiveEdges && this.lastBrokenEdgeCount > 0) {
+      this.renderer.compute(this.breakCrossComponentActiveEdges);
+    }
     this.renderer.compute(this.syncEdgeVisualForRender);
     this.scheduleDuelShirtHealthGpu();
     if (this.shouldScheduleClothTopologyReadback()) {
       void this.refreshClothTopologyFromGpu();
+    }
+    this.scheduleAssemblyConnectivitySync();
+    if (this.lastStrandComponents) {
+      this.applyVertexComponentsCpu(this.lastStrandComponents);
+    }
+    if (this.particleRenderBaseIndices && this.frameCount % 3 === 0) {
+      void this.refreshAssemblyBrokenEdgeCountFromGpu();
     }
     this.runStrandThreadGpu();
 
@@ -2781,6 +2829,7 @@ export class InextensibleFlagSimulation {
         tearThresholdScale: topology.kind === 'assembly'
           ? particle.tearThresholdScale
           : this.settings.tearStretchThreshold,
+        renderSegmentId: particle.renderSegmentId,
         springIds: [],
       };
       this.clothVertices.push(vertex);
@@ -2997,8 +3046,19 @@ export class InextensibleFlagSimulation {
 
     const keys = Object.keys(colorByKey);
     this.clothSegmentCount = keys.length;
-    const colorArray = new Float32Array(keys.length * 3);
+    const colorArray = this.buildAssemblySegmentColorArray(colorByKey, keys);
     const healthArray = new Float32Array(keys.length).fill(1);
+
+    this.clothSegmentCountUniform = uniform(this.clothSegmentCount);
+    this.segmentScalars1Buffer = instancedArray(colorArray, 'vec3');
+    this.segmentHealthBuffer = instancedArray(healthArray, 'float');
+  }
+
+  private buildAssemblySegmentColorArray(
+    colorByKey: Readonly<Record<string, string>>,
+    keys: readonly string[],
+  ): Float32Array {
+    const colorArray = new Float32Array(keys.length * 3);
     const scratch = new THREE.Color();
     for (let i = 0; i < keys.length; i += 1) {
       scratch.set(colorByKey[keys[i]!] ?? '#ffffff');
@@ -3006,10 +3066,30 @@ export class InextensibleFlagSimulation {
       colorArray[i * 3 + 1] = scratch.g;
       colorArray[i * 3 + 2] = scratch.b;
     }
+    return colorArray;
+  }
 
-    this.clothSegmentCountUniform = uniform(this.clothSegmentCount);
-    this.segmentScalars1Buffer = instancedArray(colorArray, 'vec3');
-    this.segmentHealthBuffer = instancedArray(healthArray, 'float');
+  private uploadAssemblySegmentColors(): void {
+    const colorByKey = this.assemblyTopologyOptions.patchSegmentColorByKey;
+    if (!colorByKey || this.clothSegmentCount <= 0 || !this.segmentScalars1Buffer) {
+      return;
+    }
+
+    const keys = Object.keys(colorByKey);
+    const colorAttr = this.segmentScalars1Buffer.value as StorageInstancedBufferAttribute;
+    const colorArray = colorAttr.array as Float32Array;
+    colorArray.set(this.buildAssemblySegmentColorArray(colorByKey, keys));
+    colorAttr.needsUpdate = true;
+  }
+
+  private buildEdgeSegmentIdArray(): Uint32Array {
+    const edgeCount = this.clothEdges.length;
+    const edgeSegmentIdArray = new Uint32Array(edgeCount);
+    for (let i = 0; i < edgeCount; i++) {
+      const edge = this.clothEdges[i]!;
+      edgeSegmentIdArray[i] = Math.max(edge.vertex0.renderSegmentId, edge.vertex1.renderSegmentId);
+    }
+    return edgeSegmentIdArray;
   }
 
   private buildEdgeBendScaleArray(): Float32Array {
@@ -3097,15 +3177,20 @@ export class InextensibleFlagSimulation {
     const edgeKindArray = new Uint32Array(edgeCount);
     const edgeBendScaleArray = this.buildEdgeBendScaleArray();
     const edgeTearThresholdArray = this.buildEdgeTearThresholdArray();
+    const edgeSegmentIdArray = this.buildEdgeSegmentIdArray();
 
     for (let i = 0; i < edgeCount; i++) {
       const edge = this.clothEdges[i]!;
       springVertexIdArray[i * 2] = edge.vertex0.id;
       springVertexIdArray[i * 2 + 1] = edge.vertex1.id;
+      const dressRestLength = edge.vertex0.position.distanceTo(edge.vertex1.position);
+      const restOverride = edge.restLengthOverride;
       springRestLengthArray[i] =
-        edge.restLengthOverride ?? edge.vertex0.position.distanceTo(edge.vertex1.position);
+        restOverride !== undefined && restOverride > 1e-6
+          ? restOverride
+          : Math.max(dressRestLength, 1e-5);
       edgeKindArray[i] =
-        edge.kind === 'bend' ? 1 : edge.kind === 'shear' ? 2 : 0;
+        edge.kind === 'bend' ? 1 : edge.kind === 'shear' ? 2 : edge.kind === 'stitch' ? 3 : 0;
     }
 
     const structuralLookup = createSimStructuralEdgeLookup(
@@ -3125,6 +3210,7 @@ export class InextensibleFlagSimulation {
     this.strandThreadRadiusUniform = uniform(this.settings.strandThreadRadius);
     this.springRestLengthBuffer = instancedArray(springRestLengthArray, 'float');
     this.edgeKindBuffer = instancedArray(edgeKindArray, 'uint');
+    this.edgeSegmentIdBuffer = instancedArray(edgeSegmentIdArray, 'uint');
     this.edgeBendScaleBuffer = instancedArray(edgeBendScaleArray, 'float');
     this.edgeTearThresholdBuffer = instancedArray(edgeTearThresholdArray, 'float');
     this.springCorrectionBuffer = instancedArray(edgeCount, 'vec3');
@@ -3304,6 +3390,8 @@ export class InextensibleFlagSimulation {
     this.clothSegmentsYUniform = uniform(this.clothNumSegmentsY);
     this.renderSubdivisionsUniform = uniform(this.settings.renderSubdivisions);
     this.tearStretchUniform = uniform(this.settings.tearStretchThreshold);
+    this.topologyGapBreakRatioUniform = uniform(TOPOLOGY_GAP_BREAK_RATIO);
+    this.tornRimGapBreakRatioUniform = uniform(STRAND_SPAN_GAP_RATIO);
     this.bbPool.setSpeed(this.settings.bbSpeed);
     this.bbPool.setVisualRadius(this.settings.bbVisualRadius);
     this.bbPool.setForceRadius(this.settings.bbHitRadius);
@@ -3397,6 +3485,8 @@ export class InextensibleFlagSimulation {
       this.clothConnectivitySyncOptions(),
     );
     this.applyVertexComponentsCpu(components);
+    this.lastStrandComponents = new Uint32Array(components);
+    this.lastSyncedEdgeActive = new Uint32Array(edgeActive);
     this.lastBrokenEdgeCount = 0;
     this.lastConnectivitySignature = this.connectivitySignature(edgeActive, components);
   }
@@ -4128,38 +4218,147 @@ export class InextensibleFlagSimulation {
     const edgeBuffer = await this.renderer.getArrayBufferAsync(edgeAttr);
     const { edgeActive, components } = this.syncClothConnectivityFromEdgeState(new Uint32Array(edgeBuffer));
     this.lastSyncedEdgeActive = edgeActive;
+    this.lastStrandComponents = components;
     const brokenEdgeCount = countBrokenEdges(edgeActive);
+    let visibleIndices: Uint32Array | undefined;
+    let visibleSimGridCoords = this.clothSimGridCoords;
 
     if (!this.particleRenderBaseIndices && this.simEdgeLookup) {
       const visible = this.rebuildVisibleClothMesh(edgeActive, brokenEdgeCount, components);
+      visibleIndices = visible.indices;
+      visibleSimGridCoords = visible.simGridCoords;
       this.refreshStrandDressTrianglesFromVisible(visible.indices, visible.simGridCoords);
     }
 
+    const dress = this.strandDressCpuCache;
+    if (!dress) {
+      return null;
+    }
+
+    const positionAttr = this.vertexPositionBuffer.value as StorageInstancedBufferAttribute;
+    const positionBuffer = await this.renderer.getArrayBufferAsync(positionAttr);
+    const positionArray = new Float32Array(positionBuffer);
+    const vertexPositions = Array.from({ length: this.clothVertices.length }, (_, vertexId) => {
+      const base = vertexId * 3;
+      return {
+        x: positionArray[base] ?? 0,
+        y: positionArray[base + 1] ?? 0,
+        z: positionArray[base + 2] ?? 0,
+      };
+    });
+    const restAttr = this.springRestLengthBuffer.value as StorageInstancedBufferAttribute;
+    const springRestLengths = new Float32Array(await this.renderer.getArrayBufferAsync(restAttr));
+    const paramsAttr = this.vertexParamsBuffer.value as StorageInstancedBufferAttribute;
+    const vertexParams = new Uint32Array(await this.renderer.getArrayBufferAsync(paramsAttr));
+    const isVertexFixed = (vertexId: number) => (vertexParams[vertexId * 3] ?? 0) === 1;
+    this.lastStrandComponents = components;
+    this.lastSyncedEdgeActive = edgeActive;
+    this.applyVertexComponentsCpu(components);
     await this.waitForFrame();
     this.runStrandThreadGpu();
     await this.waitForFrame();
+
+    const tornAdjacentEdgeIds = collectTornAdjacentActiveEdgeIds(dress, edgeActive);
+    const tornAdjacentStructural = this.structuralGraphEdges
+      .filter(
+        (edge) =>
+          edgeActive[edge.id] === 1 &&
+          components[edge.v0] === components[edge.v1] &&
+          tornAdjacentEdgeIds.includes(edge.id),
+      )
+      .map((edge) => edge.id);
     const renderedEdgeIds = await this.readGpuStrandVisibleEdgeIds();
+    const gpuCovered = await this.readGpuStrandCoveredEdgeIds();
+    const edgeVisualAttr = this.edgeVisualBuffer.value as StorageInstancedBufferAttribute;
+    const edgeVisual = new Uint32Array(await this.renderer.getArrayBufferAsync(edgeVisualAttr));
+    const auditPositionBuffer = new Float32Array(
+      await this.renderer.getArrayBufferAsync(positionAttr),
+    );
+    const auditPositions = Array.from({ length: this.clothVertices.length }, (_, vertexId) => {
+      const base = vertexId * 3;
+      return {
+        x: auditPositionBuffer[base] ?? 0,
+        y: auditPositionBuffer[base + 1] ?? 0,
+        z: auditPositionBuffer[base + 2] ?? 0,
+      };
+    });
+    const cpuCovered = computeStrandEdgeCoverageCpu(dress, edgeVisual, {
+      components,
+      vertexPositions: auditPositions,
+      springRestLengths,
+      structuralEdges: this.structuralGraphEdges,
+    });
+    const coverageMismatchEdgeIds: number[] = [];
+    for (const edge of this.structuralGraphEdges) {
+      if (cpuCovered.has(edge.id) !== gpuCovered.has(edge.id)) {
+        coverageMismatchEdgeIds.push(edge.id);
+      }
+    }
+    let required: number[];
+    let missingEdgeIds: number[];
+    let extraEdgeIds: number[];
 
-    const dress = this.strandDressCpuCache;
-    const required = dress
-      ? mirrorGpuStrandRequiredEdgeIds(
-          this.structuralGraphEdges,
-          edgeActive,
-          (vertexId) => this.clothVertices[vertexId]?.isFixed ?? true,
-          dress,
-        )
-      : [];
+    if (this.particleRenderBaseIndices && this.particleRenderTriangleEdgeIds && this.clothSimGridCoords) {
+      required = collectAssemblyStrandThreadEdgeIds(
+        this.structuralGraphEdges,
+        edgeActive,
+        isVertexFixed,
+        {
+          baseIndices: this.particleRenderBaseIndices,
+          triangleEdgeIds: this.particleRenderTriangleEdgeIds,
+          simGridCoordArray: this.clothSimGridCoords,
+          components,
+        },
+      );
+      const requiredSet = new Set(required);
+      const renderedSet = new Set(renderedEdgeIds);
+      missingEdgeIds = required.filter((edgeId) => !renderedSet.has(edgeId));
+      extraEdgeIds = renderedEdgeIds.filter((edgeId) => !requiredSet.has(edgeId));
+    } else {
+      required = mirrorGpuStrandRequiredEdgeIds(
+        this.structuralGraphEdges,
+        edgeActive,
+        (vertexId) => this.clothVertices[vertexId]?.isFixed ?? true,
+        dress,
+        {
+          components,
+          vertexPositions,
+          springRestLengths,
+        },
+      );
+      const requiredSet = new Set(required);
+      const renderedSet = new Set(renderedEdgeIds);
+      missingEdgeIds = required.filter((edgeId) => !renderedSet.has(edgeId));
+      extraEdgeIds = renderedEdgeIds.filter((edgeId) => !requiredSet.has(edgeId));
+    }
 
-    const requiredSet = new Set(required);
     const renderedSet = new Set(renderedEdgeIds);
+    const tornAdjacentVisible = tornAdjacentStructural.filter((edgeId) => renderedSet.has(edgeId));
     return {
       frameCount: this.frameCount,
       brokenEdgeCount,
       requiredCount: required.length,
       renderedCount: renderedEdgeIds.length,
-      missingEdgeIds: required.filter((edgeId) => !renderedSet.has(edgeId)),
-      extraEdgeIds: renderedEdgeIds.filter((edgeId) => !requiredSet.has(edgeId)),
+      missingEdgeIds,
+      extraEdgeIds,
+      tornAdjacentCount: tornAdjacentStructural.length,
+      tornAdjacentVisibleCount: tornAdjacentVisible.length,
+      tornAdjacentMissingEdgeIds: tornAdjacentStructural.filter((edgeId) => !renderedSet.has(edgeId)),
+      coverageMismatchEdgeIds,
     };
+  }
+
+  private async readGpuStrandCoveredEdgeIds(): Promise<Set<number>> {
+    const coveredAttr = this.edgeCoveredBuffer.value as StorageInstancedBufferAttribute;
+    const buffer = await this.renderer.getArrayBufferAsync(coveredAttr);
+    const flags = new Uint32Array(buffer);
+    const covered = new Set<number>();
+    for (let edgeId = 0; edgeId < flags.length; edgeId += 1) {
+      if (flags[edgeId] === 1) {
+        covered.add(edgeId);
+      }
+    }
+    return covered;
   }
 
   private async readGpuStrandVisibleEdgeIds(): Promise<number[]> {
@@ -4198,6 +4397,7 @@ export class InextensibleFlagSimulation {
       this.strandDressTriSimV0Buffer = null;
       this.strandDressTriSimV1Buffer = null;
       this.strandDressTriSimV2Buffer = null;
+      this.strandDressTriRenderableBuffer = null;
       this.strandThreadGpuPasses = null;
       return;
     }
@@ -4208,7 +4408,53 @@ export class InextensibleFlagSimulation {
     this.strandDressTriSimV0Buffer = instancedArray(dress.triSimV0, 'uint');
     this.strandDressTriSimV1Buffer = instancedArray(dress.triSimV1, 'uint');
     this.strandDressTriSimV2Buffer = instancedArray(dress.triSimV2, 'uint');
+    this.strandDressTriRenderableBuffer = instancedArray(new Uint32Array(dress.triCount), 'uint');
     this.rebuildStrandThreadGpuPasses();
+    this.rebuildTopologyGapBreakGpuPasses();
+  }
+
+  private rebuildTopologyGapBreakGpuPasses(): void {
+    if (!this.particleRenderBaseIndices) {
+      this.topologyGapBreakGpuPasses = null;
+      this.breakCrossComponentActiveEdges = null;
+      return;
+    }
+
+    const edgeCount = Math.max(this.clothEdges.length, 1);
+    this.breakCrossComponentActiveEdges = createBreakCrossComponentEdgesCompute({
+      edgeCount,
+      edgeActiveBuffer: this.edgeActiveBuffer,
+      edgeKindBuffer: this.edgeKindBuffer,
+      vertexComponentBuffer: this.vertexComponentBuffer,
+      springVertexIdBuffer: this.springVertexIdBuffer,
+      vertexParamsBuffer: this.vertexParamsBuffer,
+    });
+
+    if (
+      this.strandDressTriangleCount === 0 ||
+      !this.strandDressTriEdge0Buffer ||
+      !this.strandDressTriEdge1Buffer ||
+      !this.strandDressTriEdge2Buffer
+    ) {
+      this.topologyGapBreakGpuPasses = null;
+      return;
+    }
+
+    this.topologyGapBreakGpuPasses = createTopologyGapBreakCompute({
+      edgeCount,
+      dressTriangleCount: this.strandDressTriangleCount,
+      edgeActiveBuffer: this.edgeActiveBuffer,
+      edgeKindBuffer: this.edgeKindBuffer,
+      vertexParamsBuffer: this.vertexParamsBuffer,
+      vertexPositionBuffer: this.vertexPositionBuffer,
+      springVertexIdBuffer: this.springVertexIdBuffer,
+      springRestLengthBuffer: this.springRestLengthBuffer,
+      dressTriEdge0Buffer: this.strandDressTriEdge0Buffer,
+      dressTriEdge1Buffer: this.strandDressTriEdge1Buffer,
+      dressTriEdge2Buffer: this.strandDressTriEdge2Buffer,
+      topologyGapBreakRatio: this.topologyGapBreakRatioUniform,
+      tornRimGapBreakRatio: this.tornRimGapBreakRatioUniform,
+    });
   }
 
   private setupStrandDressTrianglesFromSimGrid(): void {
@@ -4263,7 +4509,8 @@ export class InextensibleFlagSimulation {
       !this.strandDressTriEdge2Buffer ||
       !this.strandDressTriSimV0Buffer ||
       !this.strandDressTriSimV1Buffer ||
-      !this.strandDressTriSimV2Buffer
+      !this.strandDressTriSimV2Buffer ||
+      !this.strandDressTriRenderableBuffer
     ) {
       this.strandThreadGpuPasses = null;
       return;
@@ -4278,14 +4525,265 @@ export class InextensibleFlagSimulation {
       strandEdgeVisibleBuffer: this.strandEdgeVisibleBuffer,
       vertexComponentBuffer: this.vertexComponentBuffer,
       vertexParamsBuffer: this.vertexParamsBuffer,
+      vertexPositionBuffer: this.vertexPositionBuffer,
       springVertexIdBuffer: this.springVertexIdBuffer,
+      springRestLengthBuffer: this.springRestLengthBuffer,
       dressTriEdge0Buffer: this.strandDressTriEdge0Buffer,
       dressTriEdge1Buffer: this.strandDressTriEdge1Buffer,
       dressTriEdge2Buffer: this.strandDressTriEdge2Buffer,
       dressTriSimV0Buffer: this.strandDressTriSimV0Buffer,
       dressTriSimV1Buffer: this.strandDressTriSimV1Buffer,
       dressTriSimV2Buffer: this.strandDressTriSimV2Buffer,
+      dressTriRenderableBuffer: this.strandDressTriRenderableBuffer,
     });
+  }
+
+  private async refreshAssemblyBrokenEdgeCountFromGpu(): Promise<void> {
+    if (!this.isReady || !this.particleRenderBaseIndices || this.assemblyBrokenEdgeCountSyncPending) {
+      return;
+    }
+
+    this.assemblyBrokenEdgeCountSyncPending = true;
+    try {
+      const edgeAttr = this.edgeActiveBuffer.value as StorageInstancedBufferAttribute;
+      const buffer = await this.renderer.getArrayBufferAsync(edgeAttr);
+      this.lastBrokenEdgeCount = countBrokenEdges(new Uint32Array(buffer));
+    } finally {
+      this.assemblyBrokenEdgeCountSyncPending = false;
+    }
+  }
+
+  private scheduleAssemblyConnectivitySync(): void {
+    if (!this.particleRenderBaseIndices || this.strandConnectivitySyncPending) {
+      return;
+    }
+
+    const refreshInterval =
+      this.lastBrokenEdgeCount > 0 ? this.activeClothTopologyRefreshInterval : 24;
+    if (this.frameCount % refreshInterval !== 0) {
+      return;
+    }
+
+    this.strandConnectivitySyncPending = true;
+    void this.syncAssemblyConnectivityForGpu();
+  }
+
+  private async syncAssemblyConnectivityForGpu(): Promise<void> {
+    try {
+      if (!this.isReady) {
+        return;
+      }
+
+      const edgeAttr = this.edgeActiveBuffer.value as StorageInstancedBufferAttribute;
+      const buffer = await this.renderer.getArrayBufferAsync(edgeAttr);
+      const gpuEdgeActive = new Uint32Array(buffer);
+      const { edgeActive, components } = this.syncClothConnectivityFromEdgeState(gpuEdgeActive);
+      if (countBrokenEdges(gpuEdgeActive) > 0) {
+        let connectivitySevered = false;
+        for (let i = 0; i < edgeActive.length; i += 1) {
+          if (edgeActive[i] !== gpuEdgeActive[i]) {
+            connectivitySevered = true;
+            break;
+          }
+        }
+        if (connectivitySevered) {
+          this.applyEdgeActiveStateCpu(edgeActive);
+        }
+      }
+      this.applyVertexComponentsCpu(components);
+      this.lastSyncedEdgeActive = edgeActive;
+      this.lastStrandComponents = components;
+      this.lastBrokenEdgeCount = countBrokenEdges(edgeActive);
+      this.lastConnectivitySignature = this.connectivitySignature(edgeActive, components);
+    } finally {
+      this.strandConnectivitySyncPending = false;
+    }
+  }
+
+  auditPatchMaterialScalars(): Record<string, {
+    readonly vertexCount: number;
+    readonly dampeningScale: number;
+    readonly bendScale: number;
+    readonly tearThresholdScale: number;
+    readonly structuralScale: number;
+    readonly compressionScale: number;
+  }> | null {
+    const assembly = this.activeAssembly;
+    const resolveKey = this.assemblyTopologyOptions.resolvePatchMaterialKey;
+    if (!assembly || this.topologyMode !== 'assembly' || !resolveKey) {
+      return null;
+    }
+
+    const buckets = new Map<string, {
+      vertexCount: number;
+      dampeningScale: number;
+      bendScale: number;
+      tearThresholdScale: number;
+      structuralScale: number;
+      compressionScale: number;
+    }>();
+
+    for (const vertex of assembly.vertices) {
+      const patchKey = resolveKey(vertex.patchId);
+      const particleId = this.assemblyRenderVertexSimIds[vertex.id] ?? vertex.id;
+      const particle = this.clothVertices[particleId];
+      if (!particle) {
+        continue;
+      }
+
+      const bucket = buckets.get(patchKey) ?? {
+        vertexCount: 0,
+        dampeningScale: 0,
+        bendScale: 0,
+        tearThresholdScale: 0,
+        structuralScale: 0,
+        compressionScale: 0,
+      };
+      bucket.vertexCount += 1;
+      bucket.dampeningScale = Math.max(bucket.dampeningScale, particle.dampeningScale);
+      bucket.bendScale = Math.max(bucket.bendScale, particle.bendScale);
+      bucket.tearThresholdScale = Math.max(bucket.tearThresholdScale, particle.tearThresholdScale);
+      bucket.structuralScale = Math.max(bucket.structuralScale, particle.structuralScale);
+      bucket.compressionScale = Math.max(bucket.compressionScale, particle.compressionScale);
+      buckets.set(patchKey, bucket);
+    }
+
+    return Object.fromEntries(buckets);
+  }
+
+  getParticleRenderEdgeKindAudit(): {
+    hasEdgeKindBuffer: boolean;
+    shearEdgeCount: number;
+  } | null {
+    if (!this.isReady) {
+      return null;
+    }
+
+    return {
+      hasEdgeKindBuffer: Boolean(this.edgeKindBuffer),
+      shearEdgeCount: this.clothEdges.filter((edge) => edge.kind === 'shear').length,
+    };
+  }
+
+  async auditAssemblyConnectivity(): Promise<{
+    frameCount: number;
+    brokenEdgeCount: number;
+    connectedComponentCount: number;
+    hangingDangleSeparatedFromBanner: boolean;
+  } | null> {
+    if (!this.isReady || !this.particleRenderBaseIndices) {
+      return null;
+    }
+
+    const edgeAttr = this.edgeActiveBuffer.value as StorageInstancedBufferAttribute;
+    const buffer = await this.renderer.getArrayBufferAsync(edgeAttr);
+    const { edgeActive, components } = this.syncClothConnectivityFromEdgeState(new Uint32Array(buffer));
+    const brokenEdgeCount = countBrokenEdges(edgeActive);
+    const connectedComponentCount = countConnectedComponents(components);
+
+    const bannerHoistComponents = new Set<number>();
+    const hangingDangleComponents = new Set<number>();
+    const assemblyVertices = this.activeAssembly?.vertices;
+    if (assemblyVertices) {
+      const hoistY = (this.assemblyTopologyOptions.pinVertexYAtOrAbove ?? this.flagHoistTopY) - 1e-4;
+      let lowestDangleY = Number.POSITIVE_INFINITY;
+      for (const vertex of assemblyVertices) {
+        if (vertex.patchId.includes('dangle')) {
+          lowestDangleY = Math.min(lowestDangleY, vertex.position[1]);
+        }
+      }
+      const hangingCutoff = lowestDangleY + (this.clothHeight > 0 ? this.clothHeight * 0.35 : 0.2);
+
+      for (const vertex of assemblyVertices) {
+        const component = components[vertex.id] ?? vertex.id;
+        if (vertex.patchId.startsWith('banner-') && vertex.position[1] >= hoistY) {
+          bannerHoistComponents.add(component);
+        }
+        if (vertex.patchId.includes('dangle') && vertex.position[1] <= hangingCutoff) {
+          hangingDangleComponents.add(component);
+        }
+      }
+    }
+
+    const hangingDangleSeparatedFromBanner =
+      bannerHoistComponents.size > 0 &&
+      hangingDangleComponents.size > 0 &&
+      [...hangingDangleComponents].some((component) => !bannerHoistComponents.has(component));
+
+    return {
+      frameCount: this.frameCount,
+      brokenEdgeCount,
+      connectedComponentCount,
+      hangingDangleSeparatedFromBanner,
+    };
+  }
+
+  private applyAssemblyStrandCoverageCpu(options?: {
+    edgeActive?: Uint32Array;
+    components?: Uint32Array;
+    vertexPositions?: readonly { readonly x: number; readonly y: number; readonly z: number }[];
+    springRestLengths?: Float32Array;
+  }): boolean {
+    const dress = this.strandDressCpuCache;
+    if (!this.particleRenderBaseIndices || !dress) {
+      return false;
+    }
+
+    const components =
+      options?.components ??
+      this.lastStrandComponents ??
+      new Uint32Array(
+        (this.vertexComponentBuffer.value as StorageInstancedBufferAttribute).array as Uint32Array,
+      );
+
+    const edgeActive =
+      options?.edgeActive ??
+      this.lastSyncedEdgeActive ??
+      new Uint32Array((this.edgeActiveBuffer.value as StorageInstancedBufferAttribute).array as Uint32Array);
+    const covered = computeStrandEdgeCoverageCpu(dress, edgeActive, {
+      components,
+      vertexPositions: options?.vertexPositions,
+      springRestLengths: options?.springRestLengths,
+      structuralEdges: this.structuralGraphEdges,
+    });
+
+    const coveredAttr = this.edgeCoveredBuffer.value as StorageInstancedBufferAttribute;
+    const coveredArray = coveredAttr.array as Uint32Array;
+    coveredArray.fill(0);
+    for (const edgeId of covered) {
+      coveredArray[edgeId] = 1;
+    }
+    coveredAttr.needsUpdate = true;
+    return true;
+  }
+
+  private uncoverSingleLinkStrandEdgesCpu(edgeActiveOverride?: Uint32Array): void {
+    if (!this.simEdgeLookup || this.particleRenderBaseIndices) {
+      return;
+    }
+
+    const edgeActive =
+      edgeActiveOverride ??
+      this.lastSyncedEdgeActive ??
+      new Uint32Array((this.edgeActiveBuffer.value as StorageInstancedBufferAttribute).array as Uint32Array);
+    const coveredAttr = this.edgeCoveredBuffer.value as StorageInstancedBufferAttribute;
+    const coveredArray = coveredAttr.array as Uint32Array;
+    let changed = false;
+
+    for (const edgeId of collectSingleNeighborCellEdgeIds(
+      this.simEdgeLookup,
+      edgeActive,
+      (gridX, gridY) => this.isSimVertexFixed(gridX, gridY),
+    )) {
+      if (coveredArray[edgeId] !== 0) {
+        coveredArray[edgeId] = 0;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      coveredAttr.needsUpdate = true;
+    }
   }
 
   private runStrandThreadGpu(): void {
@@ -4298,8 +4796,12 @@ export class InextensibleFlagSimulation {
       return;
     }
 
+    this.renderer.compute(this.strandThreadGpuPasses.updateDressTriRenderable);
     this.renderer.compute(this.strandThreadGpuPasses.clearEdgeCovered);
     this.renderer.compute(this.strandThreadGpuPasses.markEdgeCovered);
+    this.renderer.compute(this.strandThreadGpuPasses.clearTornAdjacencyCoverage);
+    this.renderer.compute(this.strandThreadGpuPasses.clearSpanGapCoverage);
+    this.uncoverSingleLinkStrandEdgesCpu();
     this.renderer.compute(this.strandThreadGpuPasses.updateStrandVisibility);
   }
 
@@ -4325,6 +4827,8 @@ export class InextensibleFlagSimulation {
       springVertexIdBuffer: this.springVertexIdBuffer,
       vertexPositionBuffer: this.vertexPositionBuffer,
       strandEdgeVisibleBuffer: this.strandEdgeVisibleBuffer,
+      edgeSegmentIdBuffer: this.clothSegmentCount > 0 ? this.edgeSegmentIdBuffer : undefined,
+      segmentScalars1Buffer: this.clothSegmentCount > 0 ? this.segmentScalars1Buffer : undefined,
       maxCount: edgeCount,
       radius: this.strandThreadRadiusUniform,
       color: new THREE.Color(this.settings.flagColor),
@@ -5697,7 +6201,11 @@ export class InextensibleFlagSimulation {
       particleSurfacePositions: this.topologyMode === 'assembly',
       particleGpuEdgeCull:
         this.topologyMode === 'assembly'
-          ? { edgeActiveBuffer: this.edgeVisualBuffer }
+          ? {
+              edgeActiveBuffer: this.edgeVisualBuffer,
+              edgeKindBuffer: this.edgeKindBuffer,
+              vertexComponentBuffer: this.vertexComponentBuffer,
+            }
           : undefined,
       ...(this.clothSegmentCount > 0
         ? {
@@ -5816,13 +6324,8 @@ export class InextensibleFlagSimulation {
     geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(vertexCount * 3), 3));
     geometry.setAttribute('simGridCoord', new THREE.BufferAttribute(gpuSurface.simGridCoords, 2));
     geometry.setAttribute('uv', new THREE.BufferAttribute(gpuSurface.fabricUvs, 2));
-    geometry.setAttribute('fabricUv', new THREE.BufferAttribute(gpuSurface.fabricUvs, 2));
-    geometry.setAttribute('particleTriEdge0', new THREE.BufferAttribute(gpuSurface.particleTriEdge0, 1));
-    geometry.setAttribute('particleTriEdge1', new THREE.BufferAttribute(gpuSurface.particleTriEdge1, 1));
-    geometry.setAttribute('particleTriEdge2', new THREE.BufferAttribute(gpuSurface.particleTriEdge2, 1));
-    geometry.setAttribute('particleTriSimV0', new THREE.BufferAttribute(gpuSurface.particleTriSimV0, 1));
-    geometry.setAttribute('particleTriSimV1', new THREE.BufferAttribute(gpuSurface.particleTriSimV1, 1));
-    geometry.setAttribute('particleTriSimV2', new THREE.BufferAttribute(gpuSurface.particleTriSimV2, 1));
+    geometry.setAttribute('particleTriEdges', new THREE.BufferAttribute(gpuSurface.particleTriEdges, 3));
+    geometry.setAttribute('particleTriSimVerts', new THREE.BufferAttribute(gpuSurface.particleTriSimVerts, 3));
     geometry.setAttribute('particleBary', new THREE.BufferAttribute(gpuSurface.particleBary, 3));
     if (renderSurface.renderSegmentIds) {
       geometry.setAttribute('renderSegmentId', new THREE.BufferAttribute(gpuSurface.renderSegmentId, 1));

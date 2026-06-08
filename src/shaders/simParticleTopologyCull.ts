@@ -25,9 +25,10 @@ export function createSimParticleEdgeCull(options: SimParticleEdgeCullOptions) {
   });
 
   const computeTriangleBroken = Fn(() => {
-    const e0 = attribute('particleTriEdge0');
-    const e1 = attribute('particleTriEdge1');
-    const e2 = attribute('particleTriEdge2');
+    const triEdges = attribute('particleTriEdges');
+    const e0 = triEdges.x;
+    const e1 = triEdges.y;
+    const e2 = triEdges.z;
     return isEdgeBroken(e0).or(isEdgeBroken(e1)).or(isEdgeBroken(e2));
   });
 

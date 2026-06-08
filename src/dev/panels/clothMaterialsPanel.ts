@@ -1,8 +1,10 @@
+import type GUI from 'lil-gui';
 import {
   deleteClothMaterial,
   fetchClothMaterialLibrary,
   upsertClothMaterial,
 } from '../../cloth/clothMaterialsLibrary.ts';
+import { MULTI_MATERIAL_LIBRARY_PATCH_BINDINGS } from '../../cloth/clothMaterialBend.ts';
 import {
   createClothMaterialDefinition,
   duplicateClothMaterial,
@@ -11,6 +13,13 @@ import {
 } from '../../cloth/clothMaterialSchema.ts';
 import { getMyPresetSettings } from '../../cloth/myPresetDefaults.ts';
 import { createDockedGui, type DevPanelDefinition } from '../DevMenuShell.ts';
+import type {
+  ClothMaterialEditorField,
+  ClothMaterialEditorState,
+  ClothMaterialsPanelApi,
+} from './clothMaterialsPanelApi.ts';
+
+type GuiController = ReturnType<GUI['add']>;
 
 export interface ClothMaterialsPanelOptions {
   readonly id?: string;
@@ -19,25 +28,51 @@ export interface ClothMaterialsPanelOptions {
   readonly side?: 'left' | 'right';
   readonly defaultOpen?: boolean;
   readonly library: ClothMaterialLibrary;
+  readonly defaultMaterialName?: string;
   readonly onMaterialsChanged?: (library: ClothMaterialLibrary) => void | Promise<void>;
+  readonly onPanelReady?: (api: ClothMaterialsPanelApi) => void;
   /** Apply the current editor fields to the running sim without persisting. */
   readonly onPreviewMaterial?: (
     materialId: string,
     draft: {
+      readonly color: string;
       readonly dampening: number;
       readonly bendStiffness: number;
       readonly tearStretchThreshold: number;
       readonly tearThresholdScale: number;
+      readonly structuralScale: number;
       readonly bendScale: number;
+      readonly compressionScale: number;
     },
   ) => void | Promise<void>;
+}
+
+function resolveDefaultMaterialId(
+  library: ClothMaterialLibrary,
+  preferredName?: string,
+): string {
+  const preferred = preferredName
+    ? library.materials.find((entry) => entry.name === preferredName)
+    : undefined;
+  if (preferred) {
+    return preferred.id;
+  }
+
+  for (const binding of MULTI_MATERIAL_LIBRARY_PATCH_BINDINGS) {
+    const material = library.materials.find((entry) => entry.name === binding.libraryMaterialName);
+    if (material) {
+      return material.id;
+    }
+  }
+
+  return library.materials[0]?.id ?? '';
 }
 
 export function createClothMaterialsPanelDefinition(
   options: ClothMaterialsPanelOptions,
 ): DevPanelDefinition {
   let library = options.library;
-  let activeMaterialId = library.materials[0]?.id ?? '';
+  let activeMaterialId = resolveDefaultMaterialId(library, options.defaultMaterialName);
   const libraryState = { materialId: activeMaterialId };
 
   return {
@@ -68,75 +103,131 @@ export function createClothMaterialsPanelDefinition(
         maxHealth: 1,
       };
 
-      let materialController: ReturnType<typeof panelGui.add> | null = null;
+      const controllers: Partial<Record<ClothMaterialEditorField, GuiController>> = {};
+      let materialController: GuiController | null = null;
+
+      const setControllerValue = (field: ClothMaterialEditorField, value: string | number): void => {
+        const controller = controllers[field];
+        if (!controller) {
+          return;
+        }
+        controller.setValue(value);
+        controller.updateDisplay();
+      };
 
       const syncEditors = (): void => {
         const material = library.materials.find((entry) => entry.id === activeMaterialId);
         if (!material) {
           return;
         }
-        editor.name = material.name;
-        editor.color = material.color;
-        editor.dampening = material.settings.dampening ?? editor.dampening;
-        editor.bendStiffness = material.settings.bendStiffness ?? editor.bendStiffness;
-        editor.tearStretchThreshold = material.settings.tearStretchThreshold ?? editor.tearStretchThreshold;
-        editor.tearThresholdScale = material.physics.tearThresholdScale;
-        editor.structuralScale = material.physics.structuralScale;
-        editor.bendScale = material.physics.bendScale;
-        editor.compressionScale = material.physics.compressionScale;
-        editor.friction = material.physics.friction;
-        editor.damageRate = material.physics.damageRate;
-        editor.maxHealth = material.physics.maxHealth;
-        panelGui.controllersRecursive().forEach((controller) => controller.updateDisplay());
-      };
 
-      const refreshMaterialList = (): void => {
-        materialController?.destroy();
-        const names = Object.fromEntries(library.materials.map((entry) => [entry.id, entry.name]));
-        materialController = panelGui.add(libraryState, 'materialId', names).name('Material');
-        materialController.onChange(() => {
-          activeMaterialId = libraryState.materialId;
-          syncEditors();
+        const snapshot: ClothMaterialEditorState = {
+          materialId: activeMaterialId,
+          materialName: material.name,
+          name: material.name,
+          color: material.color,
+          dampening: material.settings.dampening ?? editor.dampening,
+          bendStiffness: material.settings.bendStiffness ?? editor.bendStiffness,
+          tearStretchThreshold: material.settings.tearStretchThreshold ?? editor.tearStretchThreshold,
+          tearThresholdScale: material.physics.tearThresholdScale,
+          structuralScale: material.physics.structuralScale,
+          bendScale: material.physics.bendScale,
+          compressionScale: material.physics.compressionScale,
+          friction: material.physics.friction,
+          damageRate: material.physics.damageRate,
+          maxHealth: material.physics.maxHealth,
+        };
+
+        editor.name = snapshot.name;
+        editor.color = snapshot.color;
+        editor.dampening = snapshot.dampening;
+        editor.bendStiffness = snapshot.bendStiffness;
+        editor.tearStretchThreshold = snapshot.tearStretchThreshold;
+        editor.tearThresholdScale = snapshot.tearThresholdScale;
+        editor.structuralScale = snapshot.structuralScale;
+        editor.bendScale = snapshot.bendScale;
+        editor.compressionScale = snapshot.compressionScale;
+        editor.friction = snapshot.friction;
+        editor.damageRate = snapshot.damageRate;
+        editor.maxHealth = snapshot.maxHealth;
+
+        (Object.keys(controllers) as ClothMaterialEditorField[]).forEach((field) => {
+          setControllerValue(field, snapshot[field]);
         });
       };
 
-      refreshMaterialList();
-      syncEditors();
-
-      panelGui.add(editor, 'name').name('Name');
-      panelGui.addColor(editor, 'color').name('Color');
+      const refreshMaterialList = (): void => {
+        const names = Object.fromEntries(library.materials.map((entry) => [entry.id, entry.name]));
+        libraryState.materialId = activeMaterialId;
+        if (!materialController) {
+          materialController = panelGui.add(libraryState, 'materialId', names).name('Material');
+          materialController.onChange(() => {
+            activeMaterialId = libraryState.materialId;
+            syncEditors();
+          });
+          return;
+        }
+        materialController.options(names);
+        materialController.setValue(activeMaterialId);
+        materialController.updateDisplay();
+      };
 
       const previewMaterial = (): void => {
         void options.onPreviewMaterial?.(activeMaterialId, {
+          color: editor.color,
           dampening: editor.dampening,
           bendStiffness: editor.bendStiffness,
           tearStretchThreshold: editor.tearStretchThreshold,
           tearThresholdScale: editor.tearThresholdScale,
+          structuralScale: editor.structuralScale,
           bendScale: editor.bendScale,
+          compressionScale: editor.compressionScale,
         });
       };
 
+      refreshMaterialList();
+
+      controllers.name = panelGui.add(editor, 'name').name('Name');
+      controllers.color = panelGui.addColor(editor, 'color').name('Color').onChange(previewMaterial);
+
       const solverFolder = panelGui.addFolder('Solver');
-      solverFolder.add(editor, 'dampening', 0.9, 0.9999, 0.0001).name('Dampening').onChange(previewMaterial);
-      solverFolder.add(editor, 'bendStiffness', 0, 0.2, 0.0005).name('Bend stiffness').onChange(previewMaterial);
-      solverFolder
+      controllers.dampening = solverFolder
+        .add(editor, 'dampening', 0.9, 0.9999, 0.0001)
+        .name('Dampening')
+        .onChange(previewMaterial);
+      controllers.bendStiffness = solverFolder
+        .add(editor, 'bendStiffness', 0, 0.2, 0.0005)
+        .name('Bend stiffness')
+        .onChange(previewMaterial);
+      controllers.tearStretchThreshold = solverFolder
         .add(editor, 'tearStretchThreshold', 0.5, 20, 0.05)
         .name('Tear strain ratio')
         .onChange(previewMaterial);
       solverFolder.open();
 
       const physicsFolder = panelGui.addFolder('Physics multipliers');
-      physicsFolder
+      controllers.tearThresholdScale = physicsFolder
         .add(editor, 'tearThresholdScale', 0.05, 4, 0.05)
         .name('Tear scale')
         .onChange(previewMaterial);
-      physicsFolder.add(editor, 'structuralScale', 0.05, 4, 0.05).name('Structural scale');
-      physicsFolder.add(editor, 'bendScale', 0.05, 4, 0.05).name('Bend scale').onChange(previewMaterial);
-      physicsFolder.add(editor, 'compressionScale', 0.05, 4, 0.05).name('Compression scale');
-      physicsFolder.add(editor, 'friction', 0, 1, 0.01).name('Friction');
-      physicsFolder.add(editor, 'damageRate', 0.05, 4, 0.05).name('Damage rate');
-      physicsFolder.add(editor, 'maxHealth', 0.05, 4, 0.05).name('Max health');
+      controllers.structuralScale = physicsFolder
+        .add(editor, 'structuralScale', 0.05, 4, 0.05)
+        .name('Structural scale')
+        .onChange(previewMaterial);
+      controllers.bendScale = physicsFolder
+        .add(editor, 'bendScale', 0.05, 4, 0.05)
+        .name('Bend scale')
+        .onChange(previewMaterial);
+      controllers.compressionScale = physicsFolder
+        .add(editor, 'compressionScale', 0.05, 4, 0.05)
+        .name('Compression scale')
+        .onChange(previewMaterial);
+      controllers.friction = physicsFolder.add(editor, 'friction', 0, 1, 0.01).name('Friction');
+      controllers.damageRate = physicsFolder.add(editor, 'damageRate', 0.05, 4, 0.05).name('Damage rate');
+      controllers.maxHealth = physicsFolder.add(editor, 'maxHealth', 0.05, 4, 0.05).name('Max health');
       physicsFolder.open();
+
+      syncEditors();
 
       const persistMaterial = async (): Promise<void> => {
         const existing = library.materials.find((entry) => entry.id === activeMaterialId);
@@ -171,7 +262,61 @@ export function createClothMaterialsPanelDefinition(
         await options.onMaterialsChanged?.(library);
         refreshMaterialList();
         syncEditors();
+        previewMaterial();
       };
+
+      const panelApi: ClothMaterialsPanelApi = {
+        getEditorState: () => {
+          const material = library.materials.find((entry) => entry.id === activeMaterialId);
+          return {
+            materialId: activeMaterialId,
+            materialName: material?.name ?? '',
+            name: editor.name,
+            color: editor.color,
+            dampening: editor.dampening,
+            bendStiffness: editor.bendStiffness,
+            tearStretchThreshold: editor.tearStretchThreshold,
+            tearThresholdScale: editor.tearThresholdScale,
+            structuralScale: editor.structuralScale,
+            bendScale: editor.bendScale,
+            compressionScale: editor.compressionScale,
+            friction: editor.friction,
+            damageRate: editor.damageRate,
+            maxHealth: editor.maxHealth,
+          };
+        },
+        selectMaterialByName: (name) => {
+          const material = library.materials.find((entry) => entry.name === name);
+          if (!material) {
+            return false;
+          }
+          activeMaterialId = material.id;
+          libraryState.materialId = material.id;
+          materialController?.updateDisplay();
+          syncEditors();
+          return true;
+        },
+        selectMaterialById: (id) => {
+          const material = library.materials.find((entry) => entry.id === id);
+          if (!material) {
+            return false;
+          }
+          activeMaterialId = material.id;
+          libraryState.materialId = material.id;
+          materialController?.updateDisplay();
+          syncEditors();
+          return true;
+        },
+        setEditorField: (field, value) => {
+          (editor as Record<string, string | number>)[field] = value;
+          setControllerValue(field, value);
+          previewMaterial();
+        },
+        previewActiveMaterial: previewMaterial,
+        saveActiveMaterial: persistMaterial,
+      };
+
+      options.onPanelReady?.(panelApi);
 
       panelGui.add({ save: persistMaterial }, 'save').name('Save material');
       panelGui.add({

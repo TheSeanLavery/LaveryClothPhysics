@@ -47,7 +47,11 @@ export interface MatteCottonFlagMaterialOptions {
   /** Hide torn triangles on GPU via edgeVisualBuffer + particleTriEdge* attributes. */
   particleGpuEdgeCull?: {
     edgeActiveBuffer: NonNullable<MatteCottonFlagMaterialOptions['edgeActiveBuffer']>;
+    edgeKindBuffer: NonNullable<MatteCottonFlagMaterialOptions['edgeKindBuffer']>;
+    vertexComponentBuffer: NonNullable<MatteCottonFlagMaterialOptions['vertexComponentBuffer']>;
   };
+  vertexComponentBuffer?: ReturnType<typeof import('three/tsl').instancedArray>;
+  edgeKindBuffer?: ReturnType<typeof import('three/tsl').instancedArray>;
   clothSegmentCountUniform?: ReturnType<typeof uniform>;
   segmentScalars1Buffer?: ReturnType<typeof import('three/tsl').instancedArray>;
   segmentHealthBuffer?: ReturnType<typeof import('three/tsl').instancedArray>;
@@ -63,6 +67,8 @@ export interface MatteCottonFlagMaterialUniforms {
   fabricColorTint: ReturnType<typeof uniform<number>>;
   tearFringeWidth: ReturnType<typeof uniform<number>>;
   tearSdfCornerRadius: ReturnType<typeof uniform<number>>;
+  tearCenterHoleRadius: ReturnType<typeof uniform<number>>;
+  tearCornerKeepWidth: ReturnType<typeof uniform<number>>;
   showBridgeSplinters: ReturnType<typeof uniform<number>>;
 }
 
@@ -100,6 +106,8 @@ export function configureMatteCottonFlagMaterial(
     fabricColorTint: uniform(settings.fabricColorTint),
     tearFringeWidth: uniform(settings.tearFringeWidth),
     tearSdfCornerRadius: uniform(settings.tearSdfCornerRadius),
+    tearCenterHoleRadius: uniform(settings.tearCenterHoleRadius),
+    tearCornerKeepWidth: uniform(settings.tearCornerKeepWidth),
     showBridgeSplinters: uniform(settings.showBridgeSplinters ? 1 : 0),
   };
 
@@ -189,13 +197,25 @@ export function configureMatteCottonFlagMaterial(
   const tearMinDistanceVarying = tearShading ? varyingProperty('float', 'vTearMinDist') : null;
   const particleSurface = options.particleSurfacePositions === true;
   const particleEdgeCullBuffer = options.particleGpuEdgeCull?.edgeActiveBuffer;
+  const particleEdgeKindBuffer = options.particleGpuEdgeCull?.edgeKindBuffer;
+  const particleComponentBuffer = options.particleGpuEdgeCull?.vertexComponentBuffer;
 
   /** Fragment-only: vertex stage is limited to one storage buffer (vertex positions). */
-  const particleTriangleOpacity = particleEdgeCullBuffer
+  const particleTriangleOpacity = particleEdgeCullBuffer && particleEdgeKindBuffer && particleComponentBuffer
     ? Fn(() => {
-        const e0 = attribute('particleTriEdge0');
-        const e1 = attribute('particleTriEdge1');
-        const e2 = attribute('particleTriEdge2');
+        const triEdges = attribute('particleTriEdges');
+        const triSimVerts = attribute('particleTriSimVerts');
+        const e0 = triEdges.x;
+        const e1 = triEdges.y;
+        const e2 = triEdges.z;
+        const simV0 = uint(triSimVerts.x);
+        const simV1 = uint(triSimVerts.y);
+        const simV2 = uint(triSimVerts.z);
+        const component0 = particleComponentBuffer.element(simV0);
+        const component1 = particleComponentBuffer.element(simV1);
+        const component2 = particleComponentBuffer.element(simV2);
+        const sameComponent = component0.equal(component1).and(component0.equal(component2));
+        const shearKind = uint(2);
         const broken0 = e0
           .greaterThanEqual(float(0))
           .and(particleEdgeCullBuffer.element(uint(e0)).equal(uint(0)));
@@ -210,25 +230,39 @@ export function configureMatteCottonFlagMaterial(
           .add(select(broken2, uint(1), uint(0)));
         const noneBroken = brokenCount.equal(uint(0));
         const multiBroken = brokenCount.greaterThan(uint(1));
+        const singleBroken = brokenCount.equal(uint(1));
         const bary = attribute('particleBary');
-        const cornerRadius = clothUniforms.tearSdfCornerRadius.clamp(float(0), float(0.49));
-        const fringe = clothUniforms.tearFringeWidth.max(float(0.001));
-        const tearDist = select(
-          broken0,
-          bary.x,
-          select(broken1, bary.y, select(broken2, bary.z, float(1))),
+        // Assembly SDF: structural single-broken tris become visible corner flaps (floating debris).
+        const structuralSingleBrokenKeep = float(0);
+        const maxBary = max(bary.x, max(bary.y, bary.z));
+        const holeStart = clothUniforms.tearCenterHoleRadius.clamp(float(0), float(0.49));
+        const cornerStart = clothUniforms.tearCornerKeepWidth.clamp(holeStart.add(float(0.01)), float(0.99));
+        const shearRingSpan = cornerStart.sub(holeStart).max(float(0.001));
+        const shearCenterHoleKeep = maxBary.sub(holeStart).div(shearRingSpan).clamp(float(0), float(1));
+        const brokenShear = select(
+          broken0.and(particleEdgeKindBuffer.element(uint(e0)).equal(shearKind)),
+          float(1),
+          select(
+            broken1.and(particleEdgeKindBuffer.element(uint(e1)).equal(shearKind)),
+            float(1),
+            select(
+              broken2.and(particleEdgeKindBuffer.element(uint(e2)).equal(shearKind)),
+              float(1),
+              float(0),
+            ),
+          ),
         );
-        const roundedKeep = tearDist.sub(cornerRadius).div(fringe).clamp(float(0), float(1));
         const singleBrokenKeep = select(
-          cornerRadius.greaterThan(float(0)),
-          roundedKeep,
-          float(0),
+          singleBroken.and(brokenShear.greaterThan(float(0))),
+          shearCenterHoleKeep,
+          structuralSingleBrokenKeep,
         );
-        return select(
+        const tornOpacity = select(
           noneBroken,
           float(1),
           select(multiBroken, float(0), singleBrokenKeep),
         );
+        return tornOpacity.mul(select(sameComponent, float(1), float(0)));
       })()
     : null;
 
@@ -429,6 +463,8 @@ export function updateMatteCottonFlagMaterial(
   clothUniforms.fabricColorTint.value = settings.fabricColorTint;
   clothUniforms.tearFringeWidth.value = settings.tearFringeWidth;
   clothUniforms.tearSdfCornerRadius.value = settings.tearSdfCornerRadius;
+  clothUniforms.tearCenterHoleRadius.value = settings.tearCenterHoleRadius;
+  clothUniforms.tearCornerKeepWidth.value = settings.tearCornerKeepWidth;
   clothUniforms.showBridgeSplinters.value = settings.showBridgeSplinters ? 1 : 0;
 
   material.roughness = settings.roughness;

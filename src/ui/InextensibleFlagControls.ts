@@ -298,6 +298,14 @@ export function createInextensibleFlagControls(
     .add(settings, 'tearSdfCornerRadius', 0, 0.49, 0.01)
     .name('SDF hole radius')
     .onChange(sync);
+  tearingFolder
+    .add(settings, 'tearCenterHoleRadius', 0, 0.49, 0.01)
+    .name('Shear center hole')
+    .onChange(sync);
+  tearingFolder
+    .add(settings, 'tearCornerKeepWidth', 0.1, 0.99, 0.01)
+    .name('Shear corner keep')
+    .onChange(sync);
   tearingFolder.add(settings, 'showBridgeSplinters').name('Show strand bridges').onChange(sync);
   tearingFolder.add(settings, 'renderStrandThreads').name('Strand threads (visual)').onChange(sync);
   tearingFolder

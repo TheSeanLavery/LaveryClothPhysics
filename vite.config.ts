@@ -2,51 +2,70 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
 
-function characterReproRecorderPlugin(): Plugin {
+function clothFixtureSaveHandler(fixtureSubdir: string, filenamePrefix: string) {
+  return async (
+    req: import('node:http').IncomingMessage,
+    res: import('node:http').ServerResponse,
+    root: string,
+  ): Promise<void> => {
+    if (req.method !== 'POST') {
+      res.statusCode = 405;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ ok: false, error: 'Method not allowed' }));
+      return;
+    }
+
+    try {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      const raw = Buffer.concat(chunks).toString('utf8');
+      const parsed = JSON.parse(raw) as unknown;
+      const fixtureDir = path.resolve(root, 'tests/fixtures', fixtureSubdir);
+      const latestPath = path.join(fixtureDir, 'latest.json');
+      const timestampedPath = path.join(
+        fixtureDir,
+        `${filenamePrefix}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`,
+      );
+      const pretty = `${JSON.stringify(parsed, null, 2)}\n`;
+
+      await mkdir(fixtureDir, { recursive: true });
+      await Promise.all([
+        writeFile(latestPath, pretty, 'utf8'),
+        writeFile(timestampedPath, pretty, 'utf8'),
+      ]);
+
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({
+        ok: true,
+        latestPath: path.relative(root, latestPath),
+        savedPath: path.relative(root, timestampedPath),
+      }));
+    } catch (error) {
+      res.statusCode = 500;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  };
+}
+
+function clothReproRecorderPlugin(): Plugin {
   return {
-    name: 'character-repro-recorder',
+    name: 'cloth-repro-recorder',
     configureServer(server) {
-      server.middlewares.use('/__recordings/character-repro', async (req, res) => {
-        if (req.method !== 'POST') {
-          res.statusCode = 405;
-          res.setHeader('content-type', 'application/json');
-          res.end(JSON.stringify({ ok: false, error: 'Method not allowed' }));
-          return;
-        }
-
-        try {
-          const chunks: Buffer[] = [];
-          for await (const chunk of req) {
-            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-          }
-          const raw = Buffer.concat(chunks).toString('utf8');
-          const parsed = JSON.parse(raw) as unknown;
-          const fixtureDir = path.resolve(server.config.root, 'tests/fixtures/character-repros');
-          const latestPath = path.join(fixtureDir, 'latest.json');
-          const timestampedPath = path.join(fixtureDir, `repro-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
-          const pretty = `${JSON.stringify(parsed, null, 2)}\n`;
-
-          await mkdir(fixtureDir, { recursive: true });
-          await Promise.all([
-            writeFile(latestPath, pretty, 'utf8'),
-            writeFile(timestampedPath, pretty, 'utf8'),
-          ]);
-
-          res.statusCode = 200;
-          res.setHeader('content-type', 'application/json');
-          res.end(JSON.stringify({
-            ok: true,
-            latestPath: path.relative(server.config.root, latestPath),
-            savedPath: path.relative(server.config.root, timestampedPath),
-          }));
-        } catch (error) {
-          res.statusCode = 500;
-          res.setHeader('content-type', 'application/json');
-          res.end(JSON.stringify({
-            ok: false,
-            error: error instanceof Error ? error.message : String(error),
-          }));
-        }
+      server.middlewares.use('/__recordings/character-repro', (req, res) => {
+        void clothFixtureSaveHandler('character-repros', 'repro')(req, res, server.config.root);
+      });
+      server.middlewares.use('/__recordings/multi-material-repro', (req, res) => {
+        void clothFixtureSaveHandler('multi-material-repros', 'repro')(req, res, server.config.root);
+      });
+      server.middlewares.use('/__recordings/multi-material-snapshot', (req, res) => {
+        void clothFixtureSaveHandler('multi-material-snapshots', 'snapshot')(req, res, server.config.root);
       });
     },
   };
@@ -324,7 +343,7 @@ function animationSubclipsPlugin(): Plugin {
 
 export default defineConfig({
   plugins: [
-    characterReproRecorderPlugin(),
+    clothReproRecorderPlugin(),
     garmentPresetFixturePlugin(),
     animationRatingsPlugin(),
     animationSubclipsPlugin(),

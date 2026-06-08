@@ -52,6 +52,21 @@ function materialByPatchBindings(
   return byPatch;
 }
 
+export function buildPatchSegmentColorsFromLibrary(
+  library: ClothMaterialLibrary,
+  bindings: readonly MultiMaterialLibraryPatchBinding[] = MULTI_MATERIAL_LIBRARY_PATCH_BINDINGS,
+): Record<string, string> {
+  const byName = new Map(library.materials.map((material) => [material.name, material]));
+  const colors: Record<string, string> = {};
+  for (const binding of bindings) {
+    const material = byName.get(binding.libraryMaterialName);
+    if (material) {
+      colors[binding.patchKey] = material.color;
+    }
+  }
+  return colors;
+}
+
 export function buildAssemblyMaterialScaleMaps(
   library: ClothMaterialLibrary,
   baseSettings: InextensibleFlagSettings,

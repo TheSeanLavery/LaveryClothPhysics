@@ -140,7 +140,7 @@ export function severCellsWithSingleNeighbor(
   return changed;
 }
 
-function collectSingleNeighborCellEdgeIds(
+export function collectSingleNeighborCellEdgeIds(
   lookup: SimEdgeLookup,
   edgeActive: Uint32Array,
   isVertexFixed: (gridX: number, gridY: number) => boolean,
@@ -180,6 +180,8 @@ export interface StrandThreadCollectionOptions {
   vertexGrid: readonly { readonly gridX: number; readonly gridY: number }[];
   lookup: SimEdgeLookup;
   isVertexFixedGrid: (gridX: number, gridY: number) => boolean;
+  /** Optional sim-vertex components; cross-component edges are excluded from strand requirements. */
+  vertexComponents?: Uint32Array;
 }
 
 /** Visual-only: uncovered structural edges plus cheap single-link cell pass. */
@@ -211,7 +213,11 @@ export function collectStrandThreadEdgeIds(
 
       const links = listActiveCellNeighborLinks(options.lookup, cellX, cellY, edgeActive);
       if (links.length === 1) {
-        required.add(links[0]!.edgeId);
+        const edgeId = links[0]!.edgeId;
+        const edge = structuralEdges.find((candidate) => candidate.id === edgeId);
+        if (edge && isSameComponentStrandEdge(edge, options.vertexComponents)) {
+          required.add(edgeId);
+        }
       }
     }
   }
@@ -243,6 +249,9 @@ export function collectRequiredStrandThreadEdgeIds(
     if (edgeActive[edge.id] === 0 || isVertexFixed(edge.v0) || isVertexFixed(edge.v1)) {
       continue;
     }
+    if (!isSameComponentStrandEdge(edge, options.vertexComponents)) {
+      continue;
+    }
 
     if (!covered.has(edge.id)) {
       required.push(edge.id);
@@ -250,6 +259,16 @@ export function collectRequiredStrandThreadEdgeIds(
   }
 
   return required;
+}
+
+function isSameComponentStrandEdge(
+  edge: StructuralGraphEdge,
+  components?: Uint32Array,
+): boolean {
+  if (!components) {
+    return true;
+  }
+  return components[edge.v0] === components[edge.v1];
 }
 
 export function collectRenderCoveredStructuralEdgeIds(
@@ -1166,24 +1185,104 @@ export function buildStrandDressTriangleBuffers(
   };
 }
 
-export function mirrorGpuStrandRequiredEdgeIds(
-  structuralEdges: readonly StructuralGraphEdge[],
+/** Dress triangles that would survive particle render topology cull (same component, no broken edges). */
+export function buildStrandDressFromParticleRender(
+  baseIndices: Uint32Array,
+  simGridCoordArray: Float32Array,
+  triangleEdgeIds: Int32Array,
   edgeActive: Uint32Array,
-  isVertexFixed: (vertexId: number) => boolean,
-  dress: StrandDressTriangleBuffers,
-): number[] {
-  const covered = new Set<number>();
-  const invalid = 0xffffffff;
+  components: Uint32Array,
+  resolveSimVertexId: (renderIndex: number) => number = (renderIndex) =>
+    Math.round(simGridCoordArray[renderIndex * 2] ?? 0),
+): StrandDressTriangleBuffers {
+  const visibleIndices = rebuildParticleRenderIndices(
+    baseIndices,
+    simGridCoordArray,
+    triangleEdgeIds,
+    edgeActive,
+    components,
+  );
+  const visibleTriangleEdgeIds = new Int32Array(visibleIndices.length);
+  const simVertexForRenderIndex = (index: number): number =>
+    Math.round(simGridCoordArray[index * 2] ?? 0);
+  let write = 0;
 
-  for (let t = 0; t < dress.triCount; t += 1) {
-    const v0 = dress.triSimV0[t]!;
-    const v1 = dress.triSimV1[t]!;
-    const v2 = dress.triSimV2[t]!;
-    const edges = [dress.triEdge0[t]!, dress.triEdge1[t]!, dress.triEdge2[t]!];
+  for (let i = 0; i < baseIndices.length; i += 3) {
+    const i0 = baseIndices[i]!;
+    const i1 = baseIndices[i + 1]!;
+    const i2 = baseIndices[i + 2]!;
+    const v0 = simVertexForRenderIndex(i0);
+    const v1 = simVertexForRenderIndex(i1);
+    const v2 = simVertexForRenderIndex(i2);
+    const sameComponent = components[v0] === components[v1] && components[v0] === components[v2];
+    if (!sameComponent) {
+      continue;
+    }
 
     let intact = true;
+    for (let e = 0; e < 3; e += 1) {
+      const edgeId = triangleEdgeIds[i + e]!;
+      if (edgeId >= 0 && edgeActive[edgeId] === 0) {
+        intact = false;
+        break;
+      }
+    }
+    if (!intact) {
+      continue;
+    }
+
+    visibleTriangleEdgeIds[write] = triangleEdgeIds[i]!;
+    visibleTriangleEdgeIds[write + 1] = triangleEdgeIds[i + 1]!;
+    visibleTriangleEdgeIds[write + 2] = triangleEdgeIds[i + 2]!;
+    write += 3;
+  }
+
+  return buildStrandDressTriangleBuffers(
+    visibleIndices,
+    simGridCoordArray,
+    visibleTriangleEdgeIds,
+    resolveSimVertexId,
+  );
+}
+
+export const STRAND_SPAN_GAP_RATIO = 1.05;
+/** Assembly edges stretched beyond this ratio break even below tearStretchThreshold. */
+export const TOPOLOGY_GAP_BREAK_RATIO = 1.35;
+
+export interface StrandEdgeCoverageCpuOptions {
+  readonly components?: Uint32Array;
+  readonly vertexPositions?: readonly { readonly x: number; readonly y: number; readonly z: number }[];
+  readonly springRestLengths?: Float32Array;
+  readonly structuralEdges?: readonly StructuralGraphEdge[];
+}
+
+/** Mirrors the GPU strand coverage passes (intact mark → torn-adjacency clear → span-gap clear). */
+export function computeStrandEdgeCoverageCpu(
+  dress: StrandDressTriangleBuffers,
+  edgeActive: Uint32Array,
+  options: StrandEdgeCoverageCpuOptions = {},
+): Set<number> {
+  const covered = new Set<number>();
+  const invalid = 0xffffffff;
+  const components = options.components;
+  const edgeEndpoints = new Map<number, { v0: number; v1: number }>();
+  for (const edge of options.structuralEdges ?? []) {
+    edgeEndpoints.set(edge.id, { v0: edge.v0, v1: edge.v1 });
+  }
+
+  for (let t = 0; t < dress.triCount; t += 1) {
+    const edges = [dress.triEdge0[t]!, dress.triEdge1[t]!, dress.triEdge2[t]!];
+    if (components) {
+      const v0 = dress.triSimV0[t]!;
+      const v1 = dress.triSimV1[t]!;
+      const v2 = dress.triSimV2[t]!;
+      if (components[v0] !== components[v1] || components[v0] !== components[v2]) {
+        continue;
+      }
+    }
+    let intact = true;
     for (const edgeId of edges) {
-      if (edgeId !== invalid && edgeActive[edgeId] === 0) {
+      if (isBrokenEdge(edgeId, edgeActive)) {
         intact = false;
         break;
       }
@@ -1193,15 +1292,104 @@ export function mirrorGpuStrandRequiredEdgeIds(
     }
 
     for (const edgeId of edges) {
-      if (edgeId !== invalid) {
+      if (edgeId === invalid) {
+        continue;
+      }
+      const endpoints = edgeEndpoints.get(edgeId);
+      const spanGap =
+        endpoints &&
+        options.vertexPositions &&
+        options.springRestLengths &&
+        edgeSpanRatio(
+          { id: edgeId, v0: endpoints.v0, v1: endpoints.v1 },
+          options.vertexPositions,
+          options.springRestLengths,
+        ) > STRAND_SPAN_GAP_RATIO;
+      if (!spanGap) {
         covered.add(edgeId);
       }
     }
   }
 
+  for (let t = 0; t < dress.triCount; t += 1) {
+    const edges = [dress.triEdge0[t]!, dress.triEdge1[t]!, dress.triEdge2[t]!];
+    let hasBroken = false;
+    for (const edgeId of edges) {
+      if (isBrokenEdge(edgeId, edgeActive)) {
+        hasBroken = true;
+        break;
+      }
+    }
+    if (!hasBroken) {
+      continue;
+    }
+
+    for (const edgeId of edges) {
+      if (edgeId !== invalid && isActiveEdge(edgeId, edgeActive)) {
+        covered.delete(edgeId);
+      }
+    }
+  }
+
+  if (options.structuralEdges && options.vertexPositions && options.springRestLengths) {
+    for (const edge of options.structuralEdges) {
+      if (!isActiveEdge(edge.id, edgeActive)) {
+        continue;
+      }
+      if (
+        edgeSpanRatio(edge, options.vertexPositions, options.springRestLengths) > STRAND_SPAN_GAP_RATIO
+      ) {
+        covered.delete(edge.id);
+      }
+    }
+  }
+
+  return covered;
+}
+
+export function collectTornAdjacentActiveEdgeIds(
+  dress: StrandDressTriangleBuffers,
+  edgeActive: Uint32Array,
+): number[] {
+  const invalid = 0xffffffff;
+  const tornAdjacent = new Set<number>();
+
+  for (let t = 0; t < dress.triCount; t += 1) {
+    const edges = [dress.triEdge0[t]!, dress.triEdge1[t]!, dress.triEdge2[t]!];
+    let hasBroken = false;
+    for (const edgeId of edges) {
+      if (isBrokenEdge(edgeId, edgeActive)) {
+        hasBroken = true;
+        break;
+      }
+    }
+    if (!hasBroken) {
+      continue;
+    }
+
+    for (const edgeId of edges) {
+      if (edgeId !== invalid && isActiveEdge(edgeId, edgeActive)) {
+        tornAdjacent.add(edgeId);
+      }
+    }
+  }
+
+  return [...tornAdjacent];
+}
+
+export function collectStrandRequiredEdgeIds(
+  structuralEdges: readonly StructuralGraphEdge[],
+  edgeActive: Uint32Array,
+  isVertexFixed: (vertexId: number) => boolean,
+  covered: ReadonlySet<number>,
+  components?: Uint32Array,
+): number[] {
   const required: number[] = [];
   for (const edge of structuralEdges) {
-    if (edgeActive[edge.id] === 0 || isVertexFixed(edge.v0) || isVertexFixed(edge.v1)) {
+    if (!isActiveEdge(edge.id, edgeActive) || isVertexFixed(edge.v0) || isVertexFixed(edge.v1)) {
+      continue;
+    }
+    if (components && components[edge.v0] !== components[edge.v1]) {
       continue;
     }
     if (!covered.has(edge.id)) {
@@ -1209,6 +1397,52 @@ export function mirrorGpuStrandRequiredEdgeIds(
     }
   }
   return required;
+}
+
+export interface MirrorGpuStrandRequiredEdgeOptions {
+  readonly components?: Uint32Array;
+  readonly vertexPositions?: readonly { readonly x: number; readonly y: number; readonly z: number }[];
+  readonly springRestLengths?: Float32Array;
+}
+
+function edgeSpanRatio(
+  edge: StructuralGraphEdge,
+  vertexPositions: readonly { readonly x: number; readonly y: number; readonly z: number }[],
+  springRestLengths: Float32Array,
+): number {
+  const p0 = vertexPositions[edge.v0];
+  const p1 = vertexPositions[edge.v1];
+  if (!p0 || !p1) {
+    return 1;
+  }
+  const dx = p1.x - p0.x;
+  const dy = p1.y - p0.y;
+  const dz = p1.z - p0.z;
+  const span = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  const restLength = Math.max(springRestLengths[edge.id] ?? 0, 1e-6);
+  return span / restLength;
+}
+
+export function mirrorGpuStrandRequiredEdgeIds(
+  structuralEdges: readonly StructuralGraphEdge[],
+  edgeActive: Uint32Array,
+  isVertexFixed: (vertexId: number) => boolean,
+  dress: StrandDressTriangleBuffers,
+  options: MirrorGpuStrandRequiredEdgeOptions = {},
+): number[] {
+  const covered = computeStrandEdgeCoverageCpu(dress, edgeActive, {
+    components: options.components,
+    vertexPositions: options.vertexPositions,
+    springRestLengths: options.springRestLengths,
+    structuralEdges,
+  });
+  return collectStrandRequiredEdgeIds(
+    structuralEdges,
+    edgeActive,
+    isVertexFixed,
+    covered,
+    options.components,
+  );
 }
 
 export interface AssemblyStrandThreadCollectionOptions {
@@ -1341,12 +1575,8 @@ export interface GpuParticleRenderSurface {
   readonly fabricUvs: Float32Array;
   readonly indices: Uint32Array;
   readonly renderSegmentId: Float32Array;
-  readonly particleTriEdge0: Float32Array;
-  readonly particleTriEdge1: Float32Array;
-  readonly particleTriEdge2: Float32Array;
-  readonly particleTriSimV0: Float32Array;
-  readonly particleTriSimV1: Float32Array;
-  readonly particleTriSimV2: Float32Array;
+  readonly particleTriEdges: Float32Array;
+  readonly particleTriSimVerts: Float32Array;
   readonly particleBary: Float32Array;
 }
 
@@ -1362,12 +1592,8 @@ export function buildGpuParticleRenderSurface(
   const vertCount = triCount * 3;
   const simGridCoords = new Float32Array(vertCount * 2);
   const fabricUvs = new Float32Array(vertCount * 2);
-  const particleTriEdge0 = new Float32Array(vertCount);
-  const particleTriEdge1 = new Float32Array(vertCount);
-  const particleTriEdge2 = new Float32Array(vertCount);
-  const particleTriSimV0 = new Float32Array(vertCount);
-  const particleTriSimV1 = new Float32Array(vertCount);
-  const particleTriSimV2 = new Float32Array(vertCount);
+  const particleTriEdges = new Float32Array(vertCount * 3);
+  const particleTriSimVerts = new Float32Array(vertCount * 3);
   const particleBary = new Float32Array(vertCount * 3);
   const renderSegmentId = new Float32Array(vertCount);
   const indices = new Uint32Array(vertCount);
@@ -1395,12 +1621,12 @@ export function buildGpuParticleRenderSurface(
       simGridCoords[out * 2 + 1] = simGridCoordArray[src * 2 + 1]!;
       fabricUvs[out * 2] = fabricUvArray[src * 2]!;
       fabricUvs[out * 2 + 1] = fabricUvArray[src * 2 + 1]!;
-      particleTriEdge0[out] = e0;
-      particleTriEdge1[out] = e1;
-      particleTriEdge2[out] = e2;
-      particleTriSimV0[out] = v0;
-      particleTriSimV1[out] = v1;
-      particleTriSimV2[out] = v2;
+      particleTriEdges[out * 3] = e0;
+      particleTriEdges[out * 3 + 1] = e1;
+      particleTriEdges[out * 3 + 2] = e2;
+      particleTriSimVerts[out * 3] = v0;
+      particleTriSimVerts[out * 3 + 1] = v1;
+      particleTriSimVerts[out * 3 + 2] = v2;
       particleBary[out * 3] = c === 0 ? 1 : 0;
       particleBary[out * 3 + 1] = c === 1 ? 1 : 0;
       particleBary[out * 3 + 2] = c === 2 ? 1 : 0;
@@ -1413,12 +1639,8 @@ export function buildGpuParticleRenderSurface(
     fabricUvs,
     indices,
     renderSegmentId,
-    particleTriEdge0,
-    particleTriEdge1,
-    particleTriEdge2,
-    particleTriSimV0,
-    particleTriSimV1,
-    particleTriSimV2,
+    particleTriEdges,
+    particleTriSimVerts,
     particleBary,
   };
 }

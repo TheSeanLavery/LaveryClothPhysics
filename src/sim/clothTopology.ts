@@ -2,7 +2,8 @@ import * as THREE from 'three/webgpu';
 import type { ClothAssembly } from '../cloth/patternAssembly';
 
 export type ClothTopologyKind = 'grid' | 'tube' | 'assembly';
-export type ClothConstraintKind = 'structural' | 'shear' | 'bend';
+export type ClothConstraintKind = 'structural' | 'shear' | 'bend' | 'stitch';
+export type StitchWeldMode = 'weld' | 'constraints';
 
 export interface ClothTopologyParticle {
   readonly id: number;
@@ -20,6 +21,8 @@ export interface ClothTopologyParticle {
   readonly compressionScale: number;
   /** Per-particle tear strain multiplier vs global tearStretchThreshold uniform. */
   readonly tearThresholdScale: number;
+  /** GPU segment id for multi-material strand/cloth shading. */
+  readonly renderSegmentId: number;
 }
 
 export interface ClothTopologyConstraint {
@@ -92,6 +95,7 @@ export function buildGridClothTopology(options: GridClothTopologyOptions): Cloth
       structuralScale: 1,
       compressionScale: 1,
       tearThresholdScale: 1,
+      renderSegmentId: 0,
     });
     return id;
   };
@@ -206,6 +210,11 @@ export interface AssemblyClothTopologyOptions {
   /** Material-key → display color (RGB hex) for GPU segment shading. */
   readonly patchSegmentColorByKey?: Readonly<Record<string, string>>;
   readonly resolvePatchMaterialKey?: (patchId: string) => string;
+  /**
+   * weld: stitch vertices merge into one sim particle (character dressing default).
+   * constraints: keep separate particles linked by stitch edges so tears can split patches.
+   */
+  readonly stitchWeldMode?: StitchWeldMode;
 }
 
 export function buildAssemblyClothTopology(
@@ -238,9 +247,12 @@ export function buildAssemblyClothTopology(
     }
   };
 
-  for (const edge of assembly.stitchEdges) {
-    if (edge.restLength <= 1e-6) {
-      union(edge.a, edge.b);
+  const stitchWeldMode = options.stitchWeldMode ?? 'weld';
+  if (stitchWeldMode === 'weld') {
+    for (const edge of assembly.stitchEdges) {
+      if (edge.restLength <= 1e-6) {
+        union(edge.a, edge.b);
+      }
     }
   }
 
@@ -285,6 +297,7 @@ export function buildAssemblyClothTopology(
     let dampeningScale = 1;
     let structuralScale = 1;
     let compressionScale = 1;
+    let renderSegmentId = 0;
     const globalTear = options.globalTearStretchThreshold ?? 4;
     let tearThresholdScale = globalTear;
     let hasMaterialTear = false;
@@ -294,10 +307,17 @@ export function buildAssemblyClothTopology(
     const compressionByKey = options.materialCompressionScaleByKey;
     const tearByKey = options.materialAbsoluteTearThresholdByKey;
     const resolveKey = options.resolvePatchMaterialKey;
+    const segmentColors = options.patchSegmentColorByKey;
+    const keyToSegmentId = segmentColors && resolveKey
+      ? new Map(Object.keys(segmentColors).map((key, index) => [key, index]))
+      : null;
     if (resolveKey) {
       for (const vertexId of vertexIds) {
         const patchId = assembly.vertices[vertexId]!.patchId;
         const key = resolveKey(patchId);
+        if (keyToSegmentId) {
+          renderSegmentId = Math.max(renderSegmentId, keyToSegmentId.get(key) ?? 0);
+        }
         if (bendByKey) {
           bendScale = Math.max(bendScale, bendByKey[key] ?? 1);
         }
@@ -332,6 +352,7 @@ export function buildAssemblyClothTopology(
       structuralScale,
       compressionScale,
       tearThresholdScale,
+      renderSegmentId,
     });
     particleByRoot.set(root, id);
     for (const vertexId of vertexIds) {
@@ -359,15 +380,35 @@ export function buildAssemblyClothTopology(
   };
 
   for (const edge of assembly.edges) {
+    if (edge.kind === 'stitch') {
+      continue;
+    }
     const a = particleByRoot.get(find(edge.a));
     const b = particleByRoot.get(find(edge.b));
     if (a === undefined || b === undefined || a === b) {
       continue;
     }
-    addConstraint(a, b, 'structural', edge.restLength);
+    const constraintKind: ClothConstraintKind = edge.kind === 'shear' ? 'shear' : 'structural';
+    addConstraint(a, b, constraintKind, edge.restLength);
   }
 
   addFaceBendConstraints(assembly, renderVertexToParticle, addConstraint);
+
+  if (stitchWeldMode === 'constraints') {
+    for (const stitchEdge of assembly.stitchEdges) {
+      const a = renderVertexToParticle[stitchEdge.a];
+      const b = renderVertexToParticle[stitchEdge.b];
+      if (a === undefined || b === undefined) {
+        continue;
+      }
+      const particleA = particles[a]!;
+      const particleB = particles[b]!;
+      const dressRest = particleA.position.distanceTo(particleB.position);
+      const stitchRest =
+        stitchEdge.restLength > 1e-6 ? stitchEdge.restLength : Math.max(dressRest, 1e-5);
+      addConstraint(a, b, 'stitch', stitchRest);
+    }
+  }
 
   const segmentsX = Math.max(1, particles.length - 1);
   const lookupSize = particles.length;

@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { PLAYWRIGHT_DEV_URL, playwrightDevWebServer } from './playwright.shared.ts';
 
 export default defineConfig({
   testDir: './tests',
@@ -7,7 +8,7 @@ export default defineConfig({
   timeout: 60_000,
   reporter: 'list',
   use: {
-    baseURL: 'http://localhost:5174',
+    baseURL: PLAYWRIGHT_DEV_URL,
     ...devices['Desktop Chrome'],
     headless: false,
     launchOptions: {
@@ -20,10 +21,5 @@ export default defineConfig({
       ],
     },
   },
-  webServer: {
-    command: 'npx vite --host localhost --port 5174 --strictPort',
-    url: 'http://localhost:5174',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  webServer: playwrightDevWebServer,
 });

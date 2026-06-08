@@ -9,6 +9,8 @@ export interface ClothPatchDefinition {
   readonly uvs?: readonly AssemblyVec2[];
   readonly faces: readonly (readonly [number, number, number])[];
   readonly boundaries: Readonly<Record<BoundaryName, readonly number[]>>;
+  /** Local vertex pairs for quad-split diagonals (sim shear constraints). */
+  readonly shearEdges?: readonly (readonly [number, number])[];
 }
 
 export interface StitchEndpoint {
@@ -51,7 +53,7 @@ export interface AssemblyEdge {
   readonly id: number;
   readonly a: number;
   readonly b: number;
-  readonly kind: 'structural' | 'stitch';
+  readonly kind: 'structural' | 'shear' | 'stitch';
   readonly restLength: number;
   readonly sourceId: string;
 }
@@ -132,6 +134,7 @@ export function createQuadPatch(options: QuadPatchOptions): ClothPatchDefinition
   const vertices: AssemblyVec3[] = [];
   const uvs: AssemblyVec2[] = [];
   const faces: [number, number, number][] = [];
+  const shearEdges: [number, number][] = [];
   const index = (u: number, v: number) => u * (segmentsV + 1) + v;
 
   for (let u = 0; u <= segmentsU; u++) {
@@ -150,6 +153,7 @@ export function createQuadPatch(options: QuadPatchOptions): ClothPatchDefinition
       const i01 = index(u, v + 1);
       const i11 = index(u + 1, v + 1);
       faces.push([i00, i10, i01], [i10, i11, i01]);
+      shearEdges.push([i10, i01]);
     }
   }
 
@@ -159,6 +163,7 @@ export function createQuadPatch(options: QuadPatchOptions): ClothPatchDefinition
     vertices,
     uvs,
     faces,
+    shearEdges,
     boundaries: {
       bottom: range(0, segmentsU).map((u) => index(u, 0)),
       right: range(0, segmentsV).map((v) => index(segmentsU, v)),
@@ -219,6 +224,13 @@ export function buildClothAssembly(options: ClothAssemblyOptions): ClothAssembly
       addStructuralEdge(edges, structuralEdgeKeys, vertices, globalFace[0], globalFace[1], patch.id);
       addStructuralEdge(edges, structuralEdgeKeys, vertices, globalFace[1], globalFace[2], patch.id);
       addStructuralEdge(edges, structuralEdgeKeys, vertices, globalFace[2], globalFace[0], patch.id);
+    }
+
+    if (patch.shearEdges) {
+      const offset = patchOffsets.get(patch.id)!;
+      for (const [localA, localB] of patch.shearEdges) {
+        markAssemblyEdgeKind(edges, offset + localA, offset + localB, 'shear');
+      }
     }
   }
 
@@ -697,6 +709,23 @@ export function createTShirtAssembly(options: TShirtAssemblyOptions): ClothAssem
   return options.restLengthMode === 'placed' ? placed : applyFlatRestLengthsToPlacedAssembly(flat, placed);
 }
 
+function edgeKey(a: number, b: number): string {
+  return a < b ? `${a}:${b}` : `${b}:${a}`;
+}
+
+function markAssemblyEdgeKind(
+  edges: AssemblyEdge[],
+  a: number,
+  b: number,
+  kind: AssemblyEdge['kind'],
+): void {
+  const key = edgeKey(a, b);
+  const edge = edges.find((candidate) => edgeKey(candidate.a, candidate.b) === key);
+  if (edge) {
+    (edge as { kind: AssemblyEdge['kind'] }).kind = kind;
+  }
+}
+
 function addStructuralEdge(
   edges: AssemblyEdge[],
   edgeKeys: Set<string>,
@@ -705,7 +734,7 @@ function addStructuralEdge(
   b: number,
   sourceId: string,
 ): void {
-  const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+  const key = edgeKey(a, b);
   if (edgeKeys.has(key)) {
     return;
   }

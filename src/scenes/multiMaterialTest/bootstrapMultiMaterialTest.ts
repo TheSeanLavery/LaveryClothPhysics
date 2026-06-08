@@ -5,7 +5,11 @@ import {
   type ClothSimulation,
   type ClothSimulationStats,
 } from '../../cloth';
-import { buildAssemblyMaterialScaleMaps, type AssemblyMaterialScaleMaps } from '../../cloth/clothMaterialPhysics.ts';
+import {
+  buildAssemblyMaterialScaleMaps,
+  buildPatchSegmentColorsFromLibrary,
+  type AssemblyMaterialScaleMaps,
+} from '../../cloth/clothMaterialPhysics.ts';
 import { applyMyPresetToCharacterCloth } from '../../cloth/myPresetDefaults.ts';
 import {
   createMultiMaterialTestAssembly,
@@ -17,9 +21,13 @@ import {
   ensureClothMaterialLibrarySeeded,
   fetchClothMaterialLibrary,
 } from '../../cloth/clothMaterialsLibrary.ts';
+import type { ClothMaterialsPanelApi } from '../../dev/panels/clothMaterialsPanelApi.ts';
 import { registerMultiMaterialDevMenu } from '../../dev/registerMultiMaterialDevMenu.ts';
 import type { InextensibleFlagSettings } from '../../sim/InextensibleFlagSettings.ts';
 import { wireClothCanvasInteraction } from '../../ui/wireClothCanvasInteraction.ts';
+import { wireMultiMaterialMaterialEditor } from './wireMultiMaterialMaterialEditor.ts';
+import { wireMultiMaterialReproRecorder } from './wireMultiMaterialReproRecorder.ts';
+import { wireMultiMaterialSnapshot } from './wireMultiMaterialSnapshot.ts';
 
 export interface MultiMaterialTestStats {
   readonly particleCount: number;
@@ -132,13 +140,7 @@ export async function bootstrapMultiMaterialTest(
   await ensureClothMaterialLibrarySeeded();
   let library = await fetchClothMaterialLibrary();
 
-  const colorByKey: Record<string, string> = {
-    'banner-a': library.materials.find((m) => m.name === 'Banner A')?.color ?? '#4fa3ff',
-    'banner-b': library.materials.find((m) => m.name === 'Banner B')?.color ?? '#ff6b4a',
-    'banner-c': library.materials.find((m) => m.name === 'Banner C')?.color ?? '#7ee787',
-    'dangle-soft': library.materials.find((m) => m.name === 'Dangle soft')?.color ?? '#d2a8ff',
-    'dangle-stiff': library.materials.find((m) => m.name === 'Dangle stiff')?.color ?? '#ffdc5a',
-  };
+  const colorByKey = buildPatchSegmentColorsFromLibrary(library);
 
   const assembly = createMultiMaterialTestAssembly({
     layout: {
@@ -162,24 +164,45 @@ export async function bootstrapMultiMaterialTest(
     },
   );
 
-  Object.assign(cloth.settings, applyMyPresetToCharacterCloth(cloth.settings));
+  Object.assign(cloth.settings, applyMyPresetToCharacterCloth(cloth.settings), {
+    renderStrandThreads: true,
+    strandThreadRadius: 0.012,
+    flagColor: '#f4f8ff',
+  });
   cloth.applySettings();
   await cloth.init();
 
   let materialScales = buildAssemblyMaterialScaleMaps(library, cloth.settings);
-  const applyAssemblyMaterialScales = (scales: AssemblyMaterialScaleMaps): void => {
+  const patchColorsByKey: Record<string, string> = { ...colorByKey };
+  const applyMaterialLibrary = (
+    nextLibrary: typeof library,
+    options: { readonly refreshColors?: boolean } = {},
+  ): void => {
+    materialScales = buildAssemblyMaterialScaleMaps(nextLibrary, cloth.settings);
+    const nextPatchColors = buildPatchSegmentColorsFromLibrary(nextLibrary);
+    const refreshColors = options.refreshColors ?? true;
+    const colorsChanged = Object.keys(nextPatchColors).some(
+      (patchKey) => patchColorsByKey[patchKey] !== nextPatchColors[patchKey],
+    );
+    Object.assign(patchColorsByKey, nextPatchColors);
     cloth.refreshAssemblyMaterialScalars({
-      materialBendScaleByKey: scales.bend,
-      materialDampeningScaleByKey: scales.dampening,
-      materialAbsoluteTearThresholdByKey: scales.tearThreshold,
+      materialBendScaleByKey: materialScales.bend,
+      materialDampeningScaleByKey: materialScales.dampening,
+      materialStructuralScaleByKey: materialScales.structural,
+      materialCompressionScaleByKey: materialScales.compression,
+      materialAbsoluteTearThresholdByKey: materialScales.tearThreshold,
       globalTearStretchThreshold: cloth.settings.tearStretchThreshold,
+      ...(refreshColors && colorsChanged ? { patchSegmentColorByKey: nextPatchColors } : {}),
     });
   };
 
   await cloth.loadClothAssembly(assembly, {
     pinVertexYAtOrAbove: MULTI_MATERIAL_DEFAULT_PIN_TOP_Y + MULTI_MATERIAL_DEFAULT_BANNER_HEIGHT,
+    stitchWeldMode: 'weld',
     materialBendScaleByKey: materialScales.bend,
     materialDampeningScaleByKey: materialScales.dampening,
+    materialStructuralScaleByKey: materialScales.structural,
+    materialCompressionScaleByKey: materialScales.compression,
     materialAbsoluteTearThresholdByKey: materialScales.tearThreshold,
     globalTearStretchThreshold: cloth.settings.tearStretchThreshold,
     patchSegmentColorByKey: colorByKey,
@@ -187,24 +210,20 @@ export async function bootstrapMultiMaterialTest(
   });
   cloth.resetFlag();
 
-  const patchColorsByKey = Object.fromEntries(
-    Object.entries(colorByKey).map(([patchKey, color]) => [patchKey, color]),
-  );
-
   cloth.clothMesh.visible = true;
   cloth.camera.position.set(0, 0.15, 2.8);
   cloth.controls.target.set(0.35, -0.15, 0);
   cloth.controls.update();
 
-  const applyMaterialLibrary = (nextLibrary: typeof library): void => {
-    materialScales = buildAssemblyMaterialScaleMaps(nextLibrary, cloth.settings);
-    applyAssemblyMaterialScales(materialScales);
-  };
+  let materialPanelApi: ClothMaterialsPanelApi | undefined;
 
   registerMultiMaterialDevMenu({
     toolbar,
     cloth,
     library,
+    onMaterialsPanelReady: (api) => {
+      materialPanelApi = api;
+    },
     onMaterialsChanged: async (nextLibrary) => {
       library = nextLibrary;
       applyMaterialLibrary(nextLibrary);
@@ -216,16 +235,20 @@ export async function bootstrapMultiMaterialTest(
           material.id === materialId
             ? {
                 ...material,
+                color: draft.color,
                 settings: {
                   ...material.settings,
                   dampening: draft.dampening,
                   bendStiffness: draft.bendStiffness,
                   tearStretchThreshold: draft.tearStretchThreshold,
+                  flagColor: draft.color,
                 },
                 physics: {
                   ...material.physics,
                   tearThresholdScale: draft.tearThresholdScale,
+                  structuralScale: draft.structuralScale,
                   bendScale: draft.bendScale,
+                  compressionScale: draft.compressionScale,
                 },
               }
             : material
@@ -233,6 +256,14 @@ export async function bootstrapMultiMaterialTest(
       };
       applyMaterialLibrary(previewLibrary);
     },
+  });
+
+  wireMultiMaterialMaterialEditor({
+    cloth,
+    getLibraryScales: () => materialScales,
+    getPatchColors: () => patchColorsByKey,
+    getPanelApi: () => materialPanelApi,
+    getPresentationWait: () => cloth.waitForPresentationCompile(),
   });
 
   const patchIds = new Set(assembly.vertices.map((vertex) => vertex.patchId));
@@ -287,27 +318,90 @@ export async function bootstrapMultiMaterialTest(
   window.__multiMaterialRefreshLibrary = async () => {
     await ensureClothMaterialLibrarySeeded();
     const nextLibrary = await fetchClothMaterialLibrary();
-    materialScales = buildAssemblyMaterialScaleMaps(nextLibrary, cloth.settings);
-    applyAssemblyMaterialScales(materialScales);
+    library = nextLibrary;
+    applyMaterialLibrary(nextLibrary);
     return nextLibrary;
   };
+
+  let applySettingsForHooks = (partial: Partial<InextensibleFlagSettings>): void => {
+    cloth.loadSettingsPreset(normalizeClothSettings(partial));
+  };
+
+  let reproRecorder!: ReturnType<typeof wireMultiMaterialReproRecorder>;
 
   const interaction = wireClothCanvasInteraction({
     cloth,
     applyLabGrabSettings: true,
     initialGrabEnabled: true,
     onResetView: () => {
+      reproRecorder.recorder.recordAction('reset-view');
       cloth.resetFlag();
       cloth.controls.reset();
     },
+    onPointerMove: (event) => {
+      reproRecorder.recorder.recordPointer('move', event);
+    },
+    onPointerDown: (event, ndc) => {
+      reproRecorder.recorder.recordPointer('down', event);
+      if (cloth.isShootModeOn()) {
+        reproRecorder.recorder.recordAction('shoot-bb', { ndcX: ndc.x, ndcY: ndc.y });
+        return;
+      }
+      if (cloth.isGrabModeOn()) {
+        reproRecorder.recorder.recordAction('grab-begin', { ndcX: ndc.x, ndcY: ndc.y });
+      }
+    },
+    onPointerUp: (event) => {
+      reproRecorder.recorder.recordPointer(
+        event.type === 'pointercancel' ? 'cancel' : 'up',
+        event,
+      );
+      if (cloth.isGrabPointerDown()) {
+        reproRecorder.recorder.recordAction('grab-end');
+      }
+    },
+    onGrabToggle: (enabled) => {
+      reproRecorder.recorder.recordAction('toggle-grab', { enabled });
+    },
+    onShootToggle: (enabled) => {
+      reproRecorder.recorder.recordAction('toggle-shoot', { enabled });
+    },
   });
+
+  reproRecorder = wireMultiMaterialReproRecorder({
+    cloth,
+    toolbar,
+    getInteractionState: () => interaction.getState(),
+    getSceneStats: () => ({
+      particleCount: cloth.getStats().particleCount,
+      vertexCount: assembly.vertices.length,
+      patchCount: patchIds.size,
+      materialCount: library.materials.length,
+    }),
+  });
+  applySettingsForHooks = reproRecorder.wrapApplySettings(applySettingsForHooks);
+
+  wireMultiMaterialSnapshot({
+    cloth,
+    toolbar,
+    getInteractionState: () => interaction.getState(),
+    getSceneStats: () => ({
+      particleCount: cloth.getStats().particleCount,
+      vertexCount: assembly.vertices.length,
+      patchCount: patchIds.size,
+      materialCount: library.materials.length,
+    }),
+  });
+
   window.__multiMaterialInteractionState = () => interaction.getState();
   window.__multiMaterialClothStats = (): ClothSimulationStats => cloth.getStats();
   window.__multiMaterialReadbackStats = () => cloth.getReadbackStats();
   window.__multiMaterialApplySettings = (partial: Partial<InextensibleFlagSettings>) => {
-    cloth.loadSettingsPreset(normalizeClothSettings(partial));
+    applySettingsForHooks(partial);
   };
   window.__multiMaterialAuditStrandThreads = () => cloth.auditStrandThreadCoverage();
+  window.__multiMaterialAuditConnectivity = () => cloth.auditAssemblyConnectivity();
+  window.__multiMaterialParticleRenderEdgeKindsForTest = () => cloth.getParticleRenderEdgeKindAudit();
   window.__multiMaterialForceTearThresholdForTest = async (threshold: number) => {
     const patchKeys = ['banner-a', 'banner-b', 'banner-c', 'dangle-soft', 'dangle-stiff'];
     const materialAbsoluteTearThresholdByKey = Object.fromEntries(

@@ -74,4 +74,95 @@ test.describe('Multi-material material library', () => {
     expect(reloaded.stiff).toBeCloseTo(stiffTear, 2);
     expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
   });
+
+  test('saved patch color applies to live cloth segments', async ({ page }) => {
+    test.setTimeout(90_000);
+
+    const consoleCapture = attachConsoleCapture(page);
+    await page.goto('/?mode=multi-material');
+    await expect(page.locator('[data-testid="sim-status"]')).toHaveText(
+      'running (multi-material cloth test)',
+      { timeout: 45_000 },
+    );
+
+    await page.waitForFunction(
+      () => (window.__multiMaterialStats?.().particleCount ?? 0) > 40,
+      undefined,
+      { timeout: 30_000 },
+    );
+
+    const nextColor = '#ff00aa';
+
+    const restoreLibrary = await page.evaluate(async (bannerColor) => {
+      const response = await fetch('/__cloth/materials');
+      const library = await response.json() as {
+        materials: Array<{
+          name: string;
+          color: string;
+          settings: Record<string, unknown>;
+        }>;
+      };
+
+      const bannerA = library.materials.find((entry) => entry.name === 'Banner A');
+      if (!bannerA) {
+        throw new Error('Missing Banner A material');
+      }
+
+      const restore = {
+        color: bannerA.color,
+        flagColor: bannerA.settings.flagColor,
+      };
+
+      bannerA.color = bannerColor;
+      bannerA.settings = { ...bannerA.settings, flagColor: bannerColor };
+
+      const save = await fetch('/__cloth/materials', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(library),
+      });
+      if (!save.ok) {
+        throw new Error(`Failed to save cloth materials (${save.status})`);
+      }
+
+      await window.__multiMaterialRefreshLibrary?.();
+      return restore;
+    }, nextColor);
+
+    try {
+      const patchColors = await page.evaluate(() => window.__multiMaterialPatchColors?.());
+      expect(patchColors?.['banner-a']).toBe(nextColor);
+      expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
+    } finally {
+      await page.evaluate(async (restore) => {
+        const response = await fetch('/__cloth/materials');
+        const library = await response.json() as {
+          materials: Array<{
+            name: string;
+            color: string;
+            settings: Record<string, unknown>;
+          }>;
+        };
+
+        const bannerA = library.materials.find((entry) => entry.name === 'Banner A');
+        if (!bannerA) {
+          throw new Error('Missing Banner A material');
+        }
+
+        bannerA.color = restore.color;
+        bannerA.settings = { ...bannerA.settings, flagColor: restore.flagColor };
+
+        const save = await fetch('/__cloth/materials', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(library),
+        });
+        if (!save.ok) {
+          throw new Error(`Failed to restore cloth materials (${save.status})`);
+        }
+
+        await window.__multiMaterialRefreshLibrary?.();
+      }, restoreLibrary);
+    }
+  });
 });

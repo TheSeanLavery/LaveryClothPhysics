@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { PLAYWRIGHT_DEV_URL, playwrightDevWebServer } from './playwright.shared.ts';
 
 /** Multi-material cloth assembly + material library — headed, off-screen window. */
 export default defineConfig({
@@ -11,7 +12,7 @@ export default defineConfig({
   expect: { timeout: 12_000 },
   reporter: 'line',
   use: {
-    baseURL: 'http://localhost:5177',
+    baseURL: PLAYWRIGHT_DEV_URL,
     ...devices['Desktop Chrome'],
     headless: false,
     launchOptions: {
@@ -23,10 +24,5 @@ export default defineConfig({
       ],
     },
   },
-  webServer: {
-    command: 'npx vite --host localhost --port 5177 --strictPort',
-    url: 'http://localhost:5177',
-    reuseExistingServer: !process.env.CI,
-    timeout: 30_000,
-  },
+  webServer: playwrightDevWebServer,
 });

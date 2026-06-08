@@ -7,9 +7,13 @@ import {
   collectRequiredStrandThreadEdgeIds,
   collectAssemblyStrandThreadEdgeIds,
   collectParticleRenderCoveredEdgeIds,
+  collectStrandRequiredEdgeIds,
+  collectTornAdjacentActiveEdgeIds,
+  computeStrandEdgeCoverageCpu,
   rebuildClothIndicesFromEdgeState,
   rebuildClothIndicesFromSdfEdgeState,
   buildGpuParticleRenderSurface,
+  buildStrandDressFromParticleRender,
   rebuildParticleRenderIndices,
   severCellsWithSingleNeighbor,
   triangleCrossesBrokenStructuralEdge,
@@ -543,10 +547,34 @@ test('buildGpuParticleRenderSurface unshares corners for shader topology cull', 
   assert.equal(surface.indices.length, 3);
   assert.deepEqual(surface.indices, new Uint32Array([0, 1, 2]));
   assert.equal(surface.simGridCoords.length / 2, 3);
-  assert.equal(surface.particleTriEdge0[0], 3);
-  assert.equal(surface.particleTriSimV2[2], 0);
+  assert.equal(surface.particleTriEdges[0], 3);
+  assert.equal(surface.particleTriSimVerts[8], 0);
   assert.equal(surface.renderSegmentId.length, 3);
   assert.deepEqual(surface.particleBary.slice(0, 9), new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]));
+});
+
+test('buildStrandDressFromParticleRender keeps only visible particle render triangles', () => {
+  const simGridCoords = new Float32Array([
+    0, 0,
+    1, 0,
+    0, 1,
+    1, 1,
+  ]);
+  const baseIndices = new Uint32Array([0, 1, 2, 1, 3, 2]);
+  const triangleEdgeIds = new Int32Array([2, -1, 0, 2, -1, 1]);
+  const edgeActive = new Uint32Array([1, 1, 1]);
+  edgeActive[2] = 0;
+  const components = new Uint32Array([1, 1, 1, 2]);
+
+  const dress = buildStrandDressFromParticleRender(
+    baseIndices,
+    simGridCoords,
+    triangleEdgeIds,
+    edgeActive,
+    components,
+  );
+
+  assert.equal(dress.triCount, 0);
 });
 
 test('collectAssemblyStrandThreadEdgeIds requires uncovered active structural edges', () => {
@@ -574,6 +602,34 @@ test('collectAssemblyStrandThreadEdgeIds requires uncovered active structural ed
   );
 
   assert.deepEqual(required.sort(), [0, 1]);
+});
+
+test('computeStrandEdgeCoverageCpu clears active edges on torn-adjacent triangles', () => {
+  const dress = {
+    triCount: 2,
+    triEdge0: new Uint32Array([0, 0]),
+    triEdge1: new Uint32Array([1, 2]),
+    triEdge2: new Uint32Array([2, 1]),
+    triSimV0: new Uint32Array([0, 0]),
+    triSimV1: new Uint32Array([1, 1]),
+    triSimV2: new Uint32Array([2, 2]),
+  };
+  const edgeActive = new Uint32Array([0, 1, 1]);
+  const structural = [
+    { id: 0, v0: 0, v1: 1 },
+    { id: 1, v0: 1, v1: 2 },
+    { id: 2, v0: 0, v1: 2 },
+  ];
+
+  const tornAdjacent = collectTornAdjacentActiveEdgeIds(dress, edgeActive).sort();
+  assert.deepEqual(tornAdjacent, [1, 2]);
+
+  const covered = computeStrandEdgeCoverageCpu(dress, edgeActive, { structuralEdges: structural });
+  assert.equal(covered.has(1), false);
+  assert.equal(covered.has(2), false);
+
+  const required = collectStrandRequiredEdgeIds(structural, edgeActive, () => false, covered);
+  assert.deepEqual(required.sort(), [1, 2]);
 });
 
 test('collectParticleRenderCoveredEdgeIds marks intact triangle edges', () => {

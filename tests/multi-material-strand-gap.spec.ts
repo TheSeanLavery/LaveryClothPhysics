@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { attachConsoleCapture, formatCapturedConsole } from './helpers/consoleCapture';
 
-interface StrandThreadAuditResult {
+interface StrandGapAuditResult {
   frameCount: number;
   brokenEdgeCount: number;
   requiredCount: number;
@@ -21,16 +21,16 @@ async function waitForFrames(page: import('@playwright/test').Page, count: numbe
   );
 }
 
-async function waitForStableStrandCoverage(
+async function waitForSdfGapStrands(
   page: import('@playwright/test').Page,
-  maxAttempts = 40,
-): Promise<StrandThreadAuditResult> {
-  let lastAudit: StrandThreadAuditResult | null = null;
+  maxAttempts = 48,
+): Promise<StrandGapAuditResult> {
+  let lastAudit: StrandGapAuditResult | null = null;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     await page.waitForTimeout(250);
     lastAudit = await page.evaluate(async () => window.__multiMaterialAuditStrandThreads?.() ?? null);
-    expect(lastAudit, 'assembly strand audit API should be available').not.toBeNull();
+    expect(lastAudit, 'strand gap audit API should be available').not.toBeNull();
 
     if (
       lastAudit!.brokenEdgeCount > 0 &&
@@ -45,8 +45,8 @@ async function waitForStableStrandCoverage(
   return lastAudit!;
 }
 
-test.describe('multi-material assembly strand threads', () => {
-  test('renders GPU strand threads for uncovered edges after tearing', async ({ page }) => {
+test.describe('multi-material SDF tear gap strand threads', () => {
+  test('shows GPU strands on torn-adjacent edges across SDF holes', async ({ page }) => {
     test.setTimeout(120_000);
 
     const consoleCapture = attachConsoleCapture(page);
@@ -62,12 +62,13 @@ test.describe('multi-material assembly strand threads', () => {
       await window.__multiMaterialForceTearThresholdForTest?.(1.02);
       window.__multiMaterialApplySettings?.({
         renderStrandThreads: true,
-        strandThreadRadius: 0.01,
+        strandThreadRadius: 0.014,
         tearStretchThreshold: 1.02,
         tearMeshing: 'sdf',
-        tearSdfCornerRadius: 0.28,
-        windStrength: 22,
-        windTurbulence: 12,
+        tearSdfCornerRadius: 0.35,
+        tearFringeWidth: 0.075,
+        windStrength: 18,
+        windTurbulence: 10,
         grabStiffness: 0.35,
         grabMaxStep: 0.01,
         selfCollision: true,
@@ -79,36 +80,38 @@ test.describe('multi-material assembly strand threads', () => {
     await page.evaluate(async () => {
       const measure = window.__multiMaterialMeasurePerformance;
       const targets = window.__multiMaterialPatchGrabTargets?.() ?? {};
-      if (!measure) {
-        throw new Error('Missing __multiMaterialMeasurePerformance hook');
+      const target = targets['dangle-soft'];
+      if (!measure || !target) {
+        throw new Error('Missing dangle-soft grab target for SDF gap strand test');
       }
 
-      for (const patchKey of ['dangle-soft', 'dangle-stiff', 'banner-c'] as const) {
-        const target = targets[patchKey];
-        if (!target) {
-          continue;
-        }
-        await measure({
-          label: `tear-${patchKey}`,
-          durationMs: 3_000,
-          warmupMs: 150,
-          grab: {
-            ndcX: target.ndcX,
-            ndcY: target.ndcY,
-            dragNdcPerFrame: { x: 0.004, y: -0.008 },
-          },
-        });
-      }
+      await measure({
+        label: 'sdf-gap-dangle-soft',
+        durationMs: 4_500,
+        warmupMs: 200,
+        grab: {
+          ndcX: target.ndcX,
+          ndcY: target.ndcY,
+          dragNdcPerFrame: { x: 0.003, y: -0.01 },
+        },
+      });
     });
 
-    await waitForFrames(page, startFrame + 480);
+    await waitForFrames(page, startFrame + 540);
 
-    const audit = await waitForStableStrandCoverage(page);
-    expect(audit.brokenEdgeCount, 'expected at least one torn edge').toBeGreaterThan(0);
-    expect(audit.tornAdjacentCount, 'expected active edges along tear boundaries').toBeGreaterThan(0);
-    expect(audit.tornAdjacentMissingEdgeIds.length).toBeLessThanOrEqual(3);
-    expect(audit.tornAdjacentVisibleCount).toBeGreaterThanOrEqual(audit.tornAdjacentCount - 3);
-    expect(audit.tornAdjacentVisibleCount, 'tear-boundary threads must render').toBeGreaterThan(8);
+    const audit = await waitForSdfGapStrands(page);
+    if (audit.missingEdgeIds.length > 0 || audit.coverageMismatchEdgeIds.length > 0) {
+      console.log('strand gap audit debug', {
+        missing: audit.missingEdgeIds.slice(0, 20),
+        coverageMismatch: audit.coverageMismatchEdgeIds.slice(0, 20),
+        tornAdjacentMissing: audit.tornAdjacentMissingEdgeIds.slice(0, 20),
+      });
+    }
+    expect(audit.brokenEdgeCount, 'expected SDF tear to break edges').toBeGreaterThan(0);
+    expect(audit.tornAdjacentCount, 'expected active edges along SDF tear boundary').toBeGreaterThan(0);
+    expect(audit.tornAdjacentMissingEdgeIds.length).toBeLessThanOrEqual(2);
+    expect(audit.tornAdjacentVisibleCount).toBeGreaterThanOrEqual(audit.tornAdjacentCount - 2);
+    expect(audit.tornAdjacentVisibleCount, 'SDF tear boundary threads must render').toBeGreaterThan(8);
 
     expect(consoleCapture.errors, formatCapturedConsole(consoleCapture)).toEqual([]);
   });

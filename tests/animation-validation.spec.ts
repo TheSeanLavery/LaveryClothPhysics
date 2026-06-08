@@ -8,7 +8,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('animation validation', () => {
   test('animation studio route opens the animation browser instead of the flag page', async ({ page }) => {
-    await page.goto('http://localhost:5174/?mode=animations');
+    await page.goto('/?mode=animations');
 
     await expect(page.locator('#overlay h1')).toHaveText('Animation Browser', {
       timeout: 30_000,
@@ -19,7 +19,7 @@ test.describe('animation validation', () => {
   });
 
   test('existing animations load and play on the character rig', async ({ page }) => {
-    await page.goto('http://localhost:5174/?mode=character');
+    await page.goto('/?mode=character');
     await page.waitForFunction(
       () => (window as any).__characterStats?.()?.loaded === true,
       { timeout: 30_000 },
@@ -42,7 +42,7 @@ test.describe('animation validation', () => {
   });
 
   test('character bone names match expected Mixamo rig', async ({ page }) => {
-    await page.goto('http://localhost:5174/?mode=character');
+    await page.goto('/?mode=character');
     await page.waitForFunction(
       () => (window as any).__characterStats?.()?.loaded === true,
       { timeout: 30_000 },
