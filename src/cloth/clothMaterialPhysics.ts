@@ -1,32 +1,45 @@
 import type { ClothMaterialDefinition, ClothMaterialLibrary } from './clothMaterialSchema.ts';
 import type { InextensibleFlagSettings } from '../sim/InextensibleFlagSettings.ts';
-import { materialBendScale, MULTI_MATERIAL_LIBRARY_PATCH_BINDINGS, type MultiMaterialLibraryPatchBinding } from './clothMaterialBend.ts';
-import { materialDampeningScale } from './clothMaterialDampening.ts';
+import {
+  MULTI_MATERIAL_LIBRARY_PATCH_BINDINGS,
+  SEGMENT_COLOR_PATCH_KEYS,
+  type MultiMaterialLibraryPatchBinding,
+} from './clothMaterialBend.ts';
 
-export interface AssemblyMaterialScaleMaps {
+export { SEGMENT_COLOR_PATCH_KEYS };
+
+export interface AssemblyMaterialMaps {
   readonly dampening: Record<string, number>;
-  readonly bend: Record<string, number>;
+  readonly bendStiffness: Record<string, number>;
   readonly structural: Record<string, number>;
   readonly compression: Record<string, number>;
   readonly tearThreshold: Record<string, number>;
 }
 
-/** Absolute edge strain ratio before tearing (rest length multiplier). */
-export function materialAbsoluteTearThreshold(
+/** @deprecated Use {@link AssemblyMaterialMaps}. */
+export type AssemblyMaterialScaleMaps = AssemblyMaterialMaps;
+
+export function materialDampening(
   material: ClothMaterialDefinition,
-  globalTearStretchThreshold: number,
+  fallbackDampening: number,
 ): number {
-  const strain = material.settings.tearStretchThreshold ?? globalTearStretchThreshold;
-  return Math.max(strain * material.physics.tearThresholdScale, 0.5);
+  return material.settings.dampening ?? fallbackDampening;
 }
 
-/** Relative tear strain multiplier vs the scene tearStretchThreshold uniform. */
-export function materialTearThresholdScale(
+export function materialBendStiffness(
   material: ClothMaterialDefinition,
-  baseTearStretchThreshold: number,
+  fallbackBendStiffness: number,
 ): number {
-  const base = Math.max(baseTearStretchThreshold, 1e-6);
-  return materialAbsoluteTearThreshold(material, baseTearStretchThreshold) / base;
+  return Math.max(material.settings.bendStiffness ?? fallbackBendStiffness, 0);
+}
+
+/** Absolute edge strain ratio before tearing (rest length multiplier). */
+export function materialTearThreshold(
+  material: ClothMaterialDefinition,
+  fallbackTearStretchThreshold: number,
+): number {
+  const strain = material.settings.tearStretchThreshold ?? fallbackTearStretchThreshold;
+  return Math.max(strain, 0.5);
 }
 
 export function materialStructuralScale(material: ClothMaterialDefinition): number {
@@ -67,25 +80,28 @@ export function buildPatchSegmentColorsFromLibrary(
   return colors;
 }
 
-export function buildAssemblyMaterialScaleMaps(
+export function buildAssemblyMaterialMaps(
   library: ClothMaterialLibrary,
-  baseSettings: InextensibleFlagSettings,
+  sceneFallbacks: Pick<InextensibleFlagSettings, 'dampening' | 'bendStiffness' | 'tearStretchThreshold'>,
   bindings: readonly MultiMaterialLibraryPatchBinding[] = MULTI_MATERIAL_LIBRARY_PATCH_BINDINGS,
-): AssemblyMaterialScaleMaps {
+): AssemblyMaterialMaps {
   const byPatch = materialByPatchBindings(library, bindings);
   const dampening: Record<string, number> = {};
-  const bend: Record<string, number> = {};
+  const bendStiffness: Record<string, number> = {};
   const structural: Record<string, number> = {};
   const compression: Record<string, number> = {};
   const tearThreshold: Record<string, number> = {};
 
   for (const [patchKey, material] of byPatch) {
-    dampening[patchKey] = materialDampeningScale(material, baseSettings.dampening);
-    bend[patchKey] = materialBendScale(material, baseSettings.bendStiffness);
+    dampening[patchKey] = materialDampening(material, sceneFallbacks.dampening);
+    bendStiffness[patchKey] = materialBendStiffness(material, sceneFallbacks.bendStiffness);
     structural[patchKey] = materialStructuralScale(material);
     compression[patchKey] = materialCompressionScale(material);
-    tearThreshold[patchKey] = materialAbsoluteTearThreshold(material, baseSettings.tearStretchThreshold);
+    tearThreshold[patchKey] = materialTearThreshold(material, sceneFallbacks.tearStretchThreshold);
   }
 
-  return { dampening, bend, structural, compression, tearThreshold };
+  return { dampening, bendStiffness, structural, compression, tearThreshold };
 }
+
+/** @deprecated Use {@link buildAssemblyMaterialMaps}. */
+export const buildAssemblyMaterialScaleMaps = buildAssemblyMaterialMaps;

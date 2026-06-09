@@ -3,6 +3,7 @@ import type { InextensibleFlagSimulation } from '../sim/InextensibleFlagSimulati
 import { embedGuiInDock } from './ControlsDock.ts';
 import { makeDraggableLilGui } from './draggableFloating.ts';
 import { cloneFlagSettings } from '../sim/settingsPreset';
+import { CLOTH_SOLVER_SLIDER_RANGES } from '../cloth/clothSolverSliderRanges.ts';
 import {
   deleteFlagSettingsPreset,
   getFlagSettingsPreset,
@@ -17,6 +18,8 @@ export interface InextensibleFlagControlsOptions {
   collisionUi?: 'mannequin' | 'boneSdf';
   /** Mount inside a {@link createControlsDock} shell instead of fixed viewport positioning. */
   container?: HTMLElement;
+  /** Hide scene-wide solver sliders that are owned by the per-material editor. */
+  perMaterialSolver?: boolean;
 }
 
 function refreshGuiControllers(gui: GUI): void {
@@ -248,7 +251,18 @@ export function createInextensibleFlagControls(
     .add(settings, 'constraintIterations', 1, 48, 1)
     .name('Constraint iterations')
     .onChange(sync);
-  physicsFolder.add(settings, 'bendStiffness', 0, 1, 0.01).name('Bend stiff').onChange(sync);
+  if (!options.perMaterialSolver) {
+    const bendRange = CLOTH_SOLVER_SLIDER_RANGES.bendStiffness;
+    const dampeningRange = CLOTH_SOLVER_SLIDER_RANGES.dampening;
+    physicsFolder
+      .add(settings, 'bendStiffness', bendRange.min, bendRange.max, bendRange.step)
+      .name('Bend stiff')
+      .onChange(sync);
+    physicsFolder
+      .add(settings, 'dampening', dampeningRange.min, dampeningRange.max, dampeningRange.step)
+      .name('Dampening')
+      .onChange(sync);
+  }
   physicsFolder
     .add(settings, 'minCompression', 0.7, 1, 0.01)
     .name('Min compression')
@@ -256,7 +270,6 @@ export function createInextensibleFlagControls(
   physicsFolder.add(settings, 'clothThickness', 0.005, 0.06, 0.001).name('Cloth thickness').onChange(sync);
   physicsFolder.add(settings, 'selfCollision').name('Self collision').onChange(sync);
   physicsFolder.add(settings, 'poleCollision').name('Pole collision').onChange(sync);
-  physicsFolder.add(settings, 'dampening', 0.8, 0.9999, 0.0001).name('Dampening').onChange(sync);
   physicsFolder.add(settings, 'grabRadius', 0.015, 0.18, 0.005).name('Grab radius').onChange(sync);
   physicsFolder.add(settings, 'grabStiffness', 0.05, 1, 0.01).name('Grab stiffness').onChange(sync);
   physicsFolder.add(settings, 'grabMaxStep', 0.002, 0.08, 0.001).name('Grab max step').onChange(sync);
@@ -282,10 +295,13 @@ export function createInextensibleFlagControls(
   }
 
   const tearingFolder = gui.addFolder('Tearing & BB');
-  tearingFolder
-    .add(settings, 'tearStretchThreshold', 1.0, 20.0, 0.01)
-    .name('Strain tear ratio')
-    .onChange(sync);
+  if (!options.perMaterialSolver) {
+    const tearRange = CLOTH_SOLVER_SLIDER_RANGES.tearStretchThreshold;
+    tearingFolder
+      .add(settings, 'tearStretchThreshold', tearRange.min, tearRange.max, tearRange.step)
+      .name('Strain tear ratio')
+      .onChange(sync);
+  }
   tearingFolder
     .add(settings, 'tearFringeWidth', 0.01, 0.35, 0.005)
     .name('Tear fringe width')

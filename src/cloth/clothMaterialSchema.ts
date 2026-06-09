@@ -1,14 +1,16 @@
-import type { InextensibleFlagSettings } from '../sim/InextensibleFlagSettings.ts';
-import { normalizeFlagSettings } from '../sim/settingsPreset.ts';
-
 export const CLOTH_MATERIAL_LIBRARY_TYPE = 'lavery-cloth-material-library';
 export const CLOTH_MATERIAL_LIBRARY_VERSION = 1;
 
-/** Per-panel sim/render multipliers (GPU segment table will index these). */
+/** Absolute per-material solver values used by the GPU assembly path. */
+export interface ClothMaterialSolverSettings {
+  readonly dampening: number;
+  readonly bendStiffness: number;
+  readonly tearStretchThreshold: number;
+}
+
+/** Reserved multipliers for future per-material collision / duel wiring. */
 export interface ClothMaterialPhysics {
-  readonly tearThresholdScale: number;
   readonly structuralScale: number;
-  readonly bendScale: number;
   readonly compressionScale: number;
   readonly friction: number;
   readonly damageRate: number;
@@ -21,8 +23,7 @@ export interface ClothMaterialDefinition {
   readonly color: string;
   readonly createdAt: number;
   readonly updatedAt: number;
-  /** Base solver settings shared with flag sim (my-preset shape). */
-  readonly settings: Partial<InextensibleFlagSettings>;
+  readonly settings: ClothMaterialSolverSettings;
   readonly physics: ClothMaterialPhysics;
 }
 
@@ -32,10 +33,15 @@ export interface ClothMaterialLibrary {
   readonly materials: readonly ClothMaterialDefinition[];
 }
 
+/** Matches {@link getMyPresetSettings} defaults from my-preset.json. */
+export const DEFAULT_CLOTH_MATERIAL_SOLVER_SETTINGS = (): ClothMaterialSolverSettings => ({
+  dampening: 0.9925,
+  bendStiffness: 0.01,
+  tearStretchThreshold: 4,
+});
+
 export const DEFAULT_CLOTH_MATERIAL_PHYSICS: Readonly<ClothMaterialPhysics> = {
-  tearThresholdScale: 1,
   structuralScale: 1,
-  bendScale: 1,
   compressionScale: 1,
   friction: 0.85,
   damageRate: 1,
@@ -51,21 +57,36 @@ export function createClothMaterialId(name: string): string {
   return `${slug || 'material'}-${Date.now().toString(36)}`;
 }
 
+export function normalizeClothMaterialSolverSettings(
+  raw: unknown,
+  defaults: ClothMaterialSolverSettings = DEFAULT_CLOTH_MATERIAL_SOLVER_SETTINGS(),
+): ClothMaterialSolverSettings {
+  const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+  return {
+    dampening: typeof record.dampening === 'number' ? record.dampening : defaults.dampening,
+    bendStiffness: typeof record.bendStiffness === 'number' ? record.bendStiffness : defaults.bendStiffness,
+    tearStretchThreshold: typeof record.tearStretchThreshold === 'number'
+      ? record.tearStretchThreshold
+      : defaults.tearStretchThreshold,
+  };
+}
+
 export function createClothMaterialDefinition(
   name: string,
   options: {
-    readonly settings?: Partial<InextensibleFlagSettings>;
+    readonly settings?: Partial<ClothMaterialSolverSettings>;
     readonly physics?: Partial<ClothMaterialPhysics>;
     readonly color?: string;
     readonly id?: string;
   } = {},
 ): ClothMaterialDefinition {
   const now = Date.now();
-  const settings = normalizeFlagSettings(options.settings ?? {});
+  const defaults = DEFAULT_CLOTH_MATERIAL_SOLVER_SETTINGS();
+  const settings = normalizeClothMaterialSolverSettings(options.settings, defaults);
   return {
     id: options.id ?? createClothMaterialId(name),
     name,
-    color: options.color ?? settings.flagColor,
+    color: options.color ?? '#ffffff',
     createdAt: now,
     updatedAt: now,
     settings,
@@ -92,6 +113,7 @@ export function normalizeClothMaterialLibrary(raw: unknown): ClothMaterialLibrar
     return emptyClothMaterialLibrary();
   }
   const record = raw as Record<string, unknown>;
+  const defaults = DEFAULT_CLOTH_MATERIAL_SOLVER_SETTINGS();
   const materials = Array.isArray(record.materials)
     ? record.materials
         .filter((entry): entry is ClothMaterialDefinition => (
@@ -102,7 +124,7 @@ export function normalizeClothMaterialLibrary(raw: unknown): ClothMaterialLibrar
         ))
         .map((entry) => ({
           ...entry,
-          settings: normalizeFlagSettings(entry.settings ?? {}),
+          settings: normalizeClothMaterialSolverSettings(entry.settings, defaults),
           physics: { ...DEFAULT_CLOTH_MATERIAL_PHYSICS, ...entry.physics },
         }))
     : [];

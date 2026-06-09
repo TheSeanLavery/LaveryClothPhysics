@@ -8,6 +8,7 @@ export interface ClothDevPanelOptions {
   readonly side?: 'left' | 'right';
   readonly defaultOpen?: boolean;
   readonly collisionUi?: 'mannequin' | 'boneSdf';
+  readonly perMaterialSolver?: boolean;
 }
 
 export function createClothPanelDefinition(
@@ -24,6 +25,7 @@ export function createClothPanelDefinition(
       title: options.title,
       testId: `${options.testId}-gui`,
       collisionUi: options.collisionUi,
+      perMaterialSolver: options.perMaterialSolver,
       container,
     }),
   };

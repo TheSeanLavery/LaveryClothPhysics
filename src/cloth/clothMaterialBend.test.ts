@@ -1,24 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildDefaultClothMaterialLibrarySeed } from './clothMaterialsLibrary.ts';
-import {
-  buildMaterialBendScaleByPatchKey,
-  materialBendScale,
-} from './clothMaterialBend.ts';
-import { getMyPresetSettings } from './myPresetDefaults.ts';
+import { buildMaterialBendStiffnessByPatchKey } from './clothMaterialBend.ts';
 
-test('multi-material seed uses unified bend scales', () => {
+test('multi-material seed uses absolute bend stiffness from preset', () => {
   const library = buildDefaultClothMaterialLibrarySeed();
-  const base = getMyPresetSettings();
-  const scales = buildMaterialBendScaleByPatchKey(library, base);
+  const bendStiffness = buildMaterialBendStiffnessByPatchKey(library, { bendStiffness: 0.01 });
   for (const key of ['banner-a', 'banner-b', 'banner-c', 'dangle-soft', 'dangle-stiff']) {
-    assert.ok(Math.abs(scales[key]! - 1) < 0.01, `${key} bend scale should stay at preset unity`);
+    assert.ok(Math.abs(bendStiffness[key]! - 0.01) < 0.001, `${key} bend stiffness should match preset`);
   }
-});
-
-test('materialBendScale stays at unity when preset bend matches', () => {
-  const library = buildDefaultClothMaterialLibrarySeed();
-  const banner = library.materials.find((entry) => entry.name === 'Banner A')!;
-  const base = getMyPresetSettings();
-  assert.ok(Math.abs(materialBendScale(banner, base.bendStiffness) - 1) < 0.01);
 });

@@ -1,8 +1,9 @@
 import type { ClothSimulation } from '../../cloth';
-import type { AssemblyMaterialScaleMaps } from '../../cloth/clothMaterialPhysics.ts';
+import type { AssemblyMaterialMaps } from '../../cloth/clothMaterialPhysics.ts';
 import type { ClothMaterialsPanelApi } from '../../dev/panels/clothMaterialsPanelApi.ts';
 import {
   hexToRgb,
+  linearRgbFromHex,
   rgbDistance,
   sampleCanvasRgbAtNdc,
   sampleCanvasRgbPatch,
@@ -11,13 +12,14 @@ import {
 
 export interface MultiMaterialMaterialAudit {
   readonly patchColors: Readonly<Record<string, string>>;
-  readonly libraryScales: AssemblyMaterialScaleMaps;
+  readonly gpuSegmentColors: ReturnType<ClothSimulation['auditSegmentGpuColors']>;
+  readonly libraryScales: AssemblyMaterialMaps;
   readonly livePatchScalars: ReturnType<ClothSimulation['auditPatchMaterialScalars']>;
 }
 
 export function wireMultiMaterialMaterialEditor(options: {
   readonly cloth: ClothSimulation;
-  readonly getLibraryScales: () => AssemblyMaterialScaleMaps;
+  readonly getLibraryScales: () => AssemblyMaterialMaps;
   readonly getPatchColors: () => Readonly<Record<string, string>>;
   readonly getPanelApi: () => ClothMaterialsPanelApi | undefined;
   readonly getPresentationWait: () => Promise<void>;
@@ -25,6 +27,7 @@ export function wireMultiMaterialMaterialEditor(options: {
   window.__multiMaterialMaterialPanel = () => options.getPanelApi();
   window.__multiMaterialMaterialAudit = (): MultiMaterialMaterialAudit => ({
     patchColors: { ...options.getPatchColors() },
+    gpuSegmentColors: options.cloth.auditSegmentGpuColors(),
     libraryScales: options.getLibraryScales(),
     livePatchScalars: options.cloth.auditPatchMaterialScalars(),
   });
@@ -42,6 +45,7 @@ export function wireMultiMaterialMaterialEditor(options: {
     hexColor: string,
   ): number => rgbDistance(sampleRgb, hexToRgb(hexColor));
   window.__multiMaterialWaitForPresentation = () => options.getPresentationWait();
+  window.__multiMaterialLinearRgbFromHex = (hex: string) => linearRgbFromHex(hex);
 
   return () => {
     delete window.__multiMaterialMaterialPanel;
@@ -71,5 +75,6 @@ declare global {
       hexColor: string,
     ) => number;
     __multiMaterialWaitForPresentation?: () => Promise<void>;
+    __multiMaterialLinearRgbFromHex?: (hex: string) => readonly [number, number, number];
   }
 }

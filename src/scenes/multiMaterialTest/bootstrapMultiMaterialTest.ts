@@ -6,9 +6,9 @@ import {
   type ClothSimulationStats,
 } from '../../cloth';
 import {
-  buildAssemblyMaterialScaleMaps,
+  buildAssemblyMaterialMaps,
   buildPatchSegmentColorsFromLibrary,
-  type AssemblyMaterialScaleMaps,
+  type AssemblyMaterialMaps,
 } from '../../cloth/clothMaterialPhysics.ts';
 import { applyMyPresetToCharacterCloth } from '../../cloth/myPresetDefaults.ts';
 import {
@@ -172,39 +172,40 @@ export async function bootstrapMultiMaterialTest(
   cloth.applySettings();
   await cloth.init();
 
-  let materialScales = buildAssemblyMaterialScaleMaps(library, cloth.settings);
+  let materialMaps = buildAssemblyMaterialMaps(library, cloth.settings);
   const patchColorsByKey: Record<string, string> = { ...colorByKey };
   const applyMaterialLibrary = (
     nextLibrary: typeof library,
     options: { readonly refreshColors?: boolean } = {},
   ): void => {
-    materialScales = buildAssemblyMaterialScaleMaps(nextLibrary, cloth.settings);
+    materialMaps = buildAssemblyMaterialMaps(nextLibrary, cloth.settings);
     const nextPatchColors = buildPatchSegmentColorsFromLibrary(nextLibrary);
     const refreshColors = options.refreshColors ?? true;
-    const colorsChanged = Object.keys(nextPatchColors).some(
-      (patchKey) => patchColorsByKey[patchKey] !== nextPatchColors[patchKey],
-    );
     Object.assign(patchColorsByKey, nextPatchColors);
     cloth.refreshAssemblyMaterialScalars({
-      materialBendScaleByKey: materialScales.bend,
-      materialDampeningScaleByKey: materialScales.dampening,
-      materialStructuralScaleByKey: materialScales.structural,
-      materialCompressionScaleByKey: materialScales.compression,
-      materialAbsoluteTearThresholdByKey: materialScales.tearThreshold,
+      materialBendStiffnessByKey: materialMaps.bendStiffness,
+      materialDampeningByKey: materialMaps.dampening,
+      materialStructuralScaleByKey: materialMaps.structural,
+      materialCompressionScaleByKey: materialMaps.compression,
+      materialTearThresholdByKey: materialMaps.tearThreshold,
       globalTearStretchThreshold: cloth.settings.tearStretchThreshold,
-      ...(refreshColors && colorsChanged ? { patchSegmentColorByKey: nextPatchColors } : {}),
+      globalDampening: cloth.settings.dampening,
+      globalBendStiffness: cloth.settings.bendStiffness,
+      ...(refreshColors ? { patchSegmentColorByKey: nextPatchColors } : {}),
     });
   };
 
   await cloth.loadClothAssembly(assembly, {
     pinVertexYAtOrAbove: MULTI_MATERIAL_DEFAULT_PIN_TOP_Y + MULTI_MATERIAL_DEFAULT_BANNER_HEIGHT,
     stitchWeldMode: 'weld',
-    materialBendScaleByKey: materialScales.bend,
-    materialDampeningScaleByKey: materialScales.dampening,
-    materialStructuralScaleByKey: materialScales.structural,
-    materialCompressionScaleByKey: materialScales.compression,
-    materialAbsoluteTearThresholdByKey: materialScales.tearThreshold,
+    materialBendStiffnessByKey: materialMaps.bendStiffness,
+    materialDampeningByKey: materialMaps.dampening,
+    materialStructuralScaleByKey: materialMaps.structural,
+    materialCompressionScaleByKey: materialMaps.compression,
+    materialTearThresholdByKey: materialMaps.tearThreshold,
     globalTearStretchThreshold: cloth.settings.tearStretchThreshold,
+    globalDampening: cloth.settings.dampening,
+    globalBendStiffness: cloth.settings.bendStiffness,
     patchSegmentColorByKey: colorByKey,
     resolvePatchMaterialKey: patchIdToMaterialKey,
   });
@@ -237,17 +238,13 @@ export async function bootstrapMultiMaterialTest(
                 ...material,
                 color: draft.color,
                 settings: {
-                  ...material.settings,
                   dampening: draft.dampening,
                   bendStiffness: draft.bendStiffness,
                   tearStretchThreshold: draft.tearStretchThreshold,
-                  flagColor: draft.color,
                 },
                 physics: {
                   ...material.physics,
-                  tearThresholdScale: draft.tearThresholdScale,
                   structuralScale: draft.structuralScale,
-                  bendScale: draft.bendScale,
                   compressionScale: draft.compressionScale,
                 },
               }
@@ -260,7 +257,7 @@ export async function bootstrapMultiMaterialTest(
 
   wireMultiMaterialMaterialEditor({
     cloth,
-    getLibraryScales: () => materialScales,
+    getLibraryScales: () => materialMaps,
     getPatchColors: () => patchColorsByKey,
     getPanelApi: () => materialPanelApi,
     getPresentationWait: () => cloth.waitForPresentationCompile(),
@@ -269,9 +266,9 @@ export async function bootstrapMultiMaterialTest(
   const patchIds = new Set(assembly.vertices.map((vertex) => vertex.patchId));
 
   window.__multiMaterialAssembly = () => assembly;
-  window.__multiMaterialMaterialDampeningScales = () => materialScales.dampening;
-  window.__multiMaterialMaterialTearThresholdScales = () => materialScales.tearThreshold;
-  window.__multiMaterialMaterialStructuralScales = () => materialScales.structural;
+  window.__multiMaterialMaterialDampeningScales = () => materialMaps.dampening;
+  window.__multiMaterialMaterialTearThresholdScales = () => materialMaps.tearThreshold;
+  window.__multiMaterialMaterialStructuralScales = () => materialMaps.structural;
   window.__multiMaterialWaitWallClockForTest = (seconds: number) => new Promise<void>((resolve) => {
     window.setTimeout(resolve, Math.max(0, seconds) * 1000);
   });
@@ -404,14 +401,14 @@ export async function bootstrapMultiMaterialTest(
   window.__multiMaterialParticleRenderEdgeKindsForTest = () => cloth.getParticleRenderEdgeKindAudit();
   window.__multiMaterialForceTearThresholdForTest = async (threshold: number) => {
     const patchKeys = ['banner-a', 'banner-b', 'banner-c', 'dangle-soft', 'dangle-stiff'];
-    const materialAbsoluteTearThresholdByKey = Object.fromEntries(
+    const materialTearThresholdByKey = Object.fromEntries(
       patchKeys.map((patchKey) => [patchKey, threshold]),
     );
     await cloth.loadSettingsPreset(
       normalizeClothSettings({ ...cloth.settings, tearStretchThreshold: threshold }),
     );
     cloth.refreshAssemblyMaterialScalars({
-      materialAbsoluteTearThresholdByKey,
+      materialTearThresholdByKey,
       globalTearStretchThreshold: threshold,
     });
   };

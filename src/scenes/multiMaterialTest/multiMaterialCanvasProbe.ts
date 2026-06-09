@@ -1,3 +1,11 @@
+import * as THREE from 'three';
+
+/** GPU segment colors use the same linear RGB encoding as {@link THREE.Color}. */
+export function linearRgbFromHex(hex: string): readonly [number, number, number] {
+  const color = new THREE.Color(hex);
+  return [color.r, color.g, color.b];
+}
+
 export interface CanvasRgbSample {
   readonly ndcX: number;
   readonly ndcY: number;

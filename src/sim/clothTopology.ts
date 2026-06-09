@@ -1,4 +1,5 @@
 import * as THREE from 'three/webgpu';
+import { SEGMENT_COLOR_PATCH_KEYS } from '../cloth/clothMaterialBend.ts';
 import type { ClothAssembly } from '../cloth/patternAssembly';
 
 export type ClothTopologyKind = 'grid' | 'tube' | 'assembly';
@@ -195,10 +196,14 @@ export interface AssemblyClothTopologyOptions {
   /** Pin particles on this Y (±1e-5) when any merged vertex patchId contains the substring. */
   readonly pinVertexYEqual?: number;
   readonly pinOnlyPatchIdContaining?: string;
-  /** Material-key → bend scale; use with resolvePatchMaterialKey. */
-  readonly materialBendScaleByKey?: Readonly<Record<string, number>>;
-  /** Material-key → dampening scale; use with resolvePatchMaterialKey. */
-  readonly materialDampeningScaleByKey?: Readonly<Record<string, number>>;
+  /** Scene dampening fallback when using absolute per-material dampening maps. */
+  readonly globalDampening?: number;
+  /** Scene bend stiffness fallback when using absolute per-material bend maps. */
+  readonly globalBendStiffness?: number;
+  /** Material-key → absolute bend stiffness; use with resolvePatchMaterialKey. */
+  readonly materialBendStiffnessByKey?: Readonly<Record<string, number>>;
+  /** Material-key → absolute velocity dampening; use with resolvePatchMaterialKey. */
+  readonly materialDampeningByKey?: Readonly<Record<string, number>>;
   /** Material-key → structural/shear stiffness scale. */
   readonly materialStructuralScaleByKey?: Readonly<Record<string, number>>;
   /** Material-key → compression resistance scale. */
@@ -206,6 +211,12 @@ export interface AssemblyClothTopologyOptions {
   /** Scene-wide tear strain ratio used when a patch has no material override. */
   readonly globalTearStretchThreshold?: number;
   /** Material-key → absolute tear strain ratio (rest-length multiplier). */
+  readonly materialTearThresholdByKey?: Readonly<Record<string, number>>;
+  /** @deprecated Use {@link materialBendStiffnessByKey}. */
+  readonly materialBendScaleByKey?: Readonly<Record<string, number>>;
+  /** @deprecated Use {@link materialDampeningByKey}. */
+  readonly materialDampeningScaleByKey?: Readonly<Record<string, number>>;
+  /** @deprecated Use {@link materialTearThresholdByKey}. */
   readonly materialAbsoluteTearThresholdByKey?: Readonly<Record<string, number>>;
   /** Material-key → display color (RGB hex) for GPU segment shading. */
   readonly patchSegmentColorByKey?: Readonly<Record<string, string>>;
@@ -293,23 +304,29 @@ export function buildAssemblyClothTopology(
       && vertexIds.some((vertexId) => assembly.vertices[vertexId]!.patchId.includes(pinPatchNeedle))
     );
 
-    let bendScale = 1;
-    let dampeningScale = 1;
+    const absoluteBend = options.materialBendStiffnessByKey !== undefined;
+    const absoluteDampening = options.materialDampeningByKey !== undefined;
+    let bendScale = absoluteBend ? 0 : 1;
+    let dampeningScale = absoluteDampening ? 0 : 1;
     let structuralScale = 1;
     let compressionScale = 1;
     let renderSegmentId = 0;
     const globalTear = options.globalTearStretchThreshold ?? 4;
     let tearThresholdScale = globalTear;
     let hasMaterialTear = false;
-    const bendByKey = options.materialBendScaleByKey;
-    const dampeningByKey = options.materialDampeningScaleByKey;
+    const bendByKey = options.materialBendStiffnessByKey ?? options.materialBendScaleByKey;
+    const dampeningByKey = options.materialDampeningByKey ?? options.materialDampeningScaleByKey;
     const structuralByKey = options.materialStructuralScaleByKey;
     const compressionByKey = options.materialCompressionScaleByKey;
-    const tearByKey = options.materialAbsoluteTearThresholdByKey;
+    const tearByKey = options.materialTearThresholdByKey ?? options.materialAbsoluteTearThresholdByKey;
     const resolveKey = options.resolvePatchMaterialKey;
     const segmentColors = options.patchSegmentColorByKey;
     const keyToSegmentId = segmentColors && resolveKey
-      ? new Map(Object.keys(segmentColors).map((key, index) => [key, index]))
+      ? new Map(
+          SEGMENT_COLOR_PATCH_KEYS
+            .filter((key) => segmentColors[key] !== undefined)
+            .map((key, index) => [key, index]),
+        )
       : null;
     if (resolveKey) {
       for (const vertexId of vertexIds) {
@@ -319,10 +336,24 @@ export function buildAssemblyClothTopology(
           renderSegmentId = Math.max(renderSegmentId, keyToSegmentId.get(key) ?? 0);
         }
         if (bendByKey) {
-          bendScale = Math.max(bendScale, bendByKey[key] ?? 1);
+          const bendValue = bendByKey[key];
+          if (bendValue !== undefined) {
+            bendScale = absoluteBend
+              ? Math.max(bendScale, bendValue)
+              : Math.max(bendScale, bendValue);
+          } else if (!absoluteBend) {
+            bendScale = Math.max(bendScale, 1);
+          }
         }
         if (dampeningByKey) {
-          dampeningScale = Math.max(dampeningScale, dampeningByKey[key] ?? 1);
+          const dampeningValue = dampeningByKey[key];
+          if (dampeningValue !== undefined) {
+            dampeningScale = absoluteDampening
+              ? Math.max(dampeningScale, dampeningValue)
+              : Math.max(dampeningScale, dampeningValue);
+          } else if (!absoluteDampening) {
+            dampeningScale = Math.max(dampeningScale, 1);
+          }
         }
         if (structuralByKey) {
           structuralScale = Math.max(structuralScale, structuralByKey[key] ?? 1);
@@ -338,6 +369,13 @@ export function buildAssemblyClothTopology(
           hasMaterialTear = true;
         }
       }
+    }
+
+    if (absoluteBend && bendScale <= 0) {
+      bendScale = options.globalBendStiffness ?? 0.01;
+    }
+    if (absoluteDampening && dampeningScale <= 0) {
+      dampeningScale = options.globalDampening ?? 0.9925;
     }
 
     const id = particles.length;
@@ -432,7 +470,11 @@ export function buildAssemblyClothTopology(
   const segmentColors = options.patchSegmentColorByKey;
   const resolvePatchKey = options.resolvePatchMaterialKey;
   if (segmentColors && resolvePatchKey) {
-    const keyToSegmentId = new Map(Object.keys(segmentColors).map((key, index) => [key, index]));
+    const keyToSegmentId = new Map(
+      SEGMENT_COLOR_PATCH_KEYS
+        .filter((key) => segmentColors[key] !== undefined)
+        .map((key, index) => [key, index]),
+    );
     renderSegmentIds = new Float32Array(assembly.vertices.length);
     for (const vertex of assembly.vertices) {
       const key = resolvePatchKey(vertex.patchId);

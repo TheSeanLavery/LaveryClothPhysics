@@ -6,9 +6,7 @@ export interface ClothMaterialEditorState {
   readonly dampening: number;
   readonly bendStiffness: number;
   readonly tearStretchThreshold: number;
-  readonly tearThresholdScale: number;
   readonly structuralScale: number;
-  readonly bendScale: number;
   readonly compressionScale: number;
   readonly friction: number;
   readonly damageRate: number;

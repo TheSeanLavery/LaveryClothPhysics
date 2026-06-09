@@ -19,6 +19,7 @@ export function registerMultiMaterialDevMenu(options: {
     title: 'Multi-Material Cloth',
     testId: 'multi-material-controls',
     collisionUi: 'mannequin',
+    perMaterialSolver: true,
     defaultOpen: true,
   }));
 

@@ -47,11 +47,39 @@ test('assembly self-collision keeps cross-patch dangle and banner pairs active',
   );
 });
 
+test('absolute per-material dampening and bend stiffness are not clamped to unity', () => {
+  const assembly = createMultiMaterialTestAssembly();
+  const topo = buildAssemblyClothTopology(assembly, {
+    materialDampeningByKey: {
+      'dangle-soft': 0.9988,
+      'dangle-stiff': 0.986,
+      'banner-a': 0.9925,
+      'banner-b': 0.99,
+      'banner-c': 0.9945,
+    },
+    materialBendStiffnessByKey: {
+      'dangle-soft': 0.01,
+      'dangle-stiff': 0.01,
+      'banner-a': 0.01,
+      'banner-b': 0.01,
+      'banner-c': 0.01,
+    },
+    resolvePatchMaterialKey: patchIdToMaterialKey,
+  });
+
+  const dampeningValues = topo.particles.map((particle) => particle.dampeningScale);
+  const bendValues = topo.particles.map((particle) => particle.bendScale);
+
+  assert.ok(dampeningValues.some((value) => value < 1 && value > 0.9));
+  assert.ok(bendValues.some((value) => value > 0 && value < 0.5));
+  assert.ok(dampeningValues.every((value) => value <= 1));
+});
+
 test('per-material tear threshold can be lower than the global scene tear', () => {
   const assembly = createMultiMaterialTestAssembly();
   const topo = buildAssemblyClothTopology(assembly, {
     globalTearStretchThreshold: 4,
-    materialAbsoluteTearThresholdByKey: {
+    materialTearThresholdByKey: {
       'dangle-soft': 1.25,
       'dangle-stiff': 6,
       'banner-a': 4,

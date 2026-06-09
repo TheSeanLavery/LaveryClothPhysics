@@ -141,6 +141,7 @@ import {
   type BakedClothTextureSet,
 } from '../textures/loadBakedClothTextures';
 import type { ClothAssembly } from '../cloth/patternAssembly';
+import { SEGMENT_COLOR_PATCH_KEYS } from '../cloth/clothMaterialBend.ts';
 import {
   buildAssemblyClothTopology,
   buildGridClothTopology,
@@ -694,6 +695,7 @@ export class InextensibleFlagSimulation {
   private segmentScalars1Buffer!: ReturnType<typeof instancedArray>;
   private segmentHealthBuffer!: ReturnType<typeof instancedArray>;
   private clothSegmentCount = 0;
+  private segmentColorPatchKeys: string[] = [];
 
   private isGrabModeEnabled = false;
   private isGrabActive = false;
@@ -1554,6 +1556,24 @@ export class InextensibleFlagSimulation {
     if (options.patchSegmentColorByKey) {
       this.uploadAssemblySegmentColors();
     }
+  }
+
+  auditSegmentGpuColors(): Record<string, readonly [number, number, number]> | null {
+    if (!this.segmentScalars1Buffer || this.clothSegmentCount <= 0) {
+      return null;
+    }
+    const colorAttr = this.segmentScalars1Buffer.value as StorageInstancedBufferAttribute;
+    const colorArray = colorAttr.array as Float32Array;
+    const colors: Record<string, readonly [number, number, number]> = {};
+    for (let i = 0; i < this.segmentColorPatchKeys.length; i += 1) {
+      const key = this.segmentColorPatchKeys[i]!;
+      colors[key] = [
+        colorArray[i * 3] ?? 0,
+        colorArray[i * 3 + 1] ?? 0,
+        colorArray[i * 3 + 2] ?? 0,
+      ];
+    }
+    return colors;
   }
 
   async waitForPresentationCompile(): Promise<void> {
@@ -3044,7 +3064,8 @@ export class InextensibleFlagSimulation {
       return;
     }
 
-    const keys = Object.keys(colorByKey);
+    const keys = SEGMENT_COLOR_PATCH_KEYS.filter((key) => colorByKey[key] !== undefined);
+    this.segmentColorPatchKeys = [...keys];
     this.clothSegmentCount = keys.length;
     const colorArray = this.buildAssemblySegmentColorArray(colorByKey, keys);
     const healthArray = new Float32Array(keys.length).fill(1);
@@ -3075,7 +3096,9 @@ export class InextensibleFlagSimulation {
       return;
     }
 
-    const keys = Object.keys(colorByKey);
+    const keys = this.segmentColorPatchKeys.length > 0
+      ? this.segmentColorPatchKeys
+      : SEGMENT_COLOR_PATCH_KEYS.filter((key) => colorByKey[key] !== undefined);
     const colorAttr = this.segmentScalars1Buffer.value as StorageInstancedBufferAttribute;
     const colorArray = colorAttr.array as Float32Array;
     colorArray.set(this.buildAssemblySegmentColorArray(colorByKey, keys));
@@ -4820,6 +4843,12 @@ export class InextensibleFlagSimulation {
     }
   }
 
+  private strandThreadBaseColor(): THREE.Color {
+    return this.clothSegmentCount > 0
+      ? new THREE.Color(0xffffff)
+      : new THREE.Color(this.settings.flagColor);
+  }
+
   private setupStrandThreadVisual(): void {
     this.disposeStrandThreadVisual();
     const edgeCount = Math.max(this.clothEdges.length, 1);
@@ -4831,7 +4860,7 @@ export class InextensibleFlagSimulation {
       segmentScalars1Buffer: this.clothSegmentCount > 0 ? this.segmentScalars1Buffer : undefined,
       maxCount: edgeCount,
       radius: this.strandThreadRadiusUniform,
-      color: new THREE.Color(this.settings.flagColor),
+      color: this.strandThreadBaseColor(),
     };
     this.strandThreadMesh = createGpuStrandThreadMesh(meshOptions);
     this.strandThreadCapMesh = createGpuStrandThreadCapMesh(meshOptions);
@@ -4850,7 +4879,7 @@ export class InextensibleFlagSimulation {
       this.strandThreadRadiusUniform.value = this.settings.strandThreadRadius;
       updateGpuStrandThreadMaterial(
         this.strandThreadMesh,
-        new THREE.Color(this.settings.flagColor),
+        this.strandThreadBaseColor(),
         this.settings.strandThreadRadius,
       );
     }
@@ -4860,7 +4889,7 @@ export class InextensibleFlagSimulation {
       this.strandThreadCapMesh.visible = enabled;
       updateGpuStrandThreadMaterial(
         this.strandThreadCapMesh,
-        new THREE.Color(this.settings.flagColor),
+        this.strandThreadBaseColor(),
         this.settings.strandThreadRadius,
       );
     }

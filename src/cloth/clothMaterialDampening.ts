@@ -4,32 +4,32 @@ import {
   MULTI_MATERIAL_LIBRARY_PATCH_BINDINGS,
   type MultiMaterialLibraryPatchBinding,
 } from './clothMaterialBend.ts';
+import { materialDampening } from './clothMaterialPhysics.ts';
 
-/**
- * Per-particle velocity retention multiplier relative to the scene dampening uniform.
- */
-export function materialDampeningScale(
-  material: ClothMaterialDefinition,
-  baseDampening: number,
-): number {
-  const base = Math.max(baseDampening, 1e-6);
-  const dampening = material.settings.dampening ?? baseDampening;
-  return Math.max(dampening / base, 0.5);
-}
-
-export function buildMaterialDampeningScaleByPatchKey(
+export function buildMaterialDampeningByPatchKey(
   library: ClothMaterialLibrary,
-  baseSettings: InextensibleFlagSettings,
+  sceneFallbacks: Pick<InextensibleFlagSettings, 'dampening'>,
   bindings: readonly MultiMaterialLibraryPatchBinding[] = MULTI_MATERIAL_LIBRARY_PATCH_BINDINGS,
 ): Record<string, number> {
   const byName = new Map(library.materials.map((material) => [material.name, material]));
-  const scales: Record<string, number> = {};
+  const values: Record<string, number> = {};
   for (const binding of bindings) {
     const material = byName.get(binding.libraryMaterialName);
     if (!material) {
       continue;
     }
-    scales[binding.patchKey] = materialDampeningScale(material, baseSettings.dampening);
+    values[binding.patchKey] = materialDampening(material, sceneFallbacks.dampening);
   }
-  return scales;
+  return values;
+}
+
+/** @deprecated Use {@link buildMaterialDampeningByPatchKey}. */
+export const buildMaterialDampeningScaleByPatchKey = buildMaterialDampeningByPatchKey;
+
+/** @deprecated Use {@link materialDampening} from clothMaterialPhysics. */
+export function materialDampeningScale(
+  material: ClothMaterialDefinition,
+  baseDampening: number,
+): number {
+  return materialDampening(material, baseDampening);
 }

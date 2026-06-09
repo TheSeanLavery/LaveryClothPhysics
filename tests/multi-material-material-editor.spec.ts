@@ -72,6 +72,7 @@ test.describe('Multi-material material editor', () => {
       const audit = await page.evaluate(() => window.__multiMaterialMaterialAudit?.());
       expect(audit?.libraryScales.tearThreshold['dangle-soft'] ?? 0).toBeCloseTo(nextTear, 2);
       expect(audit?.livePatchScalars?.['dangle-soft']?.tearThresholdScale ?? 0).toBeCloseTo(nextTear, 2);
+      expect(audit?.livePatchScalars?.['dangle-soft']?.dampeningScale ?? 0).toBeGreaterThan(0.998);
       expect(audit?.livePatchScalars?.['dangle-stiff']?.tearThresholdScale ?? 0).toBeGreaterThan(nextTear + 2);
     } finally {
       await page.evaluate(async (tearValue) => {
@@ -113,6 +114,31 @@ test.describe('Multi-material material editor', () => {
     const previewAudit = await page.evaluate(() => window.__multiMaterialMaterialAudit?.());
     expect(previewAudit?.patchColors['banner-a']).toBe(nextColor);
     expect(previewAudit?.patchColors['banner-b']).toBe(restoreColor.bannerB);
+
+    const linearMagenta = await page.evaluate(
+      (hex) => window.__multiMaterialLinearRgbFromHex?.(hex) ?? [0, 0, 0],
+      nextColor,
+    );
+    const gpuBannerA = previewAudit?.gpuSegmentColors?.['banner-a'];
+    expect(gpuBannerA?.[0] ?? 0).toBeCloseTo(linearMagenta[0], 2);
+    expect(gpuBannerA?.[1] ?? 1).toBeCloseTo(linearMagenta[1], 2);
+    expect(gpuBannerA?.[2] ?? 0).toBeCloseTo(linearMagenta[2], 2);
+
+    const canvasCheck = await page.evaluate(async (hex) => {
+      const targets = window.__multiMaterialPatchGrabTargets?.() ?? {};
+      const target = targets['banner-a'];
+      if (!target) {
+        return { ok: false, reason: 'missing banner-a target' };
+      }
+      await window.__multiMaterialWaitForPresentation?.();
+      const sample = await window.__multiMaterialSampleCanvasRgbPatch?.(target.ndcX, target.ndcY);
+      if (!sample) {
+        return { ok: false, reason: 'missing canvas sample' };
+      }
+      const distance = window.__multiMaterialCanvasColorDistance?.(sample.rgb, hex) ?? Infinity;
+      return { ok: distance < 95, distance, rgb: sample.rgb };
+    }, nextColor);
+    expect(canvasCheck.ok, JSON.stringify(canvasCheck)).toBe(true);
 
     await page.evaluate(async (bannerColor) => {
       const panel = window.__multiMaterialMaterialPanel?.();
